@@ -1,0 +1,155 @@
+# Shared n8n environment variables (DRY)
+x-n8n-env: &n8n-env
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: timescaledb
+  DB_POSTGRESDB_PORT: 5432
+  DB_POSTGRESDB_DATABASE: synesis
+  DB_POSTGRESDB_USER: synesis
+  DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD:-synesis_dev}
+  EXECUTIONS_MODE: queue
+  QUEUE_BULL_REDIS_HOST: redis
+  QUEUE_BULL_REDIS_PORT: 6379
+  QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
+  N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+  OLLAMA_HOST: host.docker.internal:11434
+  GENERIC_TIMEZONE: Asia/Singapore
+
+# Shared logging configuration
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg17
+    container_name: synesis-timescaledb
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    networks:
+      - synesis
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: synesis
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-synesis_dev}
+      POSTGRES_DB: synesis
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synesis -d synesis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: synesis-redis
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 10s
+    networks:
+      - synesis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDISCLI_AUTH ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging: *default-logging
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: synesis-n8n
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    networks:
+      - synesis
+    ports:
+      - "5678:5678"
+    environment:
+      <<: *n8n-env
+      N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_USER_MANAGEMENT_JWT_SECRET}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./shared:/data/shared
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging: *default-logging
+
+  n8n-worker:
+    image: n8nio/n8n:latest
+    container_name: synesis-n8n-worker
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    networks:
+      - synesis
+    command: worker
+    environment:
+      <<: *n8n-env
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./shared:/data/shared
+    depends_on:
+      n8n:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging: *default-logging
+
+networks:
+  synesis:
+    driver: bridge
+
+volumes:
+  timescaledb_data:
+  redis_data:
+  n8n_data:

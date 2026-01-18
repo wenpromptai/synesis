@@ -1,0 +1,67 @@
+{
+  "version": "2.0",
+  "description": "Skill activation triggers with path patterns, keywords, and intent matching. Used by skill-activation-prompt.sh hook.",
+  "skills": {
+    "fastapi-developing": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "promptTriggers": {
+        "keywords": [
+          "fastapi", "api", "endpoint", "route", "router",
+          "backend", "server", "pydantic", "model", "schema",
+          "dependency", "middleware", "lifespan", "async",
+          "await", "httpexception", "response_model", "basemodel",
+          "uvicorn", "REST", "OpenAPI", "swagger", "controller",
+          "service", "repository", "validation"
+        ],
+        "intentPatterns": [
+          "(create|add|implement|build|write).*?(route|endpoint|API|controller|service)",
+          "(fix|handle|debug|resolve).*?(error|exception|backend|API)",
+          "(add|implement|create).*?(middleware|validation|error.*?handling)",
+          "(organize|structure|refactor).*?(backend|service|API)",
+          "(how to|best practice|pattern).*?(fastapi|async|pydantic|endpoint)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "app/**/*.py",
+          "api/**/*.py",
+          "routes/**/*.py",
+          "routers/**/*.py",
+          "services/**/*.py",
+          "controllers/**/*.py",
+          "main.py",
+          "**/endpoints/**/*.py"
+        ],
+        "contentPatterns": [
+          "from fastapi import",
+          "from pydantic import",
+          "@app\\.(get|post|put|delete|patch)",
+          "@router\\.(get|post|put|delete|patch)",
+          "APIRouter",
+          "Depends\\(",
+          "HTTPException"
+        ]
+      },
+      "skillPath": ".claude/skills/fastapi-developing/SKILL.md"
+    }
+  },
+  "_template": {
+    "_comment": "Template for adding new skills. Copy and modify.",
+    "skill-name": {
+      "type": "domain | guardrail",
+      "enforcement": "suggest | warn | block",
+      "priority": "high | medium | low",
+      "promptTriggers": {
+        "keywords": ["keyword1", "keyword2"],
+        "intentPatterns": ["(action).*?(target)"]
+      },
+      "fileTriggers": {
+        "pathPatterns": ["src/**/*.ts"],
+        "contentPatterns": ["import.*from"]
+      },
+      "skillPath": ".claude/skills/skill-name/SKILL.md"
+    }
+  }
+}

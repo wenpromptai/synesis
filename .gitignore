@@ -1,0 +1,51 @@
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.python-version
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (if local)
+timescaledb_data/
+redis_data/
+n8n_data/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Telegram sessions (contain auth tokens)
+*.session
+*.session-journal
+
+# Build
+dist/
+build/
+*.egg-info/
