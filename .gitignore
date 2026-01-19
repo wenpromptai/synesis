@@ -45,6 +45,12 @@ n8n_data/
 *.session
 *.session-journal
 
+# Shared data (sessions, output) - keep folders, ignore contents
+shared/**
+!shared/.gitkeep
+!shared/*/
+!shared/*/.gitkeep
+
 # Build
 dist/
 build/

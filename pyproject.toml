@@ -8,37 +8,27 @@ dependencies = [
     # Web Framework
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-
     # Async HTTP
     "httpx>=0.28.0",
     "websockets>=14.0",
-
     # Database (raw asyncpg for speed, no ORM overhead)
     "asyncpg>=0.30.0",
-
     # Redis
     "redis[hiredis]>=5.2.0",
-
     # Configuration & Validation
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
-
     # Logging
     "structlog>=24.4.0",
-
     # Telegram
     "telethon>=1.37.0",
-
     # LLM (PydanticAI for structured outputs + model flexibility)
     "pydantic-ai>=0.1.0",
-
     # Polymarket
     "py-clob-client>=0.1.0",
     "eth-account>=0.13.0",
-
     # Vector/Embeddings (for deduplication)
     "pgvector>=0.3.6",
-
     # Utilities
     "python-dotenv>=1.0.1",
     "tenacity>=9.0.0",

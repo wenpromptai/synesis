@@ -1,6 +1,6 @@
 # X Accounts for Synesis Trading System
 
-Curated list of 25 high-signal X/Twitter accounts for real-time market intelligence.
+Curated list of 40 high-signal X/Twitter accounts for real-time market intelligence.
 
 ---
 
@@ -15,6 +15,25 @@ Curated list of 25 high-signal X/Twitter accounts for real-time market intellige
 
 ---
 
+## Market Movers / Principals
+
+| Handle | Signal | Notes |
+|--------|--------|-------|
+| @realDonaldTrump | CRITICAL | Tariff/policy announcements, direct market impact |
+| @elonmusk | CRITICAL | Tesla, SpaceX, DOGE dept, crypto influence |
+
+---
+
+## Breaking News
+
+| Handle | Signal | Notes |
+|--------|--------|-------|
+| @Newsquawk | CRITICAL | Real-time audio news, zero delay |
+| @WSJmarkets | HIGH | WSJ dedicated markets feed |
+| @Barchart | HIGH | Real-time charts, data, breaking news |
+
+---
+
 ## Macro & Economists
 
 | Handle | Signal | Notes |
@@ -25,6 +44,9 @@ Curated list of 25 high-signal X/Twitter accounts for real-time market intellige
 | @RayDalio | HIGH | Bridgewater founder, debt cycle expert |
 | @LizAnnSonders | HIGH | Schwab Chief Strategist |
 | @charliebilello | HIGH | Creative Planning, excellent data viz |
+| @NourielRoubini | HIGH | "Dr. Doom" - called 2008, contrarian macro |
+| @paulkrugman | HIGH | Nobel laureate economist, 4M+ followers |
+| @ritholtz | HIGH | Bloomberg podcast host, Ritholtz Wealth CIO |
 
 ---
 
@@ -43,6 +65,32 @@ Curated list of 25 high-signal X/Twitter accounts for real-time market intellige
 |--------|--------|-------|
 | @muddywatersre | CRITICAL | DOJ/SEC cleared, 19% annualized |
 | @FuzzyPandaShort | CRITICAL | #1 performer 2023, targets -63% avg |
+| @HindenburgRes | CRITICAL | Market-moving short reports, single-handedly moves stocks |
+
+---
+
+## Polymarket / Prediction Markets
+
+| Handle | Signal | Notes |
+|--------|--------|-------|
+| @thejayden | HIGH | Open-source Polymarket tools, whale tracking, trade analysis |
+| @PolyInsiderBot | HIGH | Telegram bot tracking suspected insider activity |
+| @SecureZer0 | HIGH | AlertPilot arbitrage visualizations |
+| @zethesx | HIGH | Insider analysis, geopolitical bet tracking |
+| @holy_moses7 | HIGH | Insider exposure, new account tracking |
+| @PolymarketBuild | MEDIUM | Polymarket Builders community |
+
+---
+
+## Crypto
+
+| Handle | Signal | Notes |
+|--------|--------|-------|
+| @saylor | CRITICAL | Michael Saylor - BTC whale, moves billions |
+| @vitalikbuterin | HIGH | Ethereum founder, 5.2M followers |
+| @Lookonchain | HIGH | Real-time whale tracking, on-chain analytics |
+| @WillyWoo | HIGH | Data-driven BTC analysis |
+| @LynAldenContact | HIGH | Macro + crypto intersection |
 
 ---
 
@@ -101,13 +149,16 @@ Curated list of 25 high-signal X/Twitter accounts for real-time market intellige
 
 ## Quick Reference
 
-**Speed/Breaking News:** @unusual_whales, @KobeissiLetter
+**Speed/Breaking News:** @Newsquawk, @unusual_whales, @WSJmarkets
+**Market Movers:** @realDonaldTrump, @elonmusk
 **Fed Policy:** @NickTimiraos, @FederalReserve, @AtlantaFed
 **Options/GEX:** @spotgamma, @unusual_whales
-**Short Thesis:** @muddywatersre, @FuzzyPandaShort
+**Short Thesis:** @HindenburgRes, @muddywatersre, @FuzzyPandaShort
+**Crypto:** @saylor, @Lookonchain, @vitalikbuterin
+**Polymarket:** @thejayden, @PolyInsiderBot, @SecureZer0, @zethesx
 **Economic Data:** @C_Barraud, @AtlantaFed, @stlouisfed
 **Energy:** @JavierBlas, @JKempEnergy
 
 ---
 
-*Last verified: 2026-01-17 - All accounts actively posting*
+*Last verified: 2026-01-18 - All accounts actively posting*

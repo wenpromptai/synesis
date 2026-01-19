@@ -1,5 +1,6 @@
 """Application configuration via pydantic-settings."""
 
+import json
 from functools import lru_cache
 from typing import Literal
 
@@ -46,11 +47,15 @@ class Settings(BaseSettings):
         if v is None:
             return []
         if isinstance(v, str):
-            return [c.strip() for c in v.split(",") if c.strip()]
-        return v
+            v = v.strip()
+            if v.startswith("["):
+                v = json.loads(v)
+            else:
+                v = [c.strip() for c in v.split(",") if c.strip()]
+        return [c.lstrip("@") for c in v]
 
-    # Twitter
-    twitter_api_key: SecretStr | None = Field(default=None)
+    # Twitter (twitterapi.io)
+    twitterapi_api_key: SecretStr | None = Field(default=None)
     twitter_api_base_url: str = Field(default="https://api.twitterapi.io")
     twitter_accounts: list[str] = Field(default_factory=list)
 
@@ -60,8 +65,12 @@ class Settings(BaseSettings):
         if v is None:
             return []
         if isinstance(v, str):
-            return [a.strip() for a in v.split(",") if a.strip()]
-        return v
+            v = v.strip()
+            if v.startswith("["):
+                v = json.loads(v)
+            else:
+                v = [a.strip() for a in v.split(",") if a.strip()]
+        return [a.lstrip("@") for a in v]
 
     # Polymarket
     polymarket_api_key: SecretStr | None = Field(default=None)
@@ -73,6 +82,9 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = Field(default=None)
     openai_api_key: SecretStr | None = Field(default=None)
     llm_model: str = Field(default="claude-3-5-haiku-20241022")
+
+    # n8n webhook
+    n8n_webhook_url: str | None = Field(default=None)
 
     # Trading
     trading_enabled: bool = Field(default=False)
