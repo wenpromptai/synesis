@@ -67,6 +67,9 @@ jobs:
           # Custom trigger phrase for review workflow
           trigger_phrase: "@claude-review"
 
+          # Allow bot-initiated workflows
+          allowed_bots: "*"
+
           # Review-specific instructions loaded from template
           custom_instructions: ${{ steps.load-instructions.outputs.CUSTOM_INSTRUCTIONS }}
 

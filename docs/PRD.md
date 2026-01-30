@@ -1,648 +1,1308 @@
-# Product Requirements Document: Synesis Trading Backend
+# PRD2: Signal Generation System (Flows 1-3)
 
-**Status:** Draft
-**Created:** 2026-01-17
-**Last Updated:** 2026-01-17
-
----
-
-## Executive Summary
-
-Synesis is a real-time financial news analysis and prediction market trading system. This PRD defines the Python backend that transforms social signals (X/Twitter, Telegram) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
+**Status:** Ready for Implementation
+**Created:** 2026-01-28
+**Scope:** Flows 1-3 signal generation only
 
 ---
 
-## 1. Vision & Goals
+## Overview
 
-### 1.1 Product Vision
-
-Build an autonomous trading system that:
-1. **Ingests** real-time financial news from X/Twitter and Telegram
-2. **Analyzes** content using LLMs for sentiment, entities, and market impact
-3. **Matches** news to relevant Polymarket prediction markets
-4. **Executes** reasoned bets based on configurable strategies
-5. **Tracks** outcomes and calculates win rates by source/event type
-
-### 1.2 Success Metrics
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| News-to-signal latency | < 5 seconds | Time from ingestion to signal generation |
-| Market match accuracy | > 80% | Relevant market found for news events |
-| Signal profitability | > 55% win rate | Directional accuracy on tracked signals |
-| System uptime | > 99.5% | Backend availability |
-
-### 1.3 Non-Goals (Phase 1)
-
-- Frontend/dashboard (future phase)
-- Multi-exchange arbitrage (Kalshi integration deferred)
-- High-frequency trading (< 100ms latency)
-- Automated position sizing/Kelly criterion
-
----
-
-## 2. System Architecture
-
-### 2.1 High-Level Architecture
+Three independent signal-generating flows, each producing actionable outputs on their own schedule.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              SYNESIS BACKEND                                  │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                         INGESTION LAYER                               │   │
-│  │                                                                       │   │
-│  │   ┌─────────────┐          ┌─────────────┐                           │   │
-│  │   │  Telegram   │          │  X/Twitter  │                           │   │
-│  │   │  Listener   │          │   Stream    │                           │   │
-│  │   │ (Telethon)  │          │ (httpx/v2)  │                           │   │
-│  │   └──────┬──────┘          └──────┬──────┘                           │   │
-│  │          │                        │                                   │   │
-│  │          └───────────┬────────────┘                                   │   │
-│  │                      ▼                                                │   │
-│  │          ┌───────────────────────┐                                   │   │
-│  │          │   Unified Message     │                                   │   │
-│  │          │       Queue           │                                   │   │
-│  │          │   (Redis Streams)     │                                   │   │
-│  │          └───────────┬───────────┘                                   │   │
-│  └──────────────────────┼───────────────────────────────────────────────┘   │
-│                         ▼                                                    │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                       PROCESSING LAYER                                │   │
-│  │                                                                       │   │
-│  │   ┌─────────────────────────────────────────────────────────────┐    │   │
-│  │   │              CROSS-SOURCE DEDUPLICATOR                       │    │   │
-│  │   │                     (SemHash)                                │    │   │
-│  │   │                                                              │    │   │
-│  │   │  - Same news from Telegram + Twitter = single event          │    │   │
-│  │   │  - First source wins, others logged as coverage              │    │   │
-│  │   │  - Semantic matching catches paraphrases                     │    │   │
-│  │   └──────────────────────┬──────────────────────────────────────┘    │   │
-│  │                          │                                           │   │
-│  │            ┌─────────────┴─────────────┐                            │   │
-│  │            ▼                           ▼                            │   │
-│  │   [Duplicate]                    [New Event]                        │   │
-│  │   Log source coverage            ┌─────────────┐                    │   │
-│  │                                  │ LLM Analyzer│                    │   │
-│  │                                  │ - Sentiment │                    │   │
-│  │                                  │ - Entities  │                    │   │
-│  │                                  │ - Urgency   │                    │   │
-│  │                                  └──────┬──────┘                    │   │
-│  └─────────────────────────────────────────┼────────────────────────────┘   │
-│                                            ▼                                 │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                         TRADING LAYER                                 │   │
-│  │                                                                       │   │
-│  │   ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │   │
-│  │   │   Market    │───▶│  Strategy   │───▶│    Order Executor       │  │   │
-│  │   │   Matcher   │    │   Engine    │    │    (CLOB Client)        │  │   │
-│  │   │ (Gamma API) │    │             │    │                         │  │   │
-│  │   └─────────────┘    └─────────────┘    └─────────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────────┐    │
-│  │    STORAGE     │  │   STREAMING    │  │        FEEDBACK            │    │
-│  │                │  │                │  │                            │    │
-│  │  PostgreSQL    │  │  WebSocket     │  │  Outcome Tracker           │    │
-│  │  +TimescaleDB  │  │  Price Feed    │  │  Win Rate Analytics        │    │
-│  │  +pgvector     │  │                │  │                            │    │
-│  │  Redis         │  │                │  │                            │    │
-│  └────────────────┘  └────────────────┘  └────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 Cross-Source Deduplication
-
-The deduplicator is **unified across Telegram and Twitter**. When the same news event arrives from multiple sources:
-
-1. **First source wins** - Gets full LLM analysis and signal generation
-2. **Subsequent sources** - Logged as "coverage" for the same event
-3. **Semantic matching** - Catches paraphrases, not just exact text matches
-
-```
-Example:
-  12:00:01 - Telegram @marketfeed: "FED CUTS RATES BY 25BPS"
-  12:00:03 - Twitter @DeItaone: "BREAKING: Federal Reserve cuts interest rates by 0.25%"
-
-  Result:
-  - Event ID: evt_abc123
-  - Primary source: Telegram @marketfeed (processed)
-  - Coverage: Twitter @DeItaone (logged, not re-processed)
-```
-
-### 2.3 Component Responsibilities
-
-| Component | Responsibility | Key Dependencies |
-|-----------|---------------|------------------|
-| **Telegram Listener** | Real-time message streaming from channels | Telethon |
-| **Twitter Stream** | Filtered tweet streaming from accounts | httpx (Filtered Stream v2) |
-| **Unified Queue** | Merge messages from both sources | Redis Streams |
-| **Cross-Source Deduplicator** | Semantic dedup across Telegram + Twitter | semhash, model2vec, pgvector |
-| **LLM Analyzer** | Sentiment, classification, entity extraction | anthropic, openai |
-| **Market Matcher** | Find relevant Polymarket markets | Gamma API |
-| **Strategy Engine** | Apply trading strategies to signals | Custom logic |
-| **Order Executor** | Place/cancel orders on CLOB | py-clob-client |
-| **WebSocket Feed** | Real-time price/orderbook updates | websockets |
-| **Outcome Tracker** | Track market resolutions, calculate win rates | Scheduler, PostgreSQL |
-
----
-
-## 3. Tech Stack
-
-### 3.1 Core Technologies
-
-| Category | Technology | Version | Rationale |
-|----------|------------|---------|-----------|
-| **Language** | Python | 3.12+ | Async support, ecosystem |
-| **Package Manager** | uv | latest | 10-100x faster than pip |
-| **Web Framework** | FastAPI | 0.115+ | Async-first, type hints |
-| **Task Queue** | Celery + Redis | 5.4+ | Distributed tasks |
-| **Message Queue** | Redis Streams | 7+ | Lightweight pub/sub |
-
-### 3.2 Data & Storage
-
-| Category | Technology | Purpose |
-|----------|------------|---------|
-| **Database** | PostgreSQL 16 + TimescaleDB + pgvector | All data (relational, time-series, vectors) |
-| **DB Driver** | asyncpg (raw SQL) | Direct queries for speed, no ORM overhead |
-| **Cache/Queue** | Redis | Message queue, rate limits, cache |
-| **Migrations** | SQL files in `database/` | Simple, version-controlled schema changes |
-
-### 3.3 External APIs
-
-| Service | SDK/Library | Purpose |
-|---------|-------------|---------|
-| **Polymarket** | py-clob-client | Trading, orderbook |
-| **Polymarket** | Gamma API (REST) | Market discovery |
-| **Polymarket** | WebSocket | Real-time prices |
-| **Telegram** | Telethon | Channel streaming |
-| **X/Twitter** | TwitterAPI.io (httpx) | Tweet streaming (3rd-party, $0.15/1k tweets) |
-| **LLM** | PydanticAI | Structured analysis (model-agnostic: Claude, OpenAI, etc.) |
-| **Embeddings** | PydanticAI / pgvector | Vector generation & similarity |
-
-### 3.4 Infrastructure
-
-| Category | Technology | Purpose |
-|----------|------------|---------|
-| **Containerization** | Docker | Development & deployment |
-| **Orchestration** | Docker Compose | Local multi-service |
-| **Monitoring** | Prometheus + Grafana | Metrics |
-| **Logging** | structlog | Structured JSON logs |
-| **Secrets** | python-dotenv | Environment variables |
-
----
-
-## 4. Project Structure
-
-```
-synesis/
-├── pyproject.toml              # Project config & dependencies
-├── uv.lock                     # Locked dependencies
-├── .env.example                # Environment template
-├── .python-version             # Python version (3.12)
-├── docker-compose.yml          # Local development stack
-├── Dockerfile                  # Backend container
-│
-├── src/
-│   └── synesis/
-│       ├── __init__.py
-│       ├── main.py             # FastAPI application entry
-│       ├── config.py           # Settings via pydantic-settings
-│       │
-│       ├── core/               # Shared core utilities
-│       │   ├── __init__.py
-│       │   ├── events.py       # Event bus (Redis Streams)
-│       │   ├── logging.py      # structlog configuration
-│       │   ├── exceptions.py   # Custom exceptions
-│       │   └── dependencies.py # FastAPI dependencies
-│       │
-│       ├── ingestion/          # Data ingestion layer
-│       │   ├── __init__.py
-│       │   ├── telegram.py     # Telethon listener
-│       │   ├── twitter.py      # X/Twitter stream
-│       │   ├── webhooks.py     # Webhook receivers
-│       │   └── router.py       # Ingestion API routes
-│       │
-│       ├── processing/         # Analysis & enrichment
-│       │   ├── __init__.py
-│       │   ├── deduplication.py    # SemHash deduplicator
-│       │   ├── classifier.py       # LLM classification
-│       │   ├── entities.py         # Entity extraction
-│       │   ├── embeddings.py       # Vector generation
-│       │   └── pipeline.py         # Orchestrates processing
-│       │
-│       ├── markets/            # Polymarket integration
-│       │   ├── __init__.py
-│       │   ├── gamma.py        # Gamma API client
-│       │   ├── clob.py         # CLOB client wrapper
-│       │   ├── websocket.py    # Real-time price feed
-│       │   ├── matcher.py      # News → Market matching
-│       │   └── router.py       # Market API routes
-│       │
-│       ├── trading/            # Strategy & execution
-│       │   ├── __init__.py
-│       │   ├── strategies/
-│       │   │   ├── __init__.py
-│       │   │   ├── base.py         # Strategy interface
-│       │   │   ├── news_driven.py  # LLM sentiment trading
-│       │   │   ├── arbitrage.py    # Sum-to-one arb
-│       │   │   ├── dutching.py     # Multi-outcome
-│       │   │   └── market_making.py # Spread capture
-│       │   ├── executor.py     # Order execution
-│       │   ├── risk.py         # Position limits, circuit breakers
-│       │   └── router.py       # Trading API routes
-│       │
-│       ├── feedback/           # Learning from outcomes
-│       │   ├── __init__.py
-│       │   ├── tracker.py      # Outcome tracking
-│       │   └── analytics.py    # Win rate & performance analytics
-│       │
-│       ├── storage/            # Database layer
-│       │   ├── __init__.py
-│       │   ├── database.py     # PostgreSQL + async SQLAlchemy
-│       │   ├── redis.py        # Redis client
-│       │   └── models.py       # SQLAlchemy + Pydantic models
-│       │
-│       └── api/                # HTTP API
-│           ├── __init__.py
-│           ├── router.py       # Main router
-│           ├── health.py       # Health checks
-│           └── schemas.py      # API schemas
-│
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py             # Pytest fixtures
-│   ├── unit/
-│   │   ├── test_classifier.py
-│   │   ├── test_matcher.py
-│   │   └── test_strategies.py
-│   ├── integration/
-│   │   ├── test_telegram.py
-│   │   ├── test_polymarket.py
-│   │   └── test_pipeline.py
-│   └── e2e/
-│       └── test_full_flow.py
-│
-├── scripts/
-│   ├── seed_accounts.py        # Seed X account configs
-│   ├── backfill_markets.py     # Historical market data
-│   └── run_backtest.py         # Strategy backtesting
-│
-├── migrations/                 # Alembic migrations
-│   └── versions/
-│
-└── docs/                       # Documentation
-    ├── PRD.md                  # This document
-    └── ...
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         SIGNAL GENERATION SYSTEM                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  FLOW 1: Breaking News         FLOW 2: Sentiment            FLOW 3:        │
+│  ─────────────────────         ────────────────             Prediction     │
+│                                                             Market Monitor │
+│  Twitter Stream ───┐           RSS.app (Reddit) ──┐         ────────────── │
+│                    ├─► Dedupe  r/wsb, r/stocks    │                        │
+│  Telegram Stream ──┘      │           │           │         Polymarket     │
+│  (@marketfeed,            ▼           ▼           │         Kalshi         │
+│   @disclosetv)          LLM    ┌─────────────┐    │              │         │
+│                          │     │ 1. Discover │    │              ▼         │
+│                          ▼     │    tickers  │    │         Every 15min    │
+│                       Signal:  │ 2. Add to   │    │         Signal:        │
+│                       • Impact │    watchlist│    │         • Wallets      │
+│                       • PM opp └──────┬──────┘    │         • Volume       │
+│                          │            │           │         • Entry opps   │
+│                          │            ▼           │                        │
+│                          │      ┌───────────┐     │                        │
+│                          └─────►│ WATCHLIST │◄────┘                        │
+│                                 └─────┬─────┘                              │
+│                                       │                                    │
+│                                       ▼                                    │
+│                          ┌────────────────────────┐                        │
+│                          │ Monitor sentiment via  │                        │
+│                          │ Twitter Search + Reddit│                        │
+│                          └───────────┬────────────┘                        │
+│                                      │                                     │
+│                                      ▼                                     │
+│                               Every 6hr Signal:                            │
+│                               • Watchlist + changes                        │
+│                               • Sentiment per ticker                       │
+│                               • Evidence (posts/tweets)                    │
+│                                                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Trading Strategies
+## Flow 1: News & Analysis Intelligence
 
-### 5.1 Strategy Overview
+### Purpose
+Process breaking news and analysis from curated sources:
+- **News** (high urgency): Detect market-moving events → find prediction market arbitrage before odds adjust
+- **Analysis** (normal urgency): Extract insights → identify tickers/sectors for monitoring
 
-| Strategy | Type | Risk | Expected Edge |
-|----------|------|------|---------------|
-| **News-Driven Sentiment** | Directional | Medium | LLM analysis before market prices in |
-| **Sum-to-One Arbitrage** | Risk-Free | None | YES + NO < $1.00 |
-| **Multi-Outcome Dutching** | Risk-Free | None | All outcomes sum < $1.00 |
-| **Conditional Correlation** | Low | Low | Related market mispricing |
-| **Market Making** | Neutral | Medium | Bid-ask spread capture |
+Both feed the same pipeline; urgency is tagged by source type.
 
-### 5.2 News-Driven Sentiment Strategy
+### Data Sources (Already Available)
+
+Both **news** and **analysis** accounts feed into the same pipeline. Urgency is determined by source type, not LLM.
+
+| Source | Type | Urgency | Accounts/Channels | Status |
+|--------|------|---------|-------------------|--------|
+| **Twitter** | News | High | @DeItaone, @FinancialJuice | ✅ Ready |
+| **Twitter** | Analysis | Normal | (configured separately) | ✅ Ready |
+| **Telegram** | News | High | @marketfeed, @disclosetv | ✅ Ready |
+| **Telegram** | Analysis | Normal | (configured separately) | ✅ Ready |
+
+Both streams feed into the **same unified pipeline** — deduplicate first, then LLM classify. **Urgency is tagged based on source configuration, not LLM output.**
+
+### Pipeline
+
+```
+Twitter Stream ─────────┐
+  News: @DeItaone, etc. │ → tagged: HIGH urgency
+  Analysis: @spotgamma  │ → tagged: NORMAL urgency
+                        │
+                        ├──► Unified Queue ──► Deduplicate ──► LLM Classify
+                        │    (Redis Streams)   (SemHash)       (PydanticAI)
+Telegram Stream ────────┘          │                               │
+  News: @marketfeed,               │                               │
+        @disclosetv                │                               ▼
+  Analysis: (as configured)  (duplicates               ┌───────────────────┐
+                              logged)                  │      OUTPUT       │
+                                                       ├───────────────────┤
+                                                       │ • Signal          │
+                                                       │   + urgency (from │
+                                                       │     source type)  │
+                                                       │ • PM Search       │
+                                                       │ • Watchlist       │
+                                                       └───────────────────┘
+```
+
+**Source tagging**: Each message tagged with `source_type` (news/analysis) at ingestion. This determines urgency.
+
+**Deduplication**: SemHash with Model2Vec embeddings, <5ms per message, 0.85 similarity threshold. First source wins, duplicates logged for coverage tracking.
+
+### LLM Classification Schema
 
 ```python
-class NewsDrivenStrategy(BaseStrategy):
-    """
-    Trades Polymarket based on LLM analysis of breaking news.
+from pydantic import BaseModel
+from enum import Enum
 
-    Flow:
-    1. Receive analyzed news event with sentiment
-    2. Search for related markets via Gamma API
-    3. Calculate expected probability shift
-    4. Execute if confidence > threshold and edge > 5%
-    """
+class EventType(str, Enum):
+    macro = "macro"           # Fed, CPI, GDP
+    earnings = "earnings"     # Company results
+    geopolitical = "geopolitical"  # Wars, sanctions
+    corporate = "corporate"   # M&A, CEO changes
+    regulatory = "regulatory" # SEC, antitrust
+    crypto = "crypto"         # ETF, exchange news
 
-    async def evaluate(self, signal: Signal) -> Optional[Trade]:
-        # Find related markets
-        markets = await self.matcher.find_markets(
-            keywords=signal.entities.keywords,
-            categories=signal.classification.event_categories
-        )
+class ImpactLevel(str, Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
 
-        if not markets:
-            return None
+class Direction(str, Enum):
+    bullish = "bullish"
+    bearish = "bearish"
+    neutral = "neutral"
 
-        for market in markets:
-            current_price = await self.clob.get_midpoint(market.yes_token_id)
+class BreakingClassification(BaseModel):
+    """LLM extracts all of this from a single news/analysis item."""
 
-            # Estimate probability shift from sentiment
-            if signal.classification.sentiment == "bullish":
-                target_prob = min(current_price + 0.10, 0.95)
-                side = "YES"
-            else:
-                target_prob = max(current_price - 0.10, 0.05)
-                side = "NO"
+    # Event classification
+    event_type: EventType
+    summary: str
+    confidence: float
 
-            edge = abs(target_prob - current_price)
+    # Impact assessment (LLM determines this)
+    predicted_impact: ImpactLevel
+    market_direction: Direction
 
-            if edge > 0.05 and signal.confidence > 0.7:
-                return Trade(
-                    market_id=market.condition_id,
-                    side=side,
-                    size=self.calculate_size(edge, signal.confidence),
-                    rationale=f"News-driven: {signal.summary}"
-                )
+    # Extracted entities (for Flow 2 watchlist)
+    tickers: list[str]           # $AAPL, $TSLA
+    sectors: list[str]           # "semiconductors", "energy"
 
-        return None
+    # Prediction market relevance
+    prediction_market_relevant: bool
+    search_keywords: list[str]   # Keywords to search Polymarket/Kalshi
+    related_markets: list[str]   # e.g., "Fed rate cut", "Trump tariffs"
+
+# NOTE: Urgency is NOT determined by LLM - it comes from source configuration
+# News sources (DeItaone, marketfeed, etc.) → high urgency
+# Analysis sources → normal urgency
 ```
 
-### 5.3 Arbitrage Strategy
+### Prediction Market Search
+
+After LLM classification, search Polymarket and Kalshi for related markets:
 
 ```python
-class ArbitrageStrategy(BaseStrategy):
-    """
-    Detects and executes risk-free arbitrage when YES + NO < $1.00.
+from synesis.integrations.polymarket import PolymarketClient
+from synesis.integrations.kalshi import KalshiClient
 
-    Polymarket charges 2% fee on net winnings, so need > 2% margin.
+async def find_arbitrage_opportunities(
+    classification: BreakingClassification
+) -> list[MarketOpportunity]:
     """
+    Search prediction markets for entry opportunities.
+    Key: Find markets where odds haven't moved yet.
+    """
+    poly = PolymarketClient()
+    kalshi = KalshiClient()
 
-    async def scan_markets(self) -> List[ArbitrageOpportunity]:
-        markets = await self.gamma.get_active_markets(
-            liquidity_num_min=10000,  # Min $10k liquidity
-            active=True
+    opportunities = []
+
+    for keyword_set in classification.search_keywords:
+        # Search both platforms
+        poly_markets = await poly.search_markets(keyword_set)
+        kalshi_markets = await kalshi.search_markets(keyword_set)
+
+        for market in poly_markets + kalshi_markets:
+            # Check if odds suggest market hasn't priced in news yet
+            if classification.predicted_impact == ImpactLevel.high:
+                if classification.market_direction == Direction.bullish:
+                    # News is bullish but market prob is low = opportunity
+                    if market.yes_price < 0.6:
+                        opportunities.append(MarketOpportunity(
+                            market=market,
+                            direction="yes",
+                            reason=f"Breaking news bullish, market at {market.yes_price:.0%}",
+                            news_summary=classification.summary
+                        ))
+                # ... similar for bearish
+
+    return opportunities
+```
+
+### Output Signal
+
+```python
+class SourceType(str, Enum):
+    news = "news"         # High urgency - act fast
+    analysis = "analysis" # Normal urgency - consider
+
+class Flow1Signal(BaseModel):
+    """Real-time signal emitted for each news/analysis item."""
+
+    timestamp: datetime
+
+    # Source info (urgency derived from source_type)
+    source_platform: str      # "twitter" or "telegram"
+    source_account: str       # "@DeItaone", "@marketfeed", etc.
+    source_type: SourceType   # From config - determines urgency
+    raw_text: str
+
+    # Urgency (derived from source_type, not LLM)
+    @property
+    def urgency(self) -> str:
+        return "high" if self.source_type == SourceType.news else "normal"
+
+    # LLM Classification
+    classification: BreakingClassification
+
+    # Prediction market opportunities (if any found)
+    opportunities: list[MarketOpportunity]
+
+    # Watchlist additions (sent to Flow 2)
+    watchlist_tickers: list[str]
+    watchlist_sectors: list[str]
+```
+
+### Signal Delivery
+- **Real-time** (as news arrives)
+- Telegram bot notification for high-impact opportunities
+- Log all signals to database for backtesting
+
+---
+
+## Flow 2: Sentiment Intelligence
+
+### Purpose
+1. **Discover tickers** from Reddit discussion (WSB, stocks, options)
+2. **Monitor sentiment** for all watchlist tickers (from Flow 1 + Reddit discoveries)
+3. **Generate signals** with sentiment changes and supporting evidence
+
+### Quick Reference
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   INPUT                                                         │
+│   ─────                                                         │
+│   Flow 1 extracts tickers → Auto-added to watchlist (Redis)     │
+│   Reddit discovers tickers → Also added to watchlist            │
+│   • 7-day TTL per ticker (auto-expires if no new mentions)      │
+│                                                                 │
+│                              ↓                                  │
+│                                                                 │
+│   DATA COLLECTION                                               │
+│   ───────────────                                               │
+│                                                                 │
+│   Twitter ─────┐                                                │
+│   • TwitterAPI.io search for $TICKER                            │
+│                │                                                │
+│                ├──► Store in Redis by ticker                    │
+│                │                                                │
+│   Reddit ──────┘                                                │
+│   • r/WSB, r/stocks, r/options via RSS.app                      │
+│                                                                 │
+│                              ↓                                  │
+│                                                                 │
+│   ANALYSIS (LLM per post)                                       │
+│   ───────────────────────                                       │
+│                                                                 │
+│   1. SENTIMENT CLASSIFIER                                       │
+│      • Classify each post: bullish/bearish/neutral              │
+│      • Tag emotion: fomo, panic, euphoria, etc.                 │
+│      • Aggregate per ticker → score (-1.0 to +1.0)              │
+│                                                                 │
+│   2. CHANGE DETECTOR                                            │
+│      • Compare vs last 6h signal                                │
+│      • Flag extremes (>85% one direction)                       │
+│      • Detect volume spikes (zscore > 2)                        │
+│                                                                 │
+│                              ↓                                  │
+│                                                                 │
+│   OUTPUT (Every 6 Hours)                                        │
+│   ──────────────────────                                        │
+│   • Watchlist + changes (added/removed tickers)                 │
+│   • Sentiment per ticker with evidence (top posts)              │
+│   • Extreme readings & biggest movers                           │
+│   • LLM narrative summary                                       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Redis Keys:**
+
+| Key | Type | TTL | Purpose |
+|-----|------|-----|---------|
+| `watchlist:tickers` | Set | None | Active tickers to monitor |
+| `watchlist:ttl:{ticker}` | String | 7 days | Auto-expires ticker |
+
+**Example Flow:**
+
+```
+Flow 1: "@DeItaone: KIOXIA IPO priced at $15"
+           ↓
+        LLM extracts ticker: KIOXIA
+           ↓
+        Redis: SADD watchlist:tickers KIOXIA
+           ↓
+Flow 2: Now monitoring KIOXIA sentiment
+           ↓
+        Twitter search: "$KIOXIA"
+        Reddit scan: mentions of KIOXIA
+           ↓
+        Every 6h signal:
+        • KIOXIA: +0.6 bullish, 45 mentions
+        • Dominant emotion: "optimistic"
+        • Top post: "KIOXIA looks solid at IPO price..."
+```
+
+---
+
+### Data Sources
+
+| Source | Implementation | Purpose | Status |
+|--------|---------------|---------|--------|
+| **Reddit** | RSS.app | Ticker discovery + sentiment | ⏳ Pending account |
+| **Twitter Search** | TwitterAPI.io | Sentiment coverage | ✅ Ready |
+
+### Watchlist Sources (Two Inputs)
+
+```
+Flow 1 (Breaking News) ────► extracts tickers ────┐
+                                                  ├───► WATCHLIST
+Reddit (WSB, stocks, etc) ─► discovers tickers ───┘
+                                                        │
+                                                        ▼
+                                              Monitor sentiment via
+                                              Twitter Search + Reddit
+```
+
+- **From Flow 1**: Tickers/sectors extracted from breaking news
+- **From Reddit**: LLM analyzes posts to find valuable tickers being discussed
+- **Manual additions**: Can add tickers directly
+- **TTL**: 7 days (auto-expire unless renewed by new mentions)
+
+### Reddit via RSS.app
+
+RSS.app provides clean RSS feeds for subreddits without Reddit API authentication hassles.
+
+**Target Subreddits:**
+| Subreddit | RSS URL Pattern | Poll Interval |
+|-----------|-----------------|---------------|
+| r/wallstreetbets | `https://rss.app/feeds/...` | 5 min |
+| r/stocks | `https://rss.app/feeds/...` | 15 min |
+| r/options | `https://rss.app/feeds/...` | 15 min |
+| r/investing | `https://rss.app/feeds/...` | 30 min |
+
+**Setup Steps:**
+1. Register at rss.app
+2. Create RSS feeds for each subreddit (new posts)
+3. Store feed URLs in config
+
+```python
+import feedparser
+from datetime import datetime
+
+class RedditRSSClient:
+    """Reddit via RSS.app - no API key needed after setup."""
+
+    def __init__(self, feeds: dict[str, str]):
+        """
+        Args:
+            feeds: {"wallstreetbets": "https://rss.app/feeds/xxx", ...}
+        """
+        self.feeds = feeds
+
+    async def fetch_subreddit(self, subreddit: str) -> list[RedditPost]:
+        url = self.feeds[subreddit]
+        feed = feedparser.parse(url)
+
+        posts = []
+        for entry in feed.entries:
+            posts.append(RedditPost(
+                id=entry.id,
+                subreddit=subreddit,
+                title=entry.title,
+                content=entry.get("summary", ""),
+                url=entry.link,
+                published=entry.get("published"),
+                source="reddit"
+            ))
+        return posts
+```
+
+### Pipeline
+
+```
+Every 6 hours:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 1: TICKER DISCOVERY                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Fetch Reddit posts (RSS.app)                                           │
+│  from: r/wallstreetbets, r/stocks, r/options                            │
+│         │                                                               │
+│         ▼                                                               │
+│  LLM: Analyze posts                                                     │
+│  - Extract mentioned tickers                                            │
+│  - Assess why ticker is being discussed                                 │
+│  - Score relevance (is this worth watching?)                            │
+│         │                                                               │
+│         ▼                                                               │
+│  Add valuable tickers to WATCHLIST                                      │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 2: SENTIMENT MONITORING                                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  FOR EACH ticker in WATCHLIST (Flow 1 + Reddit discoveries):            │
+│         │                                                               │
+│         ├─► Fetch Twitter posts (TwitterAPI.io search)                  │
+│         │                                                               │
+│         ├─► Use already-fetched Reddit posts                            │
+│         │                                                               │
+│         └─► LLM: Classify sentiment per post                            │
+│                  │                                                      │
+│                  ▼                                                      │
+│             AGGREGATE per ticker:                                       │
+│             - bullish/bearish/neutral ratios                            │
+│             - dominant emotion                                          │
+│             - volume vs historical                                      │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 3: SIGNAL GENERATION                                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  - Detect sentiment changes vs last signal                              │
+│  - Flag extremes (>85% one direction)                                   │
+│  - Generate narrative summary                                           │
+│  - Emit signal with evidence                                            │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### LLM Ticker Discovery (Step 1)
+
+```python
+class TickerMention(BaseModel):
+    """LLM extracts tickers from Reddit posts and assesses value."""
+    ticker: str
+    company_name: str | None
+    mention_context: str  # Why is this being discussed?
+    catalyst: str | None  # Earnings, news, technical setup, etc.
+    sentiment_hint: Literal["bullish", "bearish", "neutral", "mixed"]
+    worth_watching: bool  # Should this go to watchlist?
+    reasoning: str        # Why worth watching (or not)
+
+class RedditPostAnalysis(BaseModel):
+    """LLM analysis of a single Reddit post."""
+    post_id: str
+    subreddit: str
+    tickers_mentioned: list[TickerMention]
+    post_quality: Literal["high", "medium", "low", "spam"]
+    is_dd: bool           # Is this due diligence / research?
+    key_insight: str | None
+```
+
+### LLM Sentiment Classification (Step 2)
+
+```python
+class StockEmotion(str, Enum):
+    bullish = "bullish"
+    bearish = "bearish"
+    optimistic = "optimistic"
+    pessimistic = "pessimistic"
+    fomo = "fomo"           # Crowded trade warning
+    panic = "panic"         # Potential bottom
+    euphoria = "euphoria"   # Top warning
+    despair = "despair"     # Potential bottom
+    neutral = "neutral"
+    confused = "confused"
+    skeptical = "skeptical"
+    hopeful = "hopeful"
+
+class PostSentiment(BaseModel):
+    """LLM classifies each post."""
+    post_id: str
+    ticker: str
+    emotion: StockEmotion
+    polarity: Literal["bullish", "bearish", "neutral"]
+    intensity: float  # 0-1
+    key_quote: str    # Most relevant excerpt
+    reasoning: str
+```
+
+### Output Signal (Every 6 Hours)
+
+```python
+class TickerSentimentSummary(BaseModel):
+    ticker: str
+
+    # Aggregated sentiment
+    bullish_ratio: float
+    bearish_ratio: float
+    neutral_ratio: float
+    dominant_emotion: StockEmotion
+
+    # Change metrics
+    sentiment_delta_6h: float  # vs last signal
+    volume_zscore: float       # mention volume vs 30-day avg
+
+    # Flags
+    is_extreme_bullish: bool   # >85% bullish
+    is_extreme_bearish: bool   # >85% bearish
+    is_volume_spike: bool      # zscore > 2
+
+    # Evidence
+    top_posts: list[PostSentiment]  # Top 5 most influential posts
+
+class Flow2Signal(BaseModel):
+    """Emitted every 6 hours."""
+
+    timestamp: datetime
+    signal_period: str  # "6h"
+
+    # Current watchlist
+    watchlist: list[str]
+    watchlist_added: list[str]    # New since last signal
+    watchlist_removed: list[str]  # Expired/removed
+
+    # Per-ticker sentiment
+    ticker_sentiments: list[TickerSentimentSummary]
+
+    # Highlights
+    extreme_sentiments: list[str]  # Tickers with extreme readings
+    biggest_movers: list[str]      # Largest sentiment changes
+
+    # Summary (LLM-generated)
+    narrative_summary: str  # "NVDA sentiment shifted bearish on DeepSeek news..."
+```
+
+### Signal Delivery
+- **Every 6 hours** (configurable)
+- Telegram bot with summary
+- Full signal logged to database
+
+---
+
+## Flow 3: Prediction Market Intelligence
+
+### Purpose
+Monitor Polymarket/Kalshi for smart money activity → generate periodic signals on trading opportunities.
+
+### Data Sources
+
+| Source | API | Status |
+|--------|-----|--------|
+| **Polymarket** | Gamma API (read-only, no auth) | ✅ Ready |
+| **Kalshi** | Trade API v2 (read-only, no auth) | ✅ Ready |
+
+### Monitoring Targets
+
+1. **Profitable Wallets**: Track wallets with high historical accuracy
+2. **Volume Spikes**: Unusual activity suggesting informed trading
+3. **Odds Movements**: Significant probability changes
+4. **Expiring Markets**: High-urgency opportunities
+
+### Pipeline (Every 15 Minutes)
+
+```
+Every 15 minutes:
+
+1. SCAN markets
+   │
+   ├─► Get trending markets (by volume)
+   ├─► Get expiring markets (<24h)
+   └─► Detect volume spikes (zscore > 2)
+
+2. FOR EACH interesting market:
+   │
+   ├─► Fetch recent trades
+   ├─► Check for known profitable wallets
+   └─► Calculate odds movement
+
+3. SCORE opportunities:
+   │
+   ├─► Insider score (wallet history)
+   ├─► Volume spike score
+   └─► Urgency score (time to expiration)
+
+4. GENERATE signal
+```
+
+### Wallet Tracking
+
+```python
+class WalletProfile(BaseModel):
+    """Track wallet performance over time."""
+    address: str
+
+    # Historical performance
+    total_trades: int
+    profitable_trades: int
+    win_rate: float
+
+    # Pre-news accuracy (key insider signal)
+    pre_news_trades: int      # Trades within 1hr before major news
+    pre_news_accuracy: float  # Win rate on pre-news trades
+
+    # Calculated score
+    insider_score: float  # 0-1, likelihood of informed trading
+
+    @property
+    def is_profitable_wallet(self) -> bool:
+        return (
+            self.total_trades >= 10 and
+            self.win_rate > 0.6 and
+            self.insider_score > 0.5
+        )
+```
+
+### Volume Spike Detection
+
+```python
+async def detect_volume_spike(
+    market: SimpleMarket,
+    threshold_zscore: float = 2.0
+) -> VolumeAlert | None:
+    """
+    Detect unusual volume that may indicate informed trading.
+    """
+    # Get historical volume
+    history = await get_market_volume_history(market.id, days=30)
+
+    avg_hourly = statistics.mean(history)
+    std_hourly = statistics.stdev(history)
+
+    current_hourly = market.volume_24h / 24
+    zscore = (current_hourly - avg_hourly) / std_hourly
+
+    if zscore > threshold_zscore:
+        return VolumeAlert(
+            market_id=market.id,
+            market_question=market.question,
+            zscore=zscore,
+            current_volume=market.volume_24h,
+            avg_volume=avg_hourly * 24,
+            alert_type="volume_spike"
         )
 
-        opportunities = []
-        for market in markets:
-            orderbook = await self.clob.get_orderbook(market.condition_id)
+    return None
+```
 
-            yes_ask = orderbook.yes.ask
-            no_ask = orderbook.no.ask
-            total_cost = yes_ask + no_ask
+### Output Signal (Every 15 Minutes)
 
-            if total_cost < 0.98:  # > 2% profit after fees
-                profit_pct = (1.0 - total_cost) * 100
-                opportunities.append(ArbitrageOpportunity(
-                    market=market,
-                    yes_price=yes_ask,
-                    no_price=no_ask,
-                    profit_pct=profit_pct,
-                    max_size=min(orderbook.yes.ask_size, orderbook.no.ask_size)
-                ))
+```python
+class MarketOpportunity(BaseModel):
+    """A potential trading opportunity."""
+    market_id: str
+    platform: Literal["polymarket", "kalshi"]
+    question: str
+    current_prob: float
 
-        return sorted(opportunities, key=lambda x: -x.profit_pct)
+    # Opportunity details
+    suggested_direction: Literal["yes", "no"]
+    confidence: float
+
+    # Why this is interesting
+    triggers: list[str]  # ["volume_spike", "insider_activity", "expiring_soon"]
+
+    # Evidence
+    volume_24h: float
+    volume_zscore: float | None
+    insider_wallets_active: list[str]
+    hours_to_expiration: float | None
+
+class Flow3Signal(BaseModel):
+    """Emitted every 15 minutes."""
+
+    timestamp: datetime
+    signal_period: str  # "15min"
+
+    # Market overview
+    total_markets_scanned: int
+    trending_markets: list[SimpleMarket]
+    expiring_soon: list[SimpleMarket]  # <24h
+
+    # Alerts
+    volume_spikes: list[VolumeAlert]
+    insider_activity: list[InsiderAlert]
+    odds_movements: list[OddsMovement]
+
+    # Opportunities (ranked)
+    opportunities: list[MarketOpportunity]
+
+    # Summary
+    market_uncertainty_index: float  # Avg entropy across markets
+    informed_activity_level: float   # Overall insider signal strength
+```
+
+### Signal Delivery
+- **Every 15 minutes** (respecting rate limits)
+- Telegram bot for high-confidence opportunities
+- Dashboard-ready data structure
+
+### Wallet Discovery & Tracking
+
+#### How to Find Profitable Wallets
+
+**Phase 1: Historical Backfill (One-time)**
+```python
+async def discover_profitable_wallets():
+    """
+    Analyze resolved markets to find consistently winning wallets.
+
+    Source: Polymarket CLOB API
+    - GET /markets (filter: closed=true)
+    - GET /get_market_trades_events/{condition_id}
+    """
+    # 1. Fetch all resolved markets (last 6 months)
+    markets = await polymarket.get_resolved_markets(since=six_months_ago)
+
+    # 2. For each market, get all trades
+    for market in markets:
+        trades = await polymarket.get_market_trades(market.condition_id)
+
+        # 3. Calculate wallet performance
+        for trade in trades:
+            await update_wallet_metrics(
+                wallet=trade.maker_address,
+                market=market,
+                trade=trade
+            )
+
+    # 4. Identify top performers
+    return await db.fetch("""
+        SELECT * FROM wallet_metrics
+        WHERE total_trades >= 10
+          AND win_rate > 0.55
+          AND insider_score > 0.5
+        ORDER BY insider_score DESC
+    """)
+```
+
+**Phase 2: Real-Time Monitoring (Continuous)**
+```python
+# WebSocket subscription for live trades
+ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+
+async def monitor_wallets():
+    async with websockets.connect(ws_url) as ws:
+        await ws.send(json.dumps({
+            "action": "subscribe",
+            "subscriptions": [{"topic": "activity", "type": "trades"}]
+        }))
+
+        async for msg in ws:
+            trade = json.loads(msg)
+            wallet = trade.get("proxyWallet")
+
+            # Check if watched wallet
+            if await redis.sismember("wallets:watched", wallet):
+                await emit_alert(trade)
+```
+
+#### Insider Score Calculation
+
+```python
+def calculate_insider_score(metrics: WalletMetrics) -> float:
+    """
+    Composite score based on multiple signals.
+
+    Research basis: 86% of Polymarket accounts have negative P&L,
+    only 0.51% profit >$1K. High win rates are rare and suspicious.
+
+    Sources: PolyTrack, Polywhaler research
+    """
+    # Component weights
+    weights = {
+        "pre_news_accuracy": 0.40,  # Most important signal
+        "pre_news_frequency": 0.20,
+        "timing_consistency": 0.15,
+        "conviction_score": 0.15,
+        "account_freshness": 0.10,
+    }
+
+    # Pre-news accuracy (trades within 1hr before resolution)
+    pre_news_accuracy = metrics.pre_news_wins / max(metrics.pre_news_trades, 1)
+
+    # Pre-news frequency (ratio of pre-news trades to total)
+    pre_news_frequency = metrics.pre_news_trades / max(metrics.total_trades, 1)
+
+    # Account freshness (newer = more suspicious)
+    days_active = (now() - metrics.first_seen_at).days
+    account_freshness = 1.0 if days_active < 7 else 0.4 if days_active < 30 else 0.1
+
+    return (
+        pre_news_accuracy * weights["pre_news_accuracy"] +
+        pre_news_frequency * weights["pre_news_frequency"] +
+        # ... other components
+    )
+```
+
+#### Pre-News Trade Detection
+
+```sql
+-- Find trades within 1 hour before market resolution
+SELECT
+    t.wallet_address,
+    t.market_id,
+    t.direction,
+    t.size,
+    t.traded_at,
+    m.resolved_at,
+    EXTRACT(EPOCH FROM (m.resolved_at - t.traded_at)) / 60 AS minutes_before,
+    CASE
+        WHEN t.direction = m.winning_outcome THEN TRUE
+        ELSE FALSE
+    END AS won
+FROM wallet_trades t
+JOIN markets m ON t.market_id = m.id
+WHERE m.resolved_at IS NOT NULL
+  AND t.traded_at BETWEEN m.resolved_at - INTERVAL '1 hour' AND m.resolved_at;
+```
+
+#### Warning Signs (Insider Detection)
+
+| Signal | Threshold | Action |
+|--------|-----------|--------|
+| Perfect win rate | >95% with 3+ trades | Flag for review |
+| Single-market wallet | 100% of trades in one market | High suspicion |
+| Pre-news trading | >50% of trades within 1hr of resolution | Alert |
+| Fresh wallet | <7 days old with large positions | Monitor closely |
+| Cluster detection | Multiple wallets, coordinated trades | Aggregate as one |
+
+**Note:** ~25% of Polymarket volume may be wash trades (fake volume). Filter wallets with rapid open/close at extreme prices.
+
+---
+
+## Database Schema
+
+### Storage Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    STORAGE ARCHITECTURE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  REAL-TIME (Redis)                 PERSISTENT (PostgreSQL)       │
+│  ─────────────────                 ───────────────────────       │
+│                                                                  │
+│  • Deduplication (60-min TTL)      • TimescaleDB hypertables     │
+│  • Watchlist tickers (7-day TTL)   • pgvector for embeddings     │
+│  • Wallet scores cache             • Signal history              │
+│  • Real-time alerts queue          • Wallet performance          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Architecture (Research-Backed)
+
+| Decision | Rationale | Source |
+|----------|-----------|--------|
+| Redis for dedup | Sub-ms latency, 9.5x faster than pgvector | [Redis Benchmark](https://redis.io/blog/benchmarking-results-for-vector-databases/) |
+| SemHash + Model2Vec | 130K samples in 7 sec, semantic matching | [SemHash Blog](https://minishlab.github.io/semhash-blogpost/) |
+| TimescaleDB hypertables | 90%+ compression, automatic partitioning | [TimescaleDB Docs](https://docs.timescale.com/use-timescale/latest/compression/) |
+| pgvector for historical | Hybrid queries with JOINs, market similarity | [Zilliz Comparison](https://zilliz.com/comparison/pgvector-vs-redis) |
+
+### Core Tables
+
+#### Signals (TimescaleDB Hypertable)
+
+```sql
+CREATE TABLE signals (
+    time TIMESTAMPTZ NOT NULL,
+    flow_id TEXT NOT NULL,           -- 'flow1', 'flow2', 'flow3'
+    signal_type TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    market_id TEXT,
+    ticker TEXT,
+    PRIMARY KEY (time, flow_id)
+);
+
+SELECT create_hypertable('signals', 'time', chunk_time_interval => INTERVAL '1 day');
+
+-- Compression after 7 days
+ALTER TABLE signals SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'flow_id, signal_type'
+);
+SELECT add_compression_policy('signals', INTERVAL '7 days');
+```
+
+#### Raw Messages (with Embeddings)
+
+```sql
+CREATE TABLE raw_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_platform TEXT NOT NULL,    -- 'twitter', 'telegram'
+    source_account TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    raw_text TEXT NOT NULL,
+    embedding vector(256),            -- Model2Vec embedding
+    source_timestamp TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ DEFAULT NOW(),
+    is_duplicate BOOLEAN DEFAULT FALSE,
+    UNIQUE (source_platform, external_id)
+);
+
+-- HNSW index for similarity search
+CREATE INDEX ON raw_messages
+    USING hnsw (embedding vector_cosine_ops);
+```
+
+#### Markets
+
+```sql
+CREATE TABLE markets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL,           -- 'polymarket', 'kalshi'
+    external_id TEXT NOT NULL,
+    condition_id TEXT,                -- Polymarket-specific
+    question TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    end_date TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    winning_outcome TEXT,             -- 'yes', 'no', or specific outcome
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (platform, external_id)
+);
+```
+
+#### Wallets & Trades (Flow 3)
+
+```sql
+CREATE TABLE wallets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL,           -- 'polymarket', 'kalshi'
+    address TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_active_at TIMESTAMPTZ NOT NULL,
+    is_watched BOOLEAN DEFAULT FALSE,
+    UNIQUE (platform, address)
+);
+
+CREATE TABLE wallet_trades (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    wallet_id UUID REFERENCES wallets(id),
+    market_id UUID REFERENCES markets(id),
+    direction TEXT NOT NULL,          -- 'yes', 'no'
+    price DECIMAL(10,6) NOT NULL,
+    size DECIMAL(20,6) NOT NULL,
+    traded_at TIMESTAMPTZ NOT NULL,
+    -- Filled after resolution
+    resolved_at TIMESTAMPTZ,
+    pnl DECIMAL(20,6),
+    is_win BOOLEAN
+);
+
+CREATE TABLE wallet_metrics (
+    wallet_id UUID PRIMARY KEY REFERENCES wallets(id),
+    total_trades INTEGER DEFAULT 0,
+    wins INTEGER DEFAULT 0,
+    win_rate DECIMAL(5,4),
+    total_pnl DECIMAL(20,6),
+    pre_news_trades INTEGER DEFAULT 0,
+    pre_news_wins INTEGER DEFAULT 0,
+    pre_news_accuracy DECIMAL(5,4),
+    insider_score DECIMAL(5,4),       -- 0.0 to 1.0
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for finding profitable wallets
+CREATE INDEX idx_wallet_metrics_profitable
+    ON wallet_metrics (win_rate, insider_score)
+    WHERE total_trades >= 10;
+```
+
+### Redis Key Schema
+
+| Key Pattern | Type | TTL | Purpose |
+|-------------|------|-----|---------|
+| `dedup:{hash}` | String | 60 min | News deduplication |
+| `watchlist:tickers` | Set | None | Active ticker watchlist |
+| `watchlist:ttl:{ticker}` | String | 7 days | Ticker expiry |
+| `wallet:score:{address}` | Hash | 1 hour | Cached insider scores |
+| `wallets:watched` | Set | None | Addresses to monitor |
+| `alerts:pending` | List | None | Unprocessed trade alerts |
+
+### TimescaleDB Configuration
+
+```sql
+-- Retention policy: keep raw signals for 90 days
+SELECT add_retention_policy('signals', INTERVAL '90 days');
+
+-- Continuous aggregate for hourly rollups
+CREATE MATERIALIZED VIEW signals_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    flow_id,
+    signal_type,
+    count(*) AS signal_count
+FROM signals
+GROUP BY bucket, flow_id, signal_type;
+
+-- Refresh policy for continuous aggregate
+SELECT add_continuous_aggregate_policy('signals_hourly',
+    start_offset => INTERVAL '3 hours',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour'
+);
 ```
 
 ---
 
-## 6. Data Flow
+## LLM Configuration
 
-### 6.1 News-to-Trade Pipeline
+### Multi-Provider Support
 
-```
-Telegram (@marketfeed)
-        │
-        ▼
-   Ingestion Service
-        │
-        ▼
-   Deduplicator (SemHash)
-        │
-        ├──[Duplicate]──▶ Log & Skip
-        │
-        ▼ [New Event]
-   LLM Analyzer
-   - Extract entities
-   - Classify sentiment
-   - Assess urgency
-        │
-        ▼
-   Market Matcher
-   - Gamma API search
-   - Find related markets
-        │
-        ▼
-   Strategy Engine
-   - Evaluate strategies
-   - Calculate edge
-        │
-        ├──[No Trade]──▶ Store signal only
-        │
-        ▼ [Actionable]
-   Order Executor
-   - Place CLOB order
-   - Log execution
-        │
-        ▼
-   Polymarket
-```
+The system supports interchangeable LLM providers via PydanticAI's model abstraction:
 
-### 6.2 Outcome Tracking Flow
+| Provider | SDK | Base URL | Models | Use Case |
+|----------|-----|----------|--------|----------|
+| **Claude** | `anthropic` | Default Anthropic API | `claude-sonnet-4-20250514` | Primary - best reasoning |
+| **ZAI** | `openai` (compatible) | `https://api.z.ai/api/coding/paas/v4` | `glm-4.7`, `glm-4.7-FlashX`, `glm-4.7-Flash` | Alternative - coding focus |
 
-```
-Scheduler (hourly)
-        │
-        ▼
-   Check pending signals
-        │
-        ▼
-   Query Polymarket resolution
-        │
-        ├──[Not Resolved]──▶ Reschedule
-        │
-        ▼ [Resolved]
-   Calculate P&L
-        │
-        ▼
-   Store outcome in PostgreSQL
-        │
-        ▼
-   Update win rate stats
-   (by source, event_type, strategy)
+### ZAI GLM-4.7 Models
+
+| Model | Context | Use Case | Cost |
+|-------|---------|----------|------|
+| `glm-4.7` | 200K tokens | Flagship, highest performance | Paid |
+| `glm-4.7-FlashX` | 200K tokens | Lightweight, high-speed | Affordable |
+| `glm-4.7-Flash` | 200K tokens | Lightweight | Free |
+
+ZAI API is OpenAI-compatible. See [GLM-4.7 docs](https://docs.z.ai/guides/llm/glm-4.7).
+
+### Provider Selection
+
+```python
+from pydantic_ai import Agent
+from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.openai import OpenAIModel
+
+def get_llm_model(provider: str = "anthropic"):
+    """
+    Get LLM model based on provider configuration.
+
+    Environment variables:
+    - ANTHROPIC_API_KEY: For Claude models
+    - ZAI_API_KEY: For ZAI (OpenAI-compatible)
+    - LLM_PROVIDER: "anthropic" or "zai"
+    """
+    if provider == "anthropic":
+        return AnthropicModel(
+            model_name=settings.llm_model,  # e.g., "claude-sonnet-4-20250514"
+        )
+    elif provider == "zai":
+        return OpenAIModel(
+            model_name=settings.zai_model,  # e.g., "glm-4.7"
+            base_url="https://api.z.ai/api/coding/paas/v4",
+            api_key=settings.zai_api_key,
+        )
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+# Usage with PydanticAI Agent
+agent = Agent(
+    model=get_llm_model(settings.llm_provider),
+    result_type=BreakingClassification,
+    system_prompt="You are a financial news analyst...",
+)
 ```
 
----
+### Configuration
 
-## 7. API Design
+```yaml
+# config/llm.yaml
+llm:
+  provider: "anthropic"  # or "zai"
 
-### 7.1 Core Endpoints
+  anthropic:
+    model: "claude-sonnet-4-20250514"
+    max_tokens: 4096
 
-```
-# Health & Status
-GET  /health                    # Liveness check
-GET  /ready                     # Readiness check
-GET  /metrics                   # Prometheus metrics
-
-# Ingestion
-POST /api/v1/ingest/webhook     # Manual webhook trigger
-GET  /api/v1/ingest/status      # Stream health
-
-# Markets
-GET  /api/v1/markets/search     # Search Polymarket
-GET  /api/v1/markets/{id}       # Get market details
-GET  /api/v1/markets/arbitrage  # Scan for arb opportunities
-
-# Trading
-GET  /api/v1/trading/signals    # Recent signals
-GET  /api/v1/trading/positions  # Open positions
-POST /api/v1/trading/execute    # Manual trade execution
-
-# Analysis
-GET  /api/v1/analysis/performance   # Strategy performance
-GET  /api/v1/analysis/outcomes      # Signal outcomes
+  zai:
+    base_url: "https://api.z.ai/api/coding/paas/v4"
+    model: "glm-4.7"              # or "glm-4.7-FlashX" for speed, "glm-4.7-Flash" for free
+    max_tokens: 4096
 ```
 
-### 7.2 WebSocket Endpoints
-
-```
-WS /ws/signals      # Live trading signals
-WS /ws/prices       # Market price updates
-WS /ws/events       # Processed news events
-```
-
----
-
-## 8. Configuration
-
-### 8.1 Environment Variables
+### Environment Variables
 
 ```bash
-# Core
-SYNESIS_ENV=development|staging|production
-SYNESIS_DEBUG=true|false
-SYNESIS_LOG_LEVEL=DEBUG|INFO|WARNING|ERROR
+# .env
+LLM_PROVIDER=anthropic          # "anthropic" or "zai"
 
-# Telegram
-TELEGRAM_API_ID=your_api_id
-TELEGRAM_API_HASH=your_api_hash
-TELEGRAM_SESSION_NAME=synesis
-TELEGRAM_CHANNELS=marketfeed,disclosetv
+# Anthropic (Claude)
+ANTHROPIC_API_KEY=sk-ant-...
 
-# Twitter/X (via TwitterAPI.io - $0.15/1k tweets)
-TWITTER_API_KEY=your_twitterapi_io_key
-TWITTER_API_BASE_URL=https://api.twitterapi.io
-TWITTER_ACCOUNTS=DeItaone,KobeissiLetter,Fxhedgers,zerohedge
-
-# Polymarket
-POLYMARKET_API_KEY=your_key
-POLYMARKET_API_SECRET=your_secret
-POLYMARKET_PRIVATE_KEY=your_wallet_pk
-POLYMARKET_CHAIN_ID=137
-
-# LLM (PydanticAI - model-agnostic, structured outputs)
-ANTHROPIC_API_KEY=your_key
-OPENAI_API_KEY=your_key
-LLM_MODEL=anthropic:claude-3-5-haiku-20241022
-
-# Storage
-DATABASE_URL=postgresql+asyncpg://synesis:synesis@localhost:5432/synesis
-REDIS_URL=redis://localhost:6379
-
-# Trading
-TRADING_ENABLED=false
-MAX_POSITION_SIZE=100
-MIN_EDGE_THRESHOLD=0.05
-CONFIDENCE_THRESHOLD=0.7
+# ZAI (GLM-4.7, OpenAI-compatible)
+ZAI_API_KEY=...
+ZAI_BASE_URL=https://api.z.ai/api/coding/paas/v4
+ZAI_MODEL=glm-4.7
 ```
 
----
-
-## 9. Implementation Phases
-
-### Phase 1: Foundation (Weeks 1-2)
-- [ ] Project scaffolding with uv + FastAPI
-- [ ] Docker Compose for PostgreSQL (TimescaleDB + pgvector) and Redis
-- [ ] Telegram listener with Telethon
-- [ ] Basic LLM classification pipeline
-- [ ] Polymarket Gamma API integration
-
-### Phase 2: Trading Core (Weeks 3-4)
-- [ ] CLOB client integration
-- [ ] WebSocket price streaming
-- [ ] Market matcher (news → markets)
-- [ ] News-driven strategy implementation
-- [ ] Order execution with risk limits
-
-### Phase 3: Advanced Strategies (Weeks 5-6)
-- [ ] Arbitrage scanner
-- [ ] Multi-outcome dutching
-- [ ] Market making (optional)
-- [ ] Outcome tracking & win rate analytics
-
-### Phase 4: Hardening (Weeks 7-8)
-- [ ] Comprehensive test suite
-- [ ] Monitoring & alerting
-- [ ] Performance optimization
-- [ ] Documentation
-
----
-
-## 10. Risk Management
-
-### 10.1 Circuit Breakers
-
-| Trigger | Action |
-|---------|--------|
-| Daily loss > $X | Halt all trading |
-| 5 consecutive losses | Reduce position size 50% |
-| API errors > 10/min | Pause ingestion |
-| Latency > 30s | Alert + fallback |
-
-### 10.2 Position Limits
+### Fallback Strategy
 
 ```python
-class RiskManager:
-    max_position_per_market: float = 100.0    # Max $100 per market
-    max_total_exposure: float = 1000.0        # Max $1000 total
-    max_daily_loss: float = 200.0             # Stop at $200 loss
-    min_liquidity_ratio: float = 0.1          # Position < 10% of liquidity
+async def run_with_fallback(agent: Agent, prompt: str):
+    """
+    Try primary provider, fall back to secondary on failure.
+    """
+    providers = ["anthropic", "zai"] if settings.llm_provider == "anthropic" else ["zai", "anthropic"]
+
+    for provider in providers:
+        try:
+            model = get_llm_model(provider)
+            result = await agent.run(prompt, model=model)
+            return result
+        except Exception as e:
+            logger.warning(f"Provider {provider} failed: {e}")
+            continue
+
+    raise RuntimeError("All LLM providers failed")
 ```
 
 ---
 
-## 11. Success Criteria
+## Implementation Checklist
 
-### Phase 1 Complete When
-- [ ] Telegram messages flow through pipeline
-- [ ] LLM correctly classifies sentiment
-- [ ] Markets are matched to news events
-- [ ] System runs stable for 24 hours
+### Phase 1: Infrastructure
+- [ ] Set up Redis Streams for message queue
+- [ ] Set up TimescaleDB for signal storage
+- [ ] Configure Telegram bot for notifications
+- [ ] Create database migrations (schema above)
+- [ ] Set up TimescaleDB hypertables + compression policies
+- [ ] Configure pgvector indexes for embeddings
+- [ ] Set up Redis key schemas for caching
 
-### MVP Complete When
-- [ ] First automated trade executed
-- [ ] Arbitrage opportunities detected
-- [ ] Outcome tracking operational
-- [ ] > 50% directional accuracy on tracked signals
+### Phase 2: Flow 1 (Breaking News)
+- [x] Twitter stream integration (TwitterAPI.io)
+- [x] Telegram stream integration (Telethon)
+- [ ] SemHash deduplication
+- [ ] PydanticAI classification prompt
+- [ ] Polymarket search integration
+- [ ] Kalshi search integration
+- [ ] Signal output + Telegram notification
+
+### Phase 3: Flow 2 (Sentiment)
+- [ ] Register RSS.app account
+- [ ] Create RSS feeds for target subreddits
+- [ ] Reddit RSS client
+- [ ] Twitter search integration
+- [ ] Watchlist management (with TTL)
+- [ ] Sentiment classification prompt
+- [ ] Aggregation logic
+- [ ] 6-hour scheduler
+- [ ] Signal output + Telegram notification
+
+### Phase 4: Flow 3 (Prediction Markets)
+- [ ] Polymarket scanner (trending, expiring)
+- [ ] Kalshi scanner
+- [ ] Volume spike detection
+- [ ] Wallet discovery backfill job (historical analysis)
+- [ ] Wallet metrics calculation pipeline
+- [ ] Pre-news trade detection queries
+- [ ] Insider score algorithm implementation
+- [ ] Real-time WebSocket monitor for watched wallets
+- [ ] 15-minute scheduler
+- [ ] Signal output + Telegram notification
+
+### Phase 5: Integration
+- [ ] Flow 1 → Flow 2 watchlist pipeline
+- [ ] Cross-flow signal correlation
+- [ ] Backtest framework
+- [ ] Performance tracking
 
 ---
 
-## 12. Open Questions
+## Configuration
 
-- [x] ~~Twitter API tier (Basic $100/mo vs Pro $5000/mo)?~~ → Using TwitterAPI.io ($0.15/1k tweets)
-- [x] ~~LLM framework?~~ → PydanticAI for structured outputs + model flexibility
-- [x] ~~ORM vs raw SQL?~~ → Raw asyncpg for speed (no ORM overhead)
-- [ ] Specific Telegram channels to prioritize?
-- [ ] Specific X accounts to prioritize?
-- [ ] Initial capital allocation per strategy?
-- [ ] Deployment environment (local vs cloud)?
+```yaml
+# config/flows.yaml
+
+flow1:
+  name: "Breaking News & Analysis"
+  sources:
+    twitter:
+      # News accounts - HIGH urgency
+      news:
+        - "DeItaone"
+        - "FinancialJuice"
+      # Analysis accounts - NORMAL urgency
+      analysis:
+        - "spotgamma"
+        - "unusual_whales"
+        # ... add more as needed
+    telegram:
+      # News channels - HIGH urgency
+      news:
+        - "marketfeed"
+        - "disclosetv"
+      # Analysis channels - NORMAL urgency
+      analysis: []  # Add as needed
+  deduplication:
+    threshold: 0.85
+    window_minutes: 60
+  llm:
+    profile: "reasoning"  # Use reasoning-optimized model (see LLM Configuration)
+
+flow2:
+  name: "Sentiment"
+  schedule: "0 */6 * * *"  # Every 6 hours
+  sources:
+    reddit:
+      subreddits: ["wallstreetbets", "stocks", "options"]
+    twitter:
+      search_enabled: true
+  watchlist:
+    ttl_days: 7
+    max_tickers: 50
+  llm:
+    profile: "fast"  # Use fast model for bulk classification (see LLM Configuration)
+
+flow3:
+  name: "Prediction Markets"
+  schedule: "*/15 * * * *"  # Every 15 minutes
+  platforms:
+    - polymarket
+    - kalshi
+  thresholds:
+    volume_spike_zscore: 2.0
+    insider_score_min: 0.5
+    expiring_hours: 24
+```
 
 ---
 
-## 13. References
+## API Endpoints (Internal)
 
-### Documentation
-- [Polymarket Developer Docs](https://docs.polymarket.com/)
-- [FastAPI Best Practices](https://github.com/zhanymkanov/fastapi-best-practices)
-- [Telethon Documentation](https://docs.telethon.dev/)
-- [uv Project Guide](https://docs.astral.sh/uv/guides/projects/)
-- [PydanticAI Documentation](https://ai.pydantic.dev/)
-- [TwitterAPI.io Documentation](https://twitterapi.io/)
+```
+POST /signals/flow1/emit     # Emit breaking news signal
+GET  /signals/flow1/latest   # Get latest signals
 
-### Research Sources
-- [News-Driven Polymarket Bots - QuantVPS](https://www.quantvps.com/blog/news-driven-polymarket-bots)
-- [Twitter API Alternatives Comparison](https://twitterapi.io/blog/twitter-api-alternatives-comprehensive-guide-2025)
-- [@thejayden strategy thread](https://x.com/thejayden/status/2006276445409091692)
-- [@dunik_7 GitHub repos thread](https://x.com/dunik_7/status/2004512366675829093)
+POST /signals/flow2/run      # Trigger sentiment analysis
+GET  /signals/flow2/latest   # Get latest 6h signal
+
+POST /signals/flow3/run      # Trigger market scan
+GET  /signals/flow3/latest   # Get latest 15min signal
+
+GET  /watchlist              # Current watchlist
+POST /watchlist/add          # Manual ticker addition
+DELETE /watchlist/{ticker}   # Remove ticker
+```
+
+---
+
+## Dependencies
+
+```toml
+# pyproject.toml additions
+
+[project.dependencies]
+# Existing
+telethon = "^1.34"
+httpx = "^0.27"
+pydantic = "^2.6"
+
+# LLM (multi-provider via PydanticAI)
+pydantic-ai = "^0.1"           # Agent framework with structured outputs
+anthropic = "^0.40"            # Claude provider (Agent SDK)
+openai = "^1.50"               # ZAI provider (OpenAI-compatible)
+
+# New for PRD2
+feedparser = "^6.0"            # RSS parsing
+semhash = "^0.1"               # Deduplication
+model2vec = "^0.3"             # Embeddings for semhash
+apscheduler = "^3.10"          # Scheduling
+aiogram = "^3.4"               # Telegram bot
+```
+
+---
+
+## Related Documents
+
+- [[Flow 1 - Breaking News]] - Detailed flow design
+- [[Flow 2 - Sentiment]] - Sentiment processing details
+- [[Flow 3 - Polymarket Intel]] - Prediction market monitoring
+- [[Polymarket Integration]] - API clients
+- [[Twitter Accounts]] - Curated account list
+- [[Telegram Channels]] - Channel list
+- [[Reddit Integration]] - Reddit approach
+- [[Deduplication]] - SemHash implementation
+
+---
+
+Back to [[Synesis]]

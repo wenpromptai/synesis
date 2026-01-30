@@ -1,0 +1,74 @@
+# SearXNG settings for Synesis
+# Docs: https://docs.searxng.org/admin/settings/settings.html
+
+use_default_settings: true
+
+general:
+  instance_name: "Synesis Search"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json  # Enable JSON API for programmatic access
+
+server:
+  # SECURITY WARNING: Change this secret_key in production!
+  # Generate a secure key with: python -c "import secrets; print(secrets.token_hex(32))"
+  secret_key: "synesis-searxng-secret-change-in-prod"
+  limiter: false  # Disable rate limiting for internal use
+  image_proxy: false
+  http_protocol_version: "1.1"
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  results_on_new_tab: false
+
+# Enable engines good for financial/news content
+engines:
+  # General search
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  # News sources
+  - name: google news
+    engine: google_news
+    shortcut: gn
+    disabled: false
+
+  - name: bing news
+    engine: bing_news
+    shortcut: bin
+    disabled: false
+
+  - name: yahoo news
+    engine: yahoo_news
+    shortcut: yn
+    disabled: false
+
+  # Financial sources
+  - name: yahoo
+    engine: yahoo
+    shortcut: yh
+    disabled: false
+
+  # Wikipedia for context
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false

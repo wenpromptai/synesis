@@ -19,6 +19,9 @@ Research compiled from @thejayden, community analysis, and profitable trader pat
 | @MomentumKevin | Market Making | Polymarket MM, Top 500 Hyperliquid all-time | Cross-platform verification |
 | @Frosen | Trading | Top 0.01% bettor/predictor | Links main profile |
 | @TraderMush247 | Trading/DeFi | Top 1% PnL, DLMM Maxi | Specific rank claim |
+| @MazinoTower | Analytics/Sports | Sports whale tracking, shinsu.xyz dashboards | Detailed PnL breakdowns, trades @BullpenFi |
+| @the_smart_ape | Trading/Analysis | Profile analysis, trader breakdowns | Technical analysis, high engagement |
+| @ArchiveExplorer | Analysis | Trade breakdowns, strategy documentation | Polymarket community member |
 
 ### Tier 2: Tool Builders (Verified by Product)
 
@@ -32,6 +35,7 @@ Research compiled from @thejayden, community analysis, and profitable trader pat
 | @whalewatchpoly | Whale Tracking | mobyscreener.com | Powered by @mobyagent |
 | @poly_data | Official Analytics | polymarketanalytics.com | Supported by Polymarket, powered by @goldskyio |
 | @PolyScopeBot | AI Analytics | Wallet tracker | AI for insider detection, whale tracking |
+| @jayka003 | Backtesting | Repla & AXB Zero | Free backtesting software, 134K views on demo |
 
 ### Tier 3: Analysts & Researchers
 
@@ -77,6 +81,22 @@ Research compiled from @thejayden, community analysis, and profitable trader pat
 | @hal15617 | +$100K single BTC market | NO shares only, no hedge, YOLO style |
 | "French Whale" Theo | $85M from Trump election | 11+ accounts, political specialization |
 | @a4385 | $233K overnight (Jan 2026) | Bot liquidity drain, 15-min crypto manipulation |
+| beachboy4 | +$5,785,064 (4 trades, Jan 2026) | Sports specialist, high-conviction betting |
+| 0x492442Ea | +$5,348,163 (19 trades, Jan 2026) | Sports specialist, $5.6M invested → $11M returned |
+| 432614799197 | +$2,777,937 (6 trades, Jan 2026) | Sports specialist |
+| Pimping | +$1,267,349 (3 trades, Jan 2026) | Sports specialist, highest profit-per-trade ratio |
+
+### Sports Whale Insight (Jan 2026)
+
+**Source:** @MazinoTower analysis
+
+5 traders made **$16,271,556** in one week on sports markets alone:
+- Not arbitrage bots or latency setups
+- Just **domain expertise** in sports
+- Average: 3-19 trades per trader (high conviction, few bets)
+- Top 50 sports traders: Invested $23.8M → Returned $44.3M (+$20.4M profit)
+
+**Key Pattern:** Sports specialists making massive PnL with very few trades. This is domain expertise, not volume.
 
 ---
 
@@ -101,18 +121,137 @@ The livestream delay gap:
 
 ---
 
-### 2. Insider Copy-Trading
+### 2. Insider Detection & Copy-Trading
 
-**Source:** @PolyInsiderBot
+**Sources:** @RetroValix, @PolyInsiderBot, @Polysights, @spacexbt, @DidiTrading, @gemchange_ltd
 
-Track wallets with:
-- Large positions on new accounts (red flag for insiders)
-- High conviction bets (size + single direction)
-- Quiet markets before news breaks
+#### Insider Behavior Patterns
 
-Examples documented:
-- $160K position on Iran strike by 40-min-old account
-- +$835 in 6 hours copy-trading flagged insider (+14%)
+Insiders typically exhibit these behaviors:
+
+| Pattern | Description | Detection Signal |
+|---------|-------------|------------------|
+| **Fresh Wallet + Big Bet** | New account (<24h) places >$10K on single market | Account age + bet size + market count |
+| **Single Market Focus** | Only trades ONE specific market | Market diversity = 1 |
+| **99% Padding** | Small bets on near-certain markets to look normal | High-probability markets with small size |
+| **Wash Trading Cover** | Buy/sell same markets to inflate trade count | Same market buy+sell within short window |
+| **Card/External Funding** | Uses card instead of traceable EVM wallet | No on-chain deposit history |
+| **Pre-News Positioning** | Large position hours before news breaks | Entry timing vs news timestamp |
+| **100% Win Rate** | Perfect record in specific niche category | Win rate = 100% in narrow vertical |
+
+#### 4-Step Detection Process (@RetroValix Method)
+
+**Step 1: Filter for Suspicious Wallets**
+Use Polysights or custom filters:
+```python
+suspicious_wallets = filter_wallets(
+    markets_traded=1,          # Only one market
+    total_trades=1,            # Single trade
+    bet_size_min=1000,         # >$1K position
+    account_age_days_max=7,    # New account
+)
+```
+
+**Step 2: Find EVM Wallet**
+- Copy Polymarket internal wallet address
+- Use [Safe Global](https://app.safe.global) → "Watch any account"
+- Select Polygon network → paste address
+- This reveals the source EVM wallet that funded the account
+
+**Step 3: Analyze Wallet History**
+- Paste EVM wallet into [DeBank](https://debank.com)
+- Check Transactions → All Chains
+- Look for:
+  - Connections to other suspicious wallets
+  - ENS domains (Google the ENS)
+  - Round number funding amounts
+  - Same source funding multiple accounts
+
+**Step 4: Build Insider Cluster**
+- Go to market's "Top Holders" section
+- Analyze all top wallets for similar patterns
+- Cross-reference funding sources, timing, behavior
+- Combine into cluster to confirm coordinated activity
+
+#### Wallet Clustering Analysis (@gemchange_ltd Method)
+
+Advanced detection using graph analysis:
+```python
+# Louvain clustering + Jaccard similarity
+# Maps wallet relationships into hypergraph
+
+def build_wallet_hypergraph(top_wallets: list[str]) -> Graph:
+    """
+    Identify who's copying who by analyzing:
+    - Trade timing correlation
+    - Position similarity (same markets, same direction)
+    - Funding source overlap
+    - Entry/exit timing patterns
+    """
+    edges = []
+    for wallet_a, wallet_b in combinations(top_wallets, 2):
+        similarity = jaccard_similarity(
+            get_positions(wallet_a),
+            get_positions(wallet_b)
+        )
+        timing_corr = timing_correlation(wallet_a, wallet_b)
+
+        if similarity > 0.7 or timing_corr > 0.8:
+            edges.append((wallet_a, wallet_b, similarity))
+
+    return create_graph(edges)
+
+# Detect clusters using Louvain algorithm
+clusters = louvain_communities(graph)
+```
+
+**Output:** "Wallets A, B, C, D are likely controlled by same entity"
+
+#### Copy Score Formula (@predictingtop)
+
+Rank traders by consistency, not luck:
+```python
+copy_score = (
+    r_squared *           # Consistency of returns
+    win_rate *            # Percentage of winning trades
+    max_drawdown_factor * # Risk management
+    profit_factor         # Gross profit / gross loss
+)
+```
+
+#### Real-Time Detection Signals
+
+| Signal | Threshold | Action |
+|--------|-----------|--------|
+| New wallet + >$50K bet | Account <24h, single market | **HIGH ALERT** - Likely insider |
+| 100% win rate + niche market | Perfect record in obscure category | **FLAG** - Research wallet |
+| Multiple wallets, same timing | >3 wallets trading within 60s | **CLUSTER ALERT** - Coordinated |
+| Pre-news large position | >$10K position, news breaks <6h later | **RETROSPECTIVE FLAG** - Track wallet |
+| Card funding + single market | No EVM history, one prediction | **SUSPICIOUS** - Identity hiding |
+
+#### Documented Insider Examples
+
+| Case | Details | Profit | Detection Method |
+|------|---------|--------|------------------|
+| Maduro Attack | $35K → $442K in hours | 12.6x | @spacexbt tool flagged 5 alerts pre-event |
+| Iran Strike | $160K position, 40-min-old account | Unknown | Fresh wallet + large bet |
+| Israel-Iran Whale | 100% win rate on Israel bets, dormant 7 months | $400K+ | Win rate anomaly |
+| Lighter Insiders | Cluster of wallets, all predicting same obscure market | Unknown | @RetroValix cluster analysis |
+
+#### Tools for Insider Detection
+
+| Tool | Features | Link |
+|------|----------|------|
+| **Polysights** | Wallet filtering, 85% accuracy on flagged trades | @Polysights |
+| **Safe Global** | Find EVM wallet from Polymarket address | app.safe.global |
+| **DeBank** | Transaction history, all chains | debank.com |
+| **PolyInsiderBot** | Telegram alerts for suspicious activity | t.me/PredictionIns |
+| **PolyScope** | AI trader profiling, insider detection | @PolyScopeBot |
+
+#### GitHub Open Source
+
+- [NickNaskida/polymarket-insider-bot](https://github.com/NickNaskida/polymarket-insider-bot) - Async bot with ML scoring
+- [pselamy/polymarket-insider-tracker](https://github.com/pselamy/polymarket-insider-tracker) - Tracks fresh wallets, unusual sizing
 
 ---
 
@@ -397,6 +536,7 @@ Based on research of existing tools, here's what we will **build in-house** that
 │  ├── Twitter/X Listener (API + Scraping fallback)               │
 │  ├── Telegram Channel Monitor                                   │
 │  ├── RSS/News Feed Aggregator                                   │
+│  ├── Sports Data Feeds (ESPN, injury reports, live scores)      │
 │  └── Polymarket WebSocket (trades, prices, orderbook)           │
 ├─────────────────────────────────────────────────────────────────┤
 │  PROCESSING LAYER (Built In-House)                              │
@@ -468,6 +608,95 @@ priority = (
 )
 ```
 
+#### 1.4 AI vs Market Mispricing Detection
+
+**Source:** Inspired by polymarketnews.xyz (shows AI Est vs Market Price gaps)
+
+When our AI assessment differs significantly from market price, that's tradeable alpha:
+
+```python
+def calculate_mispricing_signal(market_id: str, news_items: list[NewsItem]) -> MispricingSignal | None:
+    """
+    Find markets where AI assessment differs from market price.
+
+    Example: AI thinks 20% probability, market says 5.5% = 14.5% edge
+    """
+    # Aggregate sentiment from all relevant news
+    ai_probability = aggregate_news_sentiment(news_items)
+    market_price = get_current_price(market_id)
+
+    discrepancy = ai_probability - market_price
+
+    # Only signal if gap is significant (>10%)
+    if abs(discrepancy) < 0.10:
+        return None
+
+    # More news sources = higher confidence
+    source_diversity = len(set(n.source for n in news_items))
+    recency_weight = calculate_recency_weight(news_items)
+
+    confidence = min(
+        (len(news_items) / 10) *      # Volume of news
+        (source_diversity / 5) *       # Diversity of sources
+        recency_weight,                # Recent news weighted higher
+        1.0
+    )
+
+    return MispricingSignal(
+        market_id=market_id,
+        ai_estimate=ai_probability,
+        market_price=market_price,
+        discrepancy=discrepancy,
+        direction="BUY_YES" if discrepancy > 0 else "BUY_NO",
+        edge=abs(discrepancy),
+        confidence=confidence,
+        news_count=len(news_items),
+        reasoning=generate_reasoning(news_items, discrepancy)
+    )
+
+
+def scan_all_markets_for_mispricing() -> list[MispricingSignal]:
+    """
+    Continuously scan top markets for AI vs Market discrepancies.
+
+    Priority markets:
+    1. High volume (>$1M 7d) - enough liquidity to trade
+    2. Recent news activity - fresh information edge
+    3. Time-sensitive (resolution within 30 days) - faster feedback
+    """
+    signals = []
+
+    for market in get_active_markets(min_volume_7d=1_000_000):
+        news = get_relevant_news(market, hours=72)
+
+        if len(news) >= 3:  # Need minimum news coverage
+            signal = calculate_mispricing_signal(market.id, news)
+            if signal and signal.confidence > 0.5:
+                signals.append(signal)
+
+    return sorted(signals, key=lambda s: s.edge * s.confidence, reverse=True)
+```
+
+**Trading Logic:**
+
+| Discrepancy | Confidence | Action |
+|-------------|------------|--------|
+| >15% gap | High (>0.7) | Auto-execute (if enabled) |
+| 10-15% gap | High (>0.7) | Strong alert, recommend trade |
+| 10-15% gap | Medium (0.5-0.7) | Alert, manual review |
+| <10% gap | Any | Log only, no action |
+
+**Example:**
+```
+Market: "Khamenei out as Supreme Leader by Jan 31?"
+Market Price: 5.5%
+AI Estimate: 20.0% (based on 12 news articles about protests, instability)
+Discrepancy: +14.5%
+Direction: BUY YES
+Confidence: 0.8 (high news volume, diverse sources)
+→ SIGNAL: Strong mispricing detected, recommend BUY YES
+```
+
 ### Phase 2: Smart Wallet Intelligence
 
 #### 2.1 Wallet Specialty Classifier
@@ -513,6 +742,119 @@ fade_candidates = wallets.filter(
 
 **Strategy:** When fade_candidate buys YES, consider NO.
 
+#### 2.4 Insider Detection Engine
+
+**Sources:** Research from @RetroValix, @Polysights, @spacexbt, @gemchange_ltd
+
+Automated system to detect and copy-trade suspected insiders:
+
+```python
+class InsiderDetector:
+    """
+    Multi-signal insider detection engine.
+    Combines fresh wallet detection, cluster analysis, and timing patterns.
+    """
+
+    def __init__(self):
+        self.alert_thresholds = {
+            "fresh_wallet_large_bet": {"account_age_hours": 24, "bet_size_min": 10_000},
+            "single_market_focus": {"market_count": 1, "bet_size_min": 5_000},
+            "perfect_win_rate": {"win_rate": 1.0, "resolved_bets_min": 3},
+            "cluster_correlation": {"timing_window_seconds": 60, "min_wallets": 3},
+        }
+
+    def scan_for_insiders(self, market_id: str) -> list[InsiderAlert]:
+        """Scan market's top holders for insider patterns."""
+        alerts = []
+        top_holders = get_market_top_holders(market_id)
+
+        for wallet in top_holders:
+            score = 0
+            flags = []
+
+            # Check 1: Fresh wallet + large bet
+            if wallet.account_age_hours < 24 and wallet.position_size > 10_000:
+                score += 40
+                flags.append("FRESH_WALLET_LARGE_BET")
+
+            # Check 2: Single market focus
+            if wallet.markets_traded == 1:
+                score += 30
+                flags.append("SINGLE_MARKET_FOCUS")
+
+            # Check 3: Perfect or near-perfect win rate in niche
+            if wallet.category_win_rate > 0.95 and wallet.category_bets >= 3:
+                score += 25
+                flags.append("HIGH_WIN_RATE_NICHE")
+
+            # Check 4: Card/external funding (no EVM history)
+            if not wallet.has_evm_deposit_history:
+                score += 20
+                flags.append("HIDDEN_FUNDING_SOURCE")
+
+            # Check 5: Wash trading cover activity
+            if detect_wash_trading(wallet):
+                score += 15
+                flags.append("WASH_TRADING_COVER")
+
+            if score >= 50:
+                alerts.append(InsiderAlert(
+                    wallet=wallet,
+                    score=score,
+                    flags=flags,
+                    confidence=min(score / 100, 1.0),
+                    action="COPY" if score >= 70 else "MONITOR"
+                ))
+
+        return sorted(alerts, key=lambda a: a.score, reverse=True)
+
+    def detect_wallet_clusters(self, wallets: list[str]) -> list[WalletCluster]:
+        """
+        Use Louvain clustering + Jaccard similarity to find coordinated wallets.
+        """
+        graph = build_similarity_graph(wallets)
+        clusters = louvain_communities(graph)
+
+        suspicious_clusters = []
+        for cluster in clusters:
+            if len(cluster) >= 3:
+                # Multiple wallets trading same markets at same time = coordinated
+                timing_correlation = calculate_cluster_timing_correlation(cluster)
+                position_similarity = calculate_position_similarity(cluster)
+
+                if timing_correlation > 0.8 or position_similarity > 0.7:
+                    suspicious_clusters.append(WalletCluster(
+                        wallets=cluster,
+                        timing_correlation=timing_correlation,
+                        position_similarity=position_similarity,
+                        likely_single_entity=True
+                    ))
+
+        return suspicious_clusters
+```
+
+**Alert Levels:**
+
+| Score | Level | Action |
+|-------|-------|--------|
+| 70-100 | **CRITICAL** | Auto-copy trade (if enabled), immediate alert |
+| 50-69 | **HIGH** | Alert + recommend following |
+| 30-49 | **MEDIUM** | Add to watchlist |
+| <30 | **LOW** | Log for analysis |
+
+**Integration with Trading Layer:**
+```python
+# When insider detected, optionally auto-copy
+if insider_alert.score >= 70 and settings.auto_copy_insiders:
+    position = insider_alert.wallet.position
+    execute_trade(
+        market_id=position.market_id,
+        direction=position.direction,
+        size=calculate_copy_size(position.size, settings.max_copy_size),
+        reason=f"Insider copy: {insider_alert.flags}"
+    )
+```
+
 ### Phase 3: Automated Trading Signals
 
 #### 3.1 Signal Confidence Framework
@@ -538,6 +880,146 @@ position_size = (
 
 - **Entry:** Wait for price to stabilize after news (avoid slippage)
 - **Exit:** Set take-profit at expected resolution price, stop-loss at -X%
+
+#### 3.4 High-Conviction Trade Detection
+
+**Source:** @MazinoTower sports whale analysis (Jan 2026)
+
+Sports whales don't make many trades—they make **few, large, high-conviction bets**:
+
+```python
+def detect_high_conviction_trade(trade, wallet):
+    """Flag trades that indicate domain expertise + conviction."""
+
+    # High conviction = bet size >> average
+    size_ratio = trade.size / wallet.avg_bet_size
+
+    # Specialists have few active positions
+    active_positions = len(wallet.open_positions)
+
+    if size_ratio > 5 and active_positions < 5:
+        return {
+            "type": "high_conviction_specialist",
+            "confidence": min(size_ratio / 10, 1.0),
+            "category": classify_market(trade.market),
+            "action": "FOLLOW if wallet is category specialist"
+        }
+```
+
+**Pattern:** beachboy4 made +$5.7M with just 4 trades. Not volume—conviction.
+
+### Phase 3.5: Sports Intelligence Layer
+
+**Why Sports?** Jan 2026 data shows sports is the highest PnL vertical:
+- 5 traders: $16.2M profit in 1 week
+- Top 50 sports traders: $20.4M profit
+- Few trades, massive returns = domain expertise edge
+
+#### 3.5.1 Sports Data Ingestion
+
+```python
+SPORTS_DATA_SOURCES = {
+    "live_scores": ["ESPN API", "theScore", "Sportradar"],
+    "injury_reports": ["official team feeds", "beat reporters"],
+    "betting_lines": ["Vegas consensus", "sharp money moves"],
+    "weather": ["game-day conditions for outdoor sports"],
+}
+```
+
+#### 3.5.2 Sports-Specific Signals
+
+| Signal Type | Source | Latency Edge |
+|-------------|--------|--------------|
+| Injury news | Beat reporter tweets | 5-30 min before markets adjust |
+| Lineup changes | Official team accounts | 10-60 min edge |
+| Weather shifts | NWS/weather APIs | Hours of edge for outdoor games |
+| Sharp money | Betting line movements | Real-time correlation |
+
+#### 3.5.3 Sports Wallet Tracking
+
+Track wallets with high sports win rates:
+- beachboy4, 0x492442Ea, Pimping → add to "Sports Specialists" watchlist
+- Alert when they place new sports bets
+- Cross-reference with live game data
+
+### Phase 3.6: Backtesting & Strategy Validation
+
+**Source:** @jayka003's backtesting tool (134K views, high demand)
+
+Before deploying strategies live, validate with historical data:
+
+#### 3.6.1 Backtesting Framework
+
+```python
+class StrategyBacktester:
+    """Replay historical signals against historical market data."""
+
+    def __init__(self, strategy, start_date, end_date):
+        self.strategy = strategy
+        self.historical_signals = load_signals(start_date, end_date)
+        self.historical_prices = load_market_prices(start_date, end_date)
+
+    def run(self):
+        results = []
+        for signal in self.historical_signals:
+            # What would strategy have done?
+            action = self.strategy.evaluate(signal)
+
+            # What was actual outcome?
+            outcome = self.get_resolution(signal.market_id)
+
+            results.append({
+                "signal": signal,
+                "action": action,
+                "outcome": outcome,
+                "pnl": self.calculate_pnl(action, outcome)
+            })
+
+        return BacktestReport(results)
+```
+
+#### 3.6.2 Paper Trading Mode
+
+- Real signals, simulated execution
+- Track theoretical PnL before going live
+- Validate signal quality without risk
+
+### Phase 3.7: Profile Popularity Tracking
+
+**Source:** @the_smart_ape analysis (320K profile views = most-watched trader)
+
+High-attention traders create following effects:
+
+#### 3.7.1 Profile Attention Signals
+
+```python
+def track_profile_attention(wallet_id):
+    """Monitor which profiles are gaining attention."""
+
+    metrics = {
+        "profile_views_24h": get_polymarket_views(wallet_id),
+        "x_mentions": count_twitter_mentions(wallet_id),
+        "copy_traders": count_followers(wallet_id),
+        "leaderboard_position_delta": get_rank_change(wallet_id),
+    }
+
+    # High attention + new trade = potential following effect
+    if metrics["profile_views_24h"] > 100_000:
+        return {
+            "type": "high_attention_trader",
+            "signal": "trades_may_move_market",
+            "action": "monitor for front-running opportunities"
+        }
+```
+
+#### 3.7.2 Attention-Based Signals
+
+| Metric | Threshold | Signal |
+|--------|-----------|--------|
+| Profile views/24h | >100K | "Hot trader" - others watching |
+| New followers/day | >500 | Rising influence |
+| Leaderboard jump | +100 ranks | Momentum trader |
+| X mentions | >50/day | Community buzz |
 
 ### Phase 4: Unique Data Moats
 
@@ -568,9 +1050,16 @@ Predict resolution disputes before they happen:
 |----------|---------|--------|--------|--------------|
 | **P0** | News-to-Market Matcher | Medium | High | LLM, Market API |
 | **P0** | Real-time X/Telegram ingestion | Medium | High | Twitter API, TG bot |
+| **P0** | Sports Data Ingestion | Medium | **Very High** | ESPN API, injury feeds |
+| **P0** | AI vs Market Mispricing Detection | Medium | **Very High** | News matcher, Market prices |
 | **P1** | Wallet Specialty Classifier | Medium | High | Historical trade data |
 | **P1** | Signal Confidence Scoring | Low | Medium | News matcher |
+| **P1** | High-Conviction Detection | Low | High | Wallet data, trade stream |
+| **P1** | Backtesting Module | Medium | High | Historical data, strategy engine |
+| **P1** | Insider Detection Engine | Medium | **Very High** | Wallet data, Polysights API, DeBank |
+| **P1** | Wallet Cluster Analysis | Medium | High | Graph analysis, timing correlation |
 | **P2** | Fade List Generator | Low | Medium | Wallet data |
+| **P2** | Profile Popularity Tracking | Low | Medium | Polymarket API, X API |
 | **P2** | Auto-execution | High | High | CLOB API, risk mgmt |
 | **P3** | Alt-data signals | High | Medium | Custom scrapers |
 
@@ -691,4 +1180,4 @@ The most profitable traders are:
 
 ---
 
-*Last updated: 2026-01-18 (Added Bot Liquidity Drain strategy from @a4385 $233K exploit, added @polymarketbet to follow list)*
+*Last updated: 2026-01-24 (Added comprehensive insider detection module with @RetroValix 4-step method, wallet clustering via @gemchange_ltd, copy score formula, sports whale analysis, AI vs Market mispricing detection, backtesting module, profile popularity tracking)*
