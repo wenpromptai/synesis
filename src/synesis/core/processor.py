@@ -305,7 +305,13 @@ class NewsProcessor:
         # 4. Stage 2: Smart analysis (all informed judgments)
         log.debug("Stage 2: Smart analysis with context")
 
-        analysis = await self.analyzer.analyze(message, extraction, web_results, markets_text)
+        analysis = await self.analyzer.analyze(
+            message,
+            extraction,
+            web_results,
+            markets_text,
+            http_client=self.polymarket._get_client(),  # Reuse existing client for additional searches
+        )
 
         if analysis is None:
             # Stage 2 failed - log error and continue with partial results

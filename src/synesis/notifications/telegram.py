@@ -31,10 +31,7 @@ SUBSECTION_SEPARATOR = "──────────"
 def _escape_html(text: str) -> str:
     """Escape HTML special characters for Telegram."""
     return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
     )
 
 
@@ -310,7 +307,10 @@ def format_condensed_signal(
         msg += "\n\n📊 <b>Tickers</b>"
         for ta in analysis.ticker_analyses:
             ticker_dir = direction_emoji.get(ta.net_direction.value, "⚪")
-            msg += f"\n{ticker_dir} <code>${ta.ticker}</code> {ta.net_direction.value} ({ta.conviction:.0%})"
+            company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
+            msg += f"\n{ticker_dir} <code>${ta.ticker}</code>{company_name} {ta.net_direction.value} ({ta.conviction:.0%})"
+            if ta.relevance_reason:
+                msg += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
 
     # All sectors (one line each)
     if analysis.sector_implications:
@@ -486,9 +486,13 @@ Impact: {impact_emoji.get(impact, impact)} {impact.upper()} | Direction: {direct
 
         for ta in analysis.ticker_analyses:
             ticker_dir = direction_emoji.get(ta.net_direction.value, "⚪")
+            company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
             msg += f"""
 {SUBSECTION_SEPARATOR}
-{ticker_dir} <code>${ta.ticker}</code> ({ta.net_direction.value.upper()}, {ta.conviction:.0%} conviction)
+{ticker_dir} <code>${ta.ticker}</code>{company_name} ({ta.net_direction.value.upper()}, {ta.conviction:.0%} conviction)"""
+            if ta.relevance_reason:
+                msg += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
+            msg += f"""
    Time horizon: {ta.time_horizon}
 
    🟢 Bull: {_escape_html(ta.bull_thesis)}
@@ -521,8 +525,8 @@ Impact: {impact_emoji.get(impact, impact)} {impact.upper()} | Direction: {direct
 {sec_dir} <b>{_escape_html(si.sector)}</b>: {si.direction.value.upper()}
    {_escape_html(si.reasoning)}"""
 
-            if si.affected_subsectors:
-                subsectors = ", ".join(_escape_html(s) for s in si.affected_subsectors)
+            if si.subsectors:
+                subsectors = ", ".join(_escape_html(s) for s in si.subsectors)
                 msg += f"\n\n   Subsectors: {subsectors}"
 
     # =========================================================================

@@ -344,7 +344,9 @@ class TestTickerAnalysis:
             time_horizon="days",
         )
 
-        assert ticker.company_name is None
+        assert ticker.company_name == ""
+        assert ticker.relevance_score == 0.7  # Default
+        assert ticker.relevance_reason == ""
         assert ticker.catalysts == []
         assert ticker.risk_factors == []
 
@@ -357,12 +359,12 @@ class TestSectorImplication:
             sector="technology",
             direction=Direction.bullish,
             reasoning="AI spending accelerating",
-            affected_subsectors=["semiconductors", "cloud", "software"],
+            subsectors=["semiconductors", "cloud", "software"],
         )
 
         assert sector.sector == "technology"
         assert sector.direction == Direction.bullish
-        assert len(sector.affected_subsectors) == 3
+        assert len(sector.subsectors) == 3
 
     def test_empty_subsectors_default(self) -> None:
         sector = SectorImplication(
@@ -371,7 +373,7 @@ class TestSectorImplication:
             reasoning="Oil prices falling",
         )
 
-        assert sector.affected_subsectors == []
+        assert sector.subsectors == []
 
 
 class TestResearchQuality:

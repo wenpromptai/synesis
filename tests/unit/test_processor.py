@@ -283,9 +283,13 @@ class TestNewsProcessor:
         mock_analyzer.search_polymarket = AsyncMock(return_value="Markets found")
         mock_analyzer.analyze = AsyncMock(return_value=mock_analysis)
 
+        mock_polymarket = MagicMock()
+        mock_polymarket._get_client = MagicMock(return_value=MagicMock())
+
         processor._deduplicator = mock_dedup
         processor._classifier = mock_classifier
         processor._analyzer = mock_analyzer
+        processor._polymarket = mock_polymarket
         processor._initialized = True
 
         # Mock web search
@@ -432,9 +436,13 @@ class TestNewsProcessorStage2Failure:
         mock_analyzer.search_polymarket = AsyncMock(return_value="Markets found")
         mock_analyzer.analyze = AsyncMock(return_value=None)  # Stage 2 failed!
 
+        mock_polymarket = MagicMock()
+        mock_polymarket._get_client = MagicMock(return_value=MagicMock())
+
         processor._deduplicator = mock_dedup
         processor._classifier = mock_classifier
         processor._analyzer = mock_analyzer
+        processor._polymarket = mock_polymarket
         processor._initialized = True
 
         with patch(

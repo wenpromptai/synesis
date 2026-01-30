@@ -259,29 +259,42 @@ class MessageDeduplicator:
         return await self._check_duplicate_with_embedding(message, embedding)
 
     async def _store_embedding(self, message: UnifiedMessage, embedding: np.ndarray) -> bool:
-        """Store pre-computed embedding in Redis.
+        """Store pre-computed embedding in Redis atomically.
+
+        Uses SET with NX (only set if not exists) for atomic claim to prevent
+        race conditions when similar messages arrive simultaneously.
 
         Args:
             message: The message being stored
             embedding: Pre-computed embedding
 
         Returns:
-            True if stored successfully, False otherwise
+            True if stored successfully (we claimed the key), False otherwise
         """
         key = self._make_redis_key(message.external_id, message.source_platform.value)
 
         try:
-            await self.redis.setex(
+            # Use SET with NX for atomic "claim" - prevents race conditions
+            was_set = await self.redis.set(
                 key,
-                self.ttl_seconds,
                 embedding.tobytes(),
+                nx=True,  # Only set if key doesn't exist
+                ex=self.ttl_seconds,
             )
-            logger.debug(
-                "Stored embedding",
-                key=key,
-                ttl_seconds=self.ttl_seconds,
-            )
-            return True
+            if was_set:
+                logger.debug(
+                    "Stored embedding",
+                    key=key,
+                    ttl_seconds=self.ttl_seconds,
+                )
+                return True
+            else:
+                logger.debug(
+                    "Embedding already exists - likely duplicate",
+                    key=key,
+                    message_id=message.external_id,
+                )
+                return False
         except RedisError as e:
             logger.error(
                 "Failed to store embedding - duplicates may not be detected",

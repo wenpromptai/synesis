@@ -73,13 +73,49 @@ Your job is to make ALL informed judgments about this news.
 
 ## Your Tasks
 
-### 1. Determine Affected Securities (with research context)
-- **tickers**: Stock tickers directly affected (e.g., AAPL, TSLA)
-  - Be specific and accurate
-  - Only include tickers that are DIRECTLY affected
-  - Use your research to validate ticker relevance
-- **sectors**: Sectors affected (e.g., semiconductors, financials)
-  - Consider second-order effects
+### 1. Identify Affected Securities (STRICT RELEVANCE)
+
+**CRITICAL: Only include tickers with DIRECT, MATERIAL impact.**
+
+For each potential ticker, apply this relevance test:
+
+**Causal Link Requirements** (must meet at least ONE):
+- Revenue or earnings impact (>5% expected change)
+- Regulatory/legal status change
+- Competitive position materially affected
+- Supply chain or key partnerships disrupted/formed
+
+**Exclusion Criteria** (DO NOT include if):
+- Competitor mentioned for context only
+- Company in same sector but not directly affected
+- Parent/subsidiary unless news specifically affects them
+- Historical comparison ("similar to when X happened to AAPL")
+- Tangentially related through industry trends
+
+**Required Output for Each Ticker**:
+- `ticker`: Stock symbol (e.g., AAPL)
+- `company_name`: Full company name
+- `relevance_score`: 0.0-1.0 (only include if >= 0.6)
+  - 0.9-1.0: Primary subject of the news
+  - 0.7-0.89: Directly named or materially affected
+  - 0.6-0.69: Clear secondary impact
+  - <0.6: DO NOT include
+- `relevance_reason`: ONE sentence explaining the direct causal link
+
+**Examples**:
+- News: "Apple announces 20% revenue miss in China"
+  - ✅ AAPL (0.95): Primary subject, direct earnings impact
+  - ❌ MSFT: Competitor, not directly affected
+  - ❌ TSM: Supplier, but no specific impact mentioned
+
+- News: "Fed cuts rates by 50bps"
+  - ✅ Sector-level play on Financials, Real Estate
+  - ❌ Individual banks unless specifically named with impact
+
+**When to use search_additional:**
+- SEARCH if a company is mentioned but you're unsure of direct impact
+- SKIP search for obvious primary subjects or well-known sector plays
+- Limit to 1-2 searches max to maintain analysis speed
 
 ### 2. Assess Impact (with research context)
 - **predicted_impact**: high | medium | low
@@ -104,10 +140,31 @@ For each directly affected ticker:
 - Conviction: 0.0 to 1.0
 - Time horizon: intraday | days | weeks | months
 
-### 5. Sector Implications
-For affected sectors:
-- Direction and reasoning
-- Affected subsectors
+### 5. Sector & Subsector Mapping
+
+**Use GICS sectors as top-level classification:**
+Energy | Materials | Industrials | Utilities | Healthcare |
+Financials | Consumer Discretionary | Consumer Staples |
+Information Technology | Communication Services | Real Estate
+
+**For each affected sector provide:**
+- `sector`: GICS sector name (e.g., "Information Technology")
+- `subsectors`: 1-3 specific subsectors for granularity
+- `direction`: bullish | bearish | neutral
+- `reasoning`: One sentence explaining the sector impact
+
+**Subsector Examples by Sector:**
+- Information Technology: AI chips, cloud computing, cybersecurity, enterprise software, consumer electronics
+- Financials: regional banks, investment banks, insurance, fintech, payment processors, asset managers
+- Healthcare: biotech, pharma, medical devices, healthcare services, managed care
+- Energy: oil & gas exploration, refiners, renewables, utilities
+- Consumer Discretionary: luxury goods, auto manufacturers, e-commerce, restaurants, travel
+- Communication Services: social media, streaming, telecom, advertising, gaming
+- Industrials: defense, aerospace, construction, logistics, machinery
+- Materials: mining, chemicals, steel, packaging
+- Real Estate: REITs, commercial, residential, data centers
+- Consumer Staples: food & beverage, household products, tobacco, retail grocery
+- Utilities: electric, gas, water, renewable energy generators
 
 ### 6. Historical Context & Market Reaction Patterns
 
@@ -312,11 +369,19 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             ctx: RunContext[AnalyzerDeps],
             query: str,
         ) -> str:
-            """Search for additional information if the pre-fetched context is insufficient.
+            """Search for additional information when pre-fetched context is insufficient.
 
-            Use sparingly - prefer using the pre-fetched research when possible.
-            Only use this if you need specific information not covered by the
-            pre-fetched web research.
+            Use this tool ONLY when:
+            - Pre-fetched research doesn't cover a company you're considering
+            - You need to verify a specific causal link that's unclear
+            - Historical precedent data is missing
+
+            DO NOT search for:
+            - Companies that are clearly the primary subject (obvious from news)
+            - Well-known sector impacts (Fed rate cuts → financials)
+            - Information already in the pre-fetched research
+
+            Limit to 1-2 searches per analysis to maintain speed.
 
             Args:
                 query: Search query for additional information
@@ -466,6 +531,19 @@ Focus on DIRECT impacts. Be conservative with confidence scores."""
         try:
             result = await self.agent.run(user_prompt, deps=deps)
             output = result.output
+
+            # Post-process: Filter low-relevance tickers (threshold: 0.6)
+            original_ticker_count = len(output.ticker_analyses)
+            output.ticker_analyses = [t for t in output.ticker_analyses if t.relevance_score >= 0.6]
+            output.tickers = [t.ticker for t in output.ticker_analyses]
+
+            filtered_count = original_ticker_count - len(output.ticker_analyses)
+            if filtered_count > 0:
+                log.debug(
+                    "Filtered low-relevance tickers",
+                    filtered=filtered_count,
+                    remaining=len(output.ticker_analyses),
+                )
 
             log.info(
                 "Stage 2 smart analysis complete",

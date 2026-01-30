@@ -18,6 +18,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+import asyncpg
 from redis.asyncio import Redis
 
 from synesis.config import get_settings
@@ -68,7 +69,15 @@ async def store_signal(signal: Flow1Signal, redis: Redis) -> None:
     date_str = signal.timestamp.strftime("%Y-%m-%d")
     output_file = SIGNALS_DIR / f"signals_{date_str}.jsonl"
 
-    signal_json = signal.model_dump_json()
+    try:
+        signal_json = signal.model_dump_json()
+    except (TypeError, ValueError) as e:
+        logger.error(
+            "Failed to serialize signal",
+            error=str(e),
+            message_id=signal.external_id,
+        )
+        return
 
     # Use thread pool to avoid blocking event loop
     def _write_sync() -> None:
@@ -120,6 +129,14 @@ async def emit_signal_to_db(
         logger.debug("Signal stored to database", message_id=message.external_id)
     except RuntimeError:
         logger.debug("Database not available, skipping signal storage")
+    except asyncpg.UniqueViolationError:
+        logger.debug("Signal already exists", message_id=message.external_id)
+    except (asyncpg.PostgresConnectionError, asyncpg.InterfaceError) as e:
+        logger.warning(
+            "Database connection error - signal not stored",
+            error=str(e),
+            message_id=message.external_id,
+        )
     except Exception as e:
         logger.error(
             "Failed to store signal - DATA LOSS", error=str(e), message_id=message.external_id

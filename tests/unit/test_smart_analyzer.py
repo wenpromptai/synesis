@@ -14,6 +14,7 @@ from synesis.processing.models import (
     SmartAnalysis,
     SourcePlatform,
     SourceType,
+    TickerAnalysis,
     UnifiedMessage,
 )
 from synesis.processing.smart_analyzer import (
@@ -250,6 +251,19 @@ class TestSmartAnalyzer:
             market_direction=Direction.bullish,
             primary_thesis="Rate cut bullish for equities",
             thesis_confidence=0.8,
+            ticker_analyses=[
+                TickerAnalysis(
+                    ticker="SPY",
+                    company_name="SPDR S&P 500 ETF Trust",
+                    relevance_score=0.9,
+                    relevance_reason="Direct exposure to rate-sensitive equities",
+                    bull_thesis="Rate cuts boost equity valuations",
+                    bear_thesis="Cuts may signal economic weakness",
+                    net_direction=Direction.bullish,
+                    conviction=0.8,
+                    time_horizon="weeks",
+                )
+            ],
         )
 
         mock_result = MagicMock()

@@ -180,6 +180,26 @@ class Direction(str, Enum):
     neutral = "neutral"
 
 
+class GICSSector(str, Enum):
+    """GICS top-level sector classification.
+
+    The Global Industry Classification Standard (GICS) defines 11 sectors.
+    Use these for consistent sector mapping in analysis.
+    """
+
+    energy = "Energy"
+    materials = "Materials"
+    industrials = "Industrials"
+    utilities = "Utilities"
+    healthcare = "Healthcare"
+    financials = "Financials"
+    consumer_discretionary = "Consumer Discretionary"
+    consumer_staples = "Consumer Staples"
+    information_technology = "Information Technology"
+    communication_services = "Communication Services"
+    real_estate = "Real Estate"
+
+
 class ResearchAnalysis(BaseModel):
     """Insights from web research about historical patterns."""
 
@@ -200,10 +220,23 @@ class ResearchAnalysis(BaseModel):
 
 
 class TickerAnalysis(BaseModel):
-    """Analysis of a single ticker affected by news."""
+    """Analysis of a single ticker affected by news.
+
+    Each ticker must pass the relevance test (score >= 0.6) to be included.
+    """
 
     ticker: str = Field(description="Stock ticker symbol (e.g., AAPL, TSLA)")
-    company_name: str | None = Field(default=None, description="Company name if known")
+    company_name: str = Field(default="", description="Full company name")
+    relevance_score: float = Field(
+        ge=0.0,
+        le=1.0,
+        default=0.7,
+        description="How directly affected (0.9-1.0: primary subject, 0.7-0.89: directly named, 0.6-0.69: secondary impact, <0.6: do not include)",
+    )
+    relevance_reason: str = Field(
+        default="",
+        description="One sentence explaining the direct causal link to this news",
+    )
     bull_thesis: str = Field(description="Bull case: why this news is positive for the stock")
     bear_thesis: str = Field(description="Bear case: why this news is negative for the stock")
     net_direction: Direction = Field(description="Overall expected direction")
@@ -216,15 +249,23 @@ class TickerAnalysis(BaseModel):
 
 
 class SectorImplication(BaseModel):
-    """Sector-level implication from news."""
+    """Sector-level implication from news.
 
-    sector: str = Field(description="Sector name (e.g., semiconductors, financials)")
+    Use GICS sectors as top-level classification for consistency:
+    Energy, Materials, Industrials, Utilities, Healthcare, Financials,
+    Consumer Discretionary, Consumer Staples, Information Technology,
+    Communication Services, Real Estate.
+    """
+
+    sector: str = Field(
+        description="GICS sector name (e.g., 'Information Technology', 'Financials', 'Healthcare')"
+    )
+    subsectors: list[str] = Field(
+        default_factory=list,
+        description="Specific subsectors for granularity (e.g., 'AI chips', 'regional banks', 'biotech')",
+    )
     direction: Direction = Field(description="Expected direction for the sector")
     reasoning: str = Field(description="Explanation of sector impact")
-    affected_subsectors: list[str] = Field(
-        default_factory=list,
-        description="Specific subsectors affected (e.g., AI chips, payment processors)",
-    )
 
 
 class ResearchQuality(str, Enum):

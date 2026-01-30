@@ -123,9 +123,9 @@ class TestMessageDeduplicator:
         message = create_test_message("Test message", external_id="msg_123")
         await deduplicator.store_message(message)
 
-        # Check that setex was called
-        mock_redis.setex.assert_called_once()
-        call_args = mock_redis.setex.call_args
+        # Check that set was called (with nx=True for race condition safety)
+        mock_redis.set.assert_called_once()
+        call_args = mock_redis.set.call_args
         assert "dedup:emb:twitter:msg_123" in call_args[0][0]
 
     @pytest.mark.asyncio
@@ -143,7 +143,7 @@ class TestMessageDeduplicator:
         result = await deduplicator.process_message(message)
 
         assert not result.is_duplicate
-        mock_redis.setex.assert_called_once()
+        mock_redis.set.assert_called_once()
 
     def test_cosine_similarity(self, mock_redis: AsyncMock) -> None:
         """Test cosine similarity calculation."""
