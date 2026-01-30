@@ -35,11 +35,21 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0")
 
-    # Telegram
+    # Telegram (ingestion)
     telegram_api_id: int | None = Field(default=None)
     telegram_api_hash: SecretStr | None = Field(default=None)
     telegram_session_name: str = Field(default="synesis")
     telegram_channels: list[str] = Field(default_factory=list)
+
+    # Telegram (notifications)
+    telegram_bot_token: SecretStr | None = Field(
+        default=None,
+        description="Telegram bot token for sending notifications",
+    )
+    telegram_chat_id: str | None = Field(
+        default=None,
+        description="Telegram chat ID to send notifications to",
+    )
 
     @field_validator("telegram_channels", mode="before")
     @classmethod
@@ -59,6 +69,18 @@ class Settings(BaseSettings):
     twitter_api_base_url: str = Field(default="https://api.twitterapi.io")
     twitter_accounts: list[str] = Field(default_factory=list)
 
+    # Twitter source categorization for Flow 1
+    # News accounts = high urgency (breaking news, act fast)
+    twitter_news_accounts: list[str] = Field(
+        default=["DeItaone", "realDonaldTrump"],
+        description="Twitter accounts treated as breaking news sources (high urgency)",
+    )
+    # Analysis accounts = normal urgency (insights, consider)
+    twitter_analysis_accounts: list[str] = Field(
+        default=["elonmusk", "NickTimiraos", "charliebilello", "KobeissiLetter"],
+        description="Twitter accounts treated as analysis sources (normal urgency)",
+    )
+
     @field_validator("twitter_accounts", mode="before")
     @classmethod
     def parse_twitter_accounts(cls, v: str | list[str] | None) -> list[str]:
@@ -72,25 +94,81 @@ class Settings(BaseSettings):
                 v = [a.strip() for a in v.split(",") if a.strip()]
         return [a.lstrip("@") for a in v]
 
+    @field_validator("twitter_news_accounts", "twitter_analysis_accounts", mode="before")
+    @classmethod
+    def parse_twitter_categorized_accounts(cls, v: str | list[str] | None) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                v = json.loads(v)
+            else:
+                v = [a.strip() for a in v.split(",") if a.strip()]
+        return [a.lstrip("@") for a in v]
+
+    def get_twitter_source_type(self, username: str) -> str:
+        """Get source type (news/analysis) for a Twitter username."""
+        username_clean = username.lstrip("@").lower()
+        if username_clean in [a.lower() for a in self.twitter_news_accounts]:
+            return "news"
+        return "analysis"
+
+    def get_telegram_source_type(self, channel: str) -> str:
+        """Get source type for a Telegram channel. All Telegram channels are news by default."""
+        # All configured Telegram channels are treated as breaking news
+        return "news"
+
     # Polymarket
     polymarket_api_key: SecretStr | None = Field(default=None)
     polymarket_api_secret: SecretStr | None = Field(default=None)
     polymarket_private_key: SecretStr | None = Field(default=None)
     polymarket_chain_id: int = Field(default=137)
 
-    # LLM
+    # LLM Provider
+    llm_provider: Literal["anthropic", "openai"] = Field(default="anthropic")
+
+    # API Keys
     anthropic_api_key: SecretStr | None = Field(default=None)
     openai_api_key: SecretStr | None = Field(default=None)
-    llm_model: str = Field(default="claude-3-5-haiku-20241022")
 
-    # n8n webhook
-    n8n_webhook_url: str | None = Field(default=None)
+    # OpenAI-compatible base URL (for ZAI, use https://api.z.ai/api/coding/paas/v4)
+    openai_base_url: str | None = Field(default=None)
+
+    # Model names
+    llm_model: str = Field(default="claude-3-5-haiku-20241022")
+    llm_model_smart: str = Field(default="claude-sonnet-4-20250514")
+
+    # Web Search APIs (for LLM tool use)
+    # SearXNG (self-hosted, primary search - no API key, no rate limits)
+    searxng_url: str | None = Field(default="http://localhost:8080")
+    # External APIs (fallbacks)
+    exa_api_key: SecretStr | None = Field(default=None)
+    brave_api_key: SecretStr | None = Field(default=None)
 
     # Trading
     trading_enabled: bool = Field(default=False)
     max_position_size: float = Field(default=100.0)
     min_edge_threshold: float = Field(default=0.05)
     confidence_threshold: float = Field(default=0.7)
+
+    # Processing concurrency
+    processing_workers: int = Field(
+        default=5,
+        description="Number of concurrent message processor workers",
+    )
+    processing_queue_size: int = Field(
+        default=100,
+        description="Max size of internal processing queue",
+    )
+    web_search_max_queries: int = Field(
+        default=2,
+        description="Max web search queries per message",
+    )
+    polymarket_max_keywords: int = Field(
+        default=5,
+        description="Max Polymarket keywords to search per message",
+    )
 
     @property
     def is_production(self) -> bool:

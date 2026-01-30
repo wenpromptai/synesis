@@ -24,12 +24,12 @@ settings: Settings | None = None
 async def on_message(msg: TelegramMessage) -> None:
     """Handle incoming messages."""
     # Print to console
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Channel: {msg.channel_name}")
     print(f"Time: {msg.timestamp}")
     print(f"Message ID: {msg.message_id}")
     print(f"Text: {msg.text[:500]}..." if len(msg.text) > 500 else f"Text: {msg.text}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Write to JSONL - store raw with received_at timestamp
     record = {
@@ -71,7 +71,7 @@ async def main() -> None:
 
     session_path = str(SESSION_DIR / settings.telegram_session_name)
 
-    print(f"Starting Telegram listener...")
+    print("Starting Telegram listener...")
     print(f"API ID: {settings.telegram_api_id}")
     print(f"Channels: {settings.telegram_channels or 'All (no filter)'}")
     print(f"Output: {OUTPUT_FILE}")

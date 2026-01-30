@@ -1,10 +1,393 @@
 -- Synesis Database Initialization
 -- This script runs on first database creation
 
--- Enable required extensions for vector search and text matching
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- =============================================================================
+-- SCHEMA SETUP
+-- =============================================================================
 
--- TimescaleDB extension is pre-installed in the timescaledb image
--- but we ensure it's enabled for our database
-CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+-- Create dedicated schema for synesis tables
+CREATE SCHEMA IF NOT EXISTS synesis;
+
+-- Set search_path to synesis schema first, then public for extensions
+SET search_path TO synesis, public;
+
+-- =============================================================================
+-- EXTENSIONS (installed in public schema)
+-- =============================================================================
+
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS vector;           -- pgvector for embeddings
+CREATE EXTENSION IF NOT EXISTS pg_trgm;          -- Trigram for text search
+CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;  -- Time-series support
+
+-- =============================================================================
+-- CORE TABLES
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Signals (TimescaleDB Hypertable)
+-- Stores all flow outputs with automatic time-based partitioning
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.signals (
+    time TIMESTAMPTZ NOT NULL,
+    flow_id TEXT NOT NULL,              -- 'flow1', 'flow2', 'flow3'
+    signal_type TEXT NOT NULL,          -- 'breaking_news', 'sentiment', 'market_intel'
+    payload JSONB NOT NULL,             -- Full signal data
+    markets JSONB,                      -- [{"market_id": "abc", "link": "https://..."}]
+    tickers TEXT[],                     -- ['AAPL', 'TSLA']
+    entities TEXT[],                    -- All entities mentioned (people, companies, institutions)
+    PRIMARY KEY (time, flow_id)
+);
+
+-- Convert to hypertable with 1-day chunks
+SELECT create_hypertable('synesis.signals', 'time',
+    chunk_time_interval => INTERVAL '1 day',
+    if_not_exists => TRUE
+);
+
+-- -----------------------------------------------------------------------------
+-- GIN Indexes for efficient JSONB and array queries
+-- -----------------------------------------------------------------------------
+
+-- Index for JSONB markets column
+-- Uses jsonb_path_ops: smaller index, supports @> containment queries
+CREATE INDEX IF NOT EXISTS idx_signals_markets
+    ON synesis.signals USING GIN (markets jsonb_path_ops);
+
+-- Index for TEXT[] tickers column
+-- Supports: @> (contains), && (overlap), <@ (contained by)
+CREATE INDEX IF NOT EXISTS idx_signals_tickers
+    ON synesis.signals USING GIN (tickers);
+
+-- Index for TEXT[] entities column
+-- Supports: @> (contains), && (overlap), <@ (contained by)
+CREATE INDEX IF NOT EXISTS idx_signals_entities
+    ON synesis.signals USING GIN (entities);
+
+-- Index for querying evaluations in payload (Flow 1 odds evaluations)
+-- Supports queries like: payload->'evaluations' @> '[{"verdict": "undervalued"}]'
+CREATE INDEX IF NOT EXISTS idx_signals_evaluations
+    ON synesis.signals USING GIN ((payload->'evaluations') jsonb_path_ops);
+
+-- Index for querying research_analysis in classification
+-- Supports queries on historical patterns and insights
+CREATE INDEX IF NOT EXISTS idx_signals_research_analysis
+    ON synesis.signals USING GIN ((payload->'classification'->'research_analysis') jsonb_path_ops);
+
+-- Enable compression after 7 days
+ALTER TABLE synesis.signals SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'flow_id, signal_type'
+);
+SELECT add_compression_policy('synesis.signals', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- Retention policy: 90 days
+SELECT add_retention_policy('synesis.signals', INTERVAL '90 days', if_not_exists => TRUE);
+
+-- -----------------------------------------------------------------------------
+-- Predictions (TimescaleDB Hypertable)
+-- Stores Stage 2B prediction market evaluations
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.predictions (
+    time TIMESTAMPTZ NOT NULL,
+    market_id TEXT NOT NULL,
+    market_question TEXT NOT NULL,
+    is_relevant BOOLEAN NOT NULL,
+    verdict TEXT NOT NULL,           -- 'undervalued', 'overvalued', 'fair', 'skip'
+    current_price DECIMAL(6,4),      -- Current YES price (0.0000 to 1.0000)
+    estimated_fair_price DECIMAL(6,4), -- Estimated fair price
+    edge DECIMAL(6,4),               -- fair - current
+    confidence DECIMAL(5,4),         -- 0.0000 to 1.0000
+    recommended_side TEXT,           -- 'yes', 'no', 'skip'
+    reasoning TEXT,
+    PRIMARY KEY (time, market_id)
+);
+
+-- Convert to hypertable with 1-day chunks
+SELECT create_hypertable('synesis.predictions', 'time',
+    chunk_time_interval => INTERVAL '1 day',
+    if_not_exists => TRUE
+);
+
+-- Index for finding predictions with edge
+CREATE INDEX IF NOT EXISTS idx_predictions_edge
+    ON synesis.predictions (edge DESC NULLS LAST)
+    WHERE is_relevant = TRUE AND edge IS NOT NULL;
+
+-- Index for market-based queries
+CREATE INDEX IF NOT EXISTS idx_predictions_market
+    ON synesis.predictions (market_id, time DESC);
+
+-- Enable compression after 7 days
+ALTER TABLE synesis.predictions SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'market_id, verdict'
+);
+SELECT add_compression_policy('synesis.predictions', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- Retention policy: 90 days
+SELECT add_retention_policy('synesis.predictions', INTERVAL '90 days', if_not_exists => TRUE);
+
+-- -----------------------------------------------------------------------------
+-- Raw Messages
+-- Ingested messages from Twitter/Telegram with embeddings for dedup
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.raw_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_platform TEXT NOT NULL,      -- 'twitter', 'telegram'
+    source_account TEXT NOT NULL,       -- '@DeItaone', 'marketfeed'
+    source_type TEXT NOT NULL,          -- 'news', 'analysis'
+    external_id TEXT NOT NULL,          -- Platform-specific ID
+    raw_text TEXT NOT NULL,
+    embedding vector(256),              -- Model2Vec embedding for dedup
+    source_timestamp TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ DEFAULT NOW(),
+    is_duplicate BOOLEAN DEFAULT FALSE,
+    duplicate_of UUID REFERENCES synesis.raw_messages(id),
+    UNIQUE (source_platform, external_id)
+);
+
+-- HNSW index for fast similarity search
+CREATE INDEX IF NOT EXISTS idx_raw_messages_embedding
+    ON synesis.raw_messages USING hnsw (embedding vector_cosine_ops);
+
+-- Index for finding recent messages by source
+CREATE INDEX IF NOT EXISTS idx_raw_messages_source_time
+    ON synesis.raw_messages (source_platform, source_account, source_timestamp DESC);
+
+-- =============================================================================
+-- PREDICTION MARKETS (Flow 3)
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Markets
+-- Polymarket/Kalshi market metadata
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.markets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL,             -- 'polymarket', 'kalshi'
+    external_id TEXT NOT NULL,          -- Platform's market ID
+    condition_id TEXT,                  -- Polymarket condition_id
+    question TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    end_date TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    winning_outcome TEXT,               -- 'yes', 'no', or specific outcome
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (platform, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_markets_platform_category
+    ON synesis.markets (platform, category);
+CREATE INDEX IF NOT EXISTS idx_markets_end_date
+    ON synesis.markets (end_date) WHERE resolved_at IS NULL;
+
+-- -----------------------------------------------------------------------------
+-- Wallets
+-- Tracked wallets on prediction market platforms
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.wallets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL,             -- 'polymarket', 'kalshi'
+    address TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_watched BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (platform, address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallets_watched
+    ON synesis.wallets (platform) WHERE is_watched = TRUE;
+
+-- -----------------------------------------------------------------------------
+-- Wallet Trades
+-- Individual trades made by tracked wallets
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.wallet_trades (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    wallet_id UUID NOT NULL REFERENCES synesis.wallets(id) ON DELETE CASCADE,
+    market_id UUID NOT NULL REFERENCES synesis.markets(id) ON DELETE CASCADE,
+    external_trade_id TEXT,             -- Platform's trade ID
+    direction TEXT NOT NULL,            -- 'yes', 'no'
+    price DECIMAL(10,6) NOT NULL,       -- 0.00 to 1.00
+    size DECIMAL(20,6) NOT NULL,        -- Amount in tokens/contracts
+    side TEXT NOT NULL,                 -- 'buy', 'sell'
+    traded_at TIMESTAMPTZ NOT NULL,
+    -- Filled after market resolution
+    resolved_at TIMESTAMPTZ,
+    pnl DECIMAL(20,6),
+    is_win BOOLEAN,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_trades_wallet
+    ON synesis.wallet_trades (wallet_id, traded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wallet_trades_market
+    ON synesis.wallet_trades (market_id, traded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wallet_trades_pre_resolution
+    ON synesis.wallet_trades (market_id, traded_at)
+    WHERE resolved_at IS NULL;
+
+-- -----------------------------------------------------------------------------
+-- Wallet Metrics
+-- Aggregated performance metrics per wallet
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.wallet_metrics (
+    wallet_id UUID PRIMARY KEY REFERENCES synesis.wallets(id) ON DELETE CASCADE,
+    total_trades INTEGER DEFAULT 0,
+    wins INTEGER DEFAULT 0,
+    losses INTEGER DEFAULT 0,
+    win_rate DECIMAL(5,4),              -- 0.0000 to 1.0000
+    total_pnl DECIMAL(20,6) DEFAULT 0,
+    avg_position_size DECIMAL(20,6),
+    -- Pre-news trading metrics (insider signals)
+    pre_news_trades INTEGER DEFAULT 0,  -- Trades within 1hr before resolution
+    pre_news_wins INTEGER DEFAULT 0,
+    pre_news_accuracy DECIMAL(5,4),
+    -- Computed insider score
+    insider_score DECIMAL(5,4),         -- 0.0 to 1.0
+    -- Metadata
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for finding profitable wallets
+CREATE INDEX IF NOT EXISTS idx_wallet_metrics_profitable
+    ON synesis.wallet_metrics (win_rate DESC, insider_score DESC)
+    WHERE total_trades >= 10;
+
+-- =============================================================================
+-- FLOW 2: SENTIMENT
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Watchlist
+-- Tickers being monitored for sentiment
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.watchlist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticker TEXT NOT NULL UNIQUE,
+    company_name TEXT,
+    added_by TEXT NOT NULL,             -- 'flow1', 'reddit', 'manual'
+    added_reason TEXT,
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,             -- TTL for auto-removal
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_active
+    ON synesis.watchlist (ticker) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_watchlist_expiry
+    ON synesis.watchlist (expires_at) WHERE is_active = TRUE AND expires_at IS NOT NULL;
+
+-- -----------------------------------------------------------------------------
+-- Sentiment Snapshots
+-- Per-ticker sentiment at each analysis interval
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.sentiment_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticker TEXT NOT NULL,
+    snapshot_time TIMESTAMPTZ NOT NULL,
+    -- Sentiment ratios
+    bullish_ratio DECIMAL(5,4) NOT NULL,
+    bearish_ratio DECIMAL(5,4) NOT NULL,
+    neutral_ratio DECIMAL(5,4) NOT NULL,
+    dominant_emotion TEXT,              -- 'fomo', 'panic', 'euphoria', etc.
+    -- Volume metrics
+    mention_count INTEGER NOT NULL,
+    volume_zscore DECIMAL(8,4),
+    -- Change metrics
+    sentiment_delta_6h DECIMAL(5,4),
+    -- Flags
+    is_extreme_bullish BOOLEAN DEFAULT FALSE,
+    is_extreme_bearish BOOLEAN DEFAULT FALSE,
+    is_volume_spike BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sentiment_ticker_time
+    ON synesis.sentiment_snapshots (ticker, snapshot_time DESC);
+
+-- =============================================================================
+-- CONTINUOUS AGGREGATES
+-- =============================================================================
+
+-- Hourly signal rollups for dashboards
+CREATE MATERIALIZED VIEW IF NOT EXISTS synesis.signals_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    flow_id,
+    signal_type,
+    count(*) AS signal_count
+FROM synesis.signals
+GROUP BY bucket, flow_id, signal_type
+WITH NO DATA;
+
+-- Refresh policy for continuous aggregate
+SELECT add_continuous_aggregate_policy('synesis.signals_hourly',
+    start_offset => INTERVAL '3 hours',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour',
+    if_not_exists => TRUE
+);
+
+-- =============================================================================
+-- HELPER FUNCTIONS
+-- =============================================================================
+
+-- Function to update wallet metrics after trade resolution
+CREATE OR REPLACE FUNCTION synesis.update_wallet_metrics_on_resolution()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update aggregated metrics
+    UPDATE synesis.wallet_metrics
+    SET
+        wins = wins + CASE WHEN NEW.is_win THEN 1 ELSE 0 END,
+        losses = losses + CASE WHEN NOT NEW.is_win THEN 1 ELSE 0 END,
+        win_rate = (wins + CASE WHEN NEW.is_win THEN 1 ELSE 0 END)::DECIMAL /
+                   NULLIF(total_trades, 0),
+        total_pnl = total_pnl + COALESCE(NEW.pnl, 0),
+        updated_at = NOW()
+    WHERE wallet_id = NEW.wallet_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger for wallet metrics update
+DROP TRIGGER IF EXISTS trg_wallet_trade_resolved ON synesis.wallet_trades;
+CREATE TRIGGER trg_wallet_trade_resolved
+    AFTER UPDATE OF is_win ON synesis.wallet_trades
+    FOR EACH ROW
+    WHEN (OLD.is_win IS NULL AND NEW.is_win IS NOT NULL)
+    EXECUTE FUNCTION synesis.update_wallet_metrics_on_resolution();
+
+-- Function to auto-create wallet_metrics row when wallet is created
+CREATE OR REPLACE FUNCTION synesis.create_wallet_metrics()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO synesis.wallet_metrics (wallet_id)
+    VALUES (NEW.id)
+    ON CONFLICT (wallet_id) DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_wallet_created ON synesis.wallets;
+CREATE TRIGGER trg_wallet_created
+    AFTER INSERT ON synesis.wallets
+    FOR EACH ROW
+    EXECUTE FUNCTION synesis.create_wallet_metrics();
+
+-- =============================================================================
+-- GRANTS (for application user)
+-- =============================================================================
+
+-- These would be run separately with actual user names
+-- GRANT USAGE ON SCHEMA synesis TO synesis_app;
+-- GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA synesis TO synesis_app;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA synesis TO synesis_app;
