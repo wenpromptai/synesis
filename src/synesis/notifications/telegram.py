@@ -285,6 +285,11 @@ def format_condensed_signal(
     original_text = message.text
     if len(original_text) > 300:
         original_text = original_text[:297] + "..."
+        logger.debug(
+            "Message truncated for condensed format",
+            message_id=message.external_id,
+            original_length=len(message.text),
+        )
 
     # Build message
     msg = f"""📢 <b>SIGNAL</b> {direction_emoji.get(direction, "⚪")} {direction.upper()} | {impact_emoji.get(impact, "ℹ️")} {impact.upper()}
