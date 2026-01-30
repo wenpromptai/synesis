@@ -29,12 +29,14 @@ from synesis.notifications.telegram import (
 )
 from synesis.processing.models import (
     Flow1Signal,
+    ImpactLevel,
     LightClassification,
     MarketEvaluation,
     SmartAnalysis,
     SourcePlatform,
     SourceType,
     UnifiedMessage,
+    UrgencyLevel,
 )
 from synesis.storage.database import get_database
 
@@ -230,6 +232,19 @@ async def emit_signal(result: ProcessingResult, redis: Redis) -> None:
         await emit_prediction_to_db(evaluation, result.message)
 
     # 3. Send ONE combined Telegram message (signal + best polymarket edge if any)
+    # Skip if urgency is low OR impact is low (noise filtering)
+    if (
+        result.extraction.urgency == UrgencyLevel.low
+        or result.analysis.predicted_impact == ImpactLevel.low
+    ):
+        logger.debug(
+            "Skipping Telegram: low urgency OR low impact",
+            message_id=result.message.external_id,
+            urgency=result.extraction.urgency.value,
+            impact=result.analysis.predicted_impact.value,
+        )
+        return
+
     await emit_combined_telegram(result.message, result.extraction, result.analysis)
 
 

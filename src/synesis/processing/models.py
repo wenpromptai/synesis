@@ -597,11 +597,11 @@ class SmartAnalysis(BaseModel):
     # Historical context
     historical_context: str = Field(
         default="",
-        description="What happened historically with similar news",
+        description="Precedent events with dates and quantified market reactions (e.g., 'Similar to March 2020 Fed cut; SPY rallied 5% over 3 days')",
     )
     typical_market_reaction: str = Field(
         default="",
-        description="Typical market reaction pattern",
+        description="Typical reaction pattern: immediate move, reversal probability, sector rotation (e.g., 'Initial 1% spike usually fades 50% within 24h; financials lag')",
     )
 
     # Market evaluations (prediction markets)

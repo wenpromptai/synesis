@@ -29,7 +29,7 @@ BREAKING_PATTERNS = [
     r"FLASH:",
     r"ALERT:",
     r"URGENT:",
-    r"\*+[A-Z\s]+\*+",  # *ALL CAPS HEADLINE* pattern common in financial news
+    r"\*+[A-Z\s]{3,100}\*+",  # *ALL CAPS HEADLINE* pattern (length-limited)
     r"^\*[A-Z]",  # Starts with *CAPS (DeItaone style)
 ]
 

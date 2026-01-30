@@ -4,6 +4,7 @@ Provides simple async function to send messages to a Telegram chat.
 Used to notify about investment signals and prediction opportunities.
 """
 
+import json
 from typing import TYPE_CHECKING
 
 import httpx
@@ -318,12 +319,9 @@ def format_condensed_signal(
             sec_dir = direction_emoji.get(si.direction.value, "⚪")
             msg += f"\n{sec_dir} {_escape_html(si.sector)} {si.direction.value}"
 
-    # Historical context (truncated to ~200 chars)
+    # Historical context (full, no truncation)
     if analysis.historical_context:
-        context = analysis.historical_context
-        if len(context) > 200:
-            context = context[:197] + "..."
-        msg += f"\n\n📜 <b>Context:</b> <i>{_escape_html(context)}</i>"
+        msg += f"\n\n📜 <b>Context:</b> <i>{_escape_html(analysis.historical_context)}</i>"
 
     # Single most relevant Polymarket (best by relevance, show even without edge)
     relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant]

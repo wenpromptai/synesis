@@ -185,6 +185,8 @@ class TestSmartAnalyzer:
         mock_market.yes_price = 0.65
         mock_market.no_price = 0.35
         mock_market.volume_24h = 10000.0
+        mock_market.is_active = True
+        mock_market.is_closed = False
 
         mock_client = MagicMock()
         mock_client.search_markets = AsyncMock(return_value=[mock_market])

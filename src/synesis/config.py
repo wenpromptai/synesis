@@ -4,7 +4,7 @@ import json
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -148,7 +148,7 @@ class Settings(BaseSettings):
 
     @field_validator("searxng_url")
     @classmethod
-    def validate_searxng_url(cls, v: str | None, info) -> str | None:
+    def validate_searxng_url(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate SearXNG URL to prevent SSRF in production."""
         if v is None:
             return v
@@ -157,6 +157,7 @@ class Settings(BaseSettings):
         if env == "production":
             # Block private IPs in production
             private_patterns = [
+                # IPv4
                 "localhost",
                 "127.0.0.1",
                 "0.0.0.0",
@@ -178,6 +179,13 @@ class Settings(BaseSettings):
                 "172.29.",
                 "172.30.",
                 "172.31.",
+                # IPv6
+                "::1",
+                "[::1]",
+                "fc00:",
+                "[fc00:",
+                "fe80:",
+                "[fe80:",
             ]
             if any(pattern in v.lower() for pattern in private_patterns):
                 raise ValueError("SearXNG URL cannot point to internal network in production")

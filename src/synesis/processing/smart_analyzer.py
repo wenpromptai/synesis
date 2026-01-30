@@ -109,9 +109,29 @@ For affected sectors:
 - Direction and reasoning
 - Affected subsectors
 
-### 6. Historical Context
-- What happened historically with similar news
-- Typical market reaction patterns
+### 6. Historical Context & Market Reaction Patterns
+
+Provide structured historical analysis:
+
+**a) Precedent Events**
+- Cite 1-3 specific similar historical events with dates
+- Example: "Similar to Fed's emergency 50bp cut in March 2020" or "Last CPI miss of this magnitude was Oct 2023"
+
+**b) Quantified Market Reactions**
+- Immediate reaction (first 15-60 min): e.g., "SPY typically moves 0.5-1.5%"
+- Short-term (1-5 days): e.g., "Rate-sensitive sectors outperform by 2-4%"
+- Extended (1-4 weeks): e.g., "Similar events saw sustained rally of 5-8%"
+
+**c) Typical Reaction Pattern**
+- Initial spike/drop magnitude and direction
+- Reversal probability (does market typically fade the initial move?)
+- Sector rotation patterns (which sectors lead/lag)
+
+**d) Key Differences from Precedents**
+- What's different about current macro context vs historical events?
+- Higher/lower impact expected and why?
+
+Use web research results to inform historical patterns when available.
 
 ### 7. Evaluate Prediction Markets
 **CRITICAL: You MUST return a MarketEvaluation object for EVERY market in the table below.**
@@ -362,8 +382,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             "|-----------|----------|-----------|--------|------------|",
         ]
         for m in all_markets[:15]:  # Limit to 15 markets
-            # Truncate question if too long for table
-            question = m.question[:55] + "..." if len(m.question) > 55 else m.question
+            question = m.question
             status = "ACTIVE" if m.is_active and not m.is_closed else "CLOSED"
             lines.append(
                 f"| {m.id} | {question} | ${m.yes_price:.2f} | {status} | ${m.volume_24h:,.0f} |"
