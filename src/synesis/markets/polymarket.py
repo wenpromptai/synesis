@@ -109,6 +109,14 @@ class PolymarketClient:
                 for i, outcome in enumerate(outcomes):
                     if i < len(prices):
                         price = float(prices[i])
+                        # Validate price is within valid range (0.0-1.0)
+                        if not (0.0 <= price <= 1.0):
+                            logger.warning(
+                                "Invalid price value from API",
+                                price=price,
+                                market_id=data.get("id"),
+                            )
+                            continue
                         if outcome.lower() == "yes":
                             yes_price = price
                         elif outcome.lower() == "no":
@@ -122,6 +130,14 @@ class PolymarketClient:
             for token in tokens:
                 outcome = token.get("outcome", "").lower()
                 price = float(token.get("price", 0.5))
+                # Validate price is within valid range (0.0-1.0)
+                if not (0.0 <= price <= 1.0):
+                    logger.warning(
+                        "Invalid price value from API",
+                        price=price,
+                        market_id=data.get("id"),
+                    )
+                    continue
                 if outcome == "yes":
                     yes_price = price
                 elif outcome == "no":

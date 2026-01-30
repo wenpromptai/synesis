@@ -29,7 +29,12 @@ SUBSECTION_SEPARATOR = "──────────"
 
 def _escape_html(text: str) -> str:
     """Escape HTML special characters for Telegram."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 def _split_message_at_sections(message: str, max_length: int = TELEGRAM_MAX_LENGTH) -> list[str]:
@@ -127,8 +132,8 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     except httpx.HTTPError as e:
         logger.warning("Failed to send Telegram message", error=str(e))
         return False
-    except Exception as e:
-        logger.exception("Unexpected error sending Telegram message", error=str(e))
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.error("Failed to parse Telegram API response", error=str(e))
         return False
 
 

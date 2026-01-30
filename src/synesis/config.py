@@ -146,6 +146,43 @@ class Settings(BaseSettings):
     exa_api_key: SecretStr | None = Field(default=None)
     brave_api_key: SecretStr | None = Field(default=None)
 
+    @field_validator("searxng_url")
+    @classmethod
+    def validate_searxng_url(cls, v: str | None, info) -> str | None:
+        """Validate SearXNG URL to prevent SSRF in production."""
+        if v is None:
+            return v
+        # Get env from the values being validated
+        env = info.data.get("env", "development")
+        if env == "production":
+            # Block private IPs in production
+            private_patterns = [
+                "localhost",
+                "127.0.0.1",
+                "0.0.0.0",
+                "192.168.",
+                "10.",
+                "172.16.",
+                "172.17.",
+                "172.18.",
+                "172.19.",
+                "172.20.",
+                "172.21.",
+                "172.22.",
+                "172.23.",
+                "172.24.",
+                "172.25.",
+                "172.26.",
+                "172.27.",
+                "172.28.",
+                "172.29.",
+                "172.30.",
+                "172.31.",
+            ]
+            if any(pattern in v.lower() for pattern in private_patterns):
+                raise ValueError("SearXNG URL cannot point to internal network in production")
+        return v
+
     # Trading
     trading_enabled: bool = Field(default=False)
     max_position_size: float = Field(default=100.0)

@@ -7,6 +7,7 @@ Used by the LLM classifier to enrich news with:
 - Market movement analysis
 """
 
+import json
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -57,7 +58,7 @@ async def search_market_impact(
             if results:
                 logger.debug("SearXNG search successful", query=query, results=len(results))
                 return results
-        except Exception as e:
+        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning("SearXNG search failed, trying Exa", error=str(e))
 
     # Fallback to Exa (best for financial/news content)
@@ -69,7 +70,7 @@ async def search_market_impact(
             if results:
                 logger.debug("Exa search successful", query=query, results=len(results))
                 return results
-        except Exception as e:
+        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning("Exa search failed, trying Brave", error=str(e))
 
     # Fallback to Brave
@@ -81,7 +82,7 @@ async def search_market_impact(
             if results:
                 logger.debug("Brave search successful", query=query, results=len(results))
                 return results
-        except Exception as e:
+        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning("Brave search failed", error=str(e))
 
     logger.error("All search providers failed or not configured", query=query)
