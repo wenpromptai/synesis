@@ -5,8 +5,8 @@ Tests the new Stage 1 features:
 - Urgency classification (UrgencyLevel, classify_urgency_by_rules)
 """
 
-from synesis.processing.categorizer import classify_urgency_by_rules
-from synesis.processing.models import (
+from synesis.processing.news.categorizer import classify_urgency_by_rules
+from synesis.processing.news import (
     BeatMissStatus,
     EventType,
     LightClassification,

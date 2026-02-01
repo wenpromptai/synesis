@@ -157,10 +157,10 @@ class TestDatabaseSignalOperations:
 
     @pytest.mark.anyio
     async def test_insert_signal(self) -> None:
-        """Test inserting a Flow1Signal."""
-        from synesis.processing.models import (
+        """Test inserting a NewsSignal."""
+        from synesis.processing.news import (
             EventType,
-            Flow1Signal,
+            NewsSignal,
             LightClassification,
             SmartAnalysis,
             SourcePlatform,
@@ -196,7 +196,7 @@ class TestDatabaseSignalOperations:
             primary_thesis="Bullish",
             thesis_confidence=0.8,
         )
-        signal = Flow1Signal(
+        signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@test",
@@ -212,9 +212,73 @@ class TestDatabaseSignalOperations:
         mock_conn.execute.assert_called_once()
 
     @pytest.mark.anyio
+    async def test_insert_signal_with_prices(self) -> None:
+        """Test inserting a NewsSignal with prices_at_signal."""
+        from decimal import Decimal
+
+        from synesis.processing.news import (
+            Direction,
+            EventType,
+            ImpactLevel,
+            LightClassification,
+            NewsSignal,
+            SmartAnalysis,
+            SourcePlatform,
+            SourceType,
+        )
+
+        db = Database(dsn="postgresql://localhost/db")
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        extraction = LightClassification(
+            event_type=EventType.earnings,
+            summary="AAPL beats earnings",
+            confidence=0.9,
+            primary_entity="Apple",
+        )
+        analysis = SmartAnalysis(
+            tickers=["AAPL", "MSFT"],
+            sectors=["technology"],
+            predicted_impact=ImpactLevel.high,
+            market_direction=Direction.bullish,
+            primary_thesis="Strong earnings",
+            thesis_confidence=0.85,
+        )
+        signal = NewsSignal(
+            timestamp=datetime.now(timezone.utc),
+            source_platform=SourcePlatform.twitter,
+            source_account="@test",
+            source_type=SourceType.news,
+            raw_text="AAPL beats",
+            external_id="456",
+            extraction=extraction,
+            analysis=analysis,
+        )
+
+        prices = {"AAPL": Decimal("175.50"), "MSFT": Decimal("380.25")}
+        await db.insert_signal(signal, prices_at_signal=prices)
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        # Verify prices_at_signal is passed as JSON string
+        prices_json = call_args[0][8]
+        assert prices_json is not None
+        assert "175.5" in prices_json
+        assert "380.25" in prices_json
+
+    @pytest.mark.anyio
     async def test_insert_raw_message(self) -> None:
         """Test inserting a raw message."""
-        from synesis.processing.models import (
+        from synesis.processing.news import (
             SourcePlatform,
             SourceType,
             UnifiedMessage,
@@ -250,7 +314,7 @@ class TestDatabaseSignalOperations:
     @pytest.mark.anyio
     async def test_insert_raw_message_duplicate(self) -> None:
         """Test inserting duplicate message returns existing ID."""
-        from synesis.processing.models import (
+        from synesis.processing.news import (
             SourcePlatform,
             SourceType,
             UnifiedMessage,
@@ -287,7 +351,7 @@ class TestDatabaseSignalOperations:
     @pytest.mark.anyio
     async def test_insert_prediction(self) -> None:
         """Test inserting a prediction."""
-        from synesis.processing.models import MarketEvaluation
+        from synesis.processing.news import MarketEvaluation
 
         db = Database(dsn="postgresql://localhost/db")
         mock_conn = AsyncMock()
@@ -360,3 +424,451 @@ class TestGlobalDatabaseFunctions:
 
         mock_db.disconnect.assert_called_once()
         assert db_module._db is None
+
+
+class TestDatabaseSentimentOperations:
+    """Tests for sentiment database operations."""
+
+    @pytest.mark.anyio
+    async def test_insert_sentiment_signal(self) -> None:
+        """Test inserting a SentimentSignal."""
+        from synesis.processing.sentiment import SentimentSignal, TickerSentimentSummary
+
+        db = Database(dsn="postgresql://localhost/db")
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        now = datetime.now(timezone.utc)
+        signal = SentimentSignal(
+            timestamp=now,
+            period_start=now,
+            period_end=now,
+            watchlist=["AAPL", "TSLA"],
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="AAPL",
+                    company_name="Apple Inc.",
+                    mention_count=50,
+                    avg_sentiment=0.3,
+                ),
+            ],
+            overall_sentiment="bullish",
+            narrative_summary="Market is bullish on tech",
+            total_posts_analyzed=100,
+        )
+
+        await db.insert_sentiment_signal(signal)
+
+        mock_conn.execute.assert_called_once()
+        # Verify the SQL contains expected table name
+        call_args = mock_conn.execute.call_args
+        assert "INSERT INTO signals" in call_args[0][0]
+        # Verify flow_id is 'sentiment'
+        assert call_args[0][2] == "sentiment"
+        # Verify watchlist is passed as tickers
+        assert call_args[0][5] == ["AAPL", "TSLA"]
+
+    @pytest.mark.anyio
+    async def test_upsert_watchlist_ticker_new(self) -> None:
+        """Test upserting a new ticker returns True."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        # xmax = 0 indicates new row, so is_new = True
+        mock_conn.fetchval = AsyncMock(return_value=True)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        now = datetime.now(timezone.utc)
+        result = await db.upsert_watchlist_ticker(
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            added_by="reddit",
+            added_reason="High mention volume",
+            expires_at=now,
+        )
+
+        assert result is True
+        mock_conn.fetchval.assert_called_once()
+        call_args = mock_conn.fetchval.call_args
+        assert "INSERT INTO watchlist" in call_args[0][0]
+        assert call_args[0][1] == "AAPL"
+
+    @pytest.mark.anyio
+    async def test_upsert_watchlist_ticker_existing(self) -> None:
+        """Test upserting existing ticker returns False."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        # xmax != 0 indicates update, so is_new = False
+        mock_conn.fetchval = AsyncMock(return_value=False)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        now = datetime.now(timezone.utc)
+        result = await db.upsert_watchlist_ticker(
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            added_by="reddit",
+            added_reason="Extended TTL",
+            expires_at=now,
+        )
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_insert_sentiment_snapshot_all_params(self) -> None:
+        """Test inserting sentiment snapshot with all parameters."""
+        from decimal import Decimal
+
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        now = datetime.now(timezone.utc)
+        await db.insert_sentiment_snapshot(
+            ticker="AAPL",
+            snapshot_time=now,
+            bullish_ratio=0.6,
+            bearish_ratio=0.2,
+            neutral_ratio=0.2,
+            mention_count=50,
+            dominant_emotion="bullish",
+            sentiment_delta_6h=0.1,
+            is_extreme_bullish=False,
+            is_extreme_bearish=False,
+            price_at_signal=Decimal("175.50"),
+        )
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        assert "INSERT INTO sentiment_snapshots" in call_args[0][0]
+        # Verify price is converted to float
+        assert call_args[0][11] == 175.50
+
+    @pytest.mark.anyio
+    async def test_insert_sentiment_snapshot_minimal_params(self) -> None:
+        """Test inserting sentiment snapshot with minimal parameters."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        now = datetime.now(timezone.utc)
+        await db.insert_sentiment_snapshot(
+            ticker="TSLA",
+            snapshot_time=now,
+            bullish_ratio=0.33,
+            bearish_ratio=0.33,
+            neutral_ratio=0.34,
+            mention_count=10,
+        )
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        # Verify optional params are None
+        assert call_args[0][6] is None  # dominant_emotion
+        assert call_args[0][11] is None  # price_at_signal
+
+    @pytest.mark.anyio
+    async def test_deactivate_expired_watchlist(self) -> None:
+        """Test deactivating expired watchlist tickers."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_rows = [{"ticker": "AAPL"}, {"ticker": "TSLA"}]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=mock_rows)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.deactivate_expired_watchlist()
+
+        assert result == ["AAPL", "TSLA"]
+        mock_conn.fetch.assert_called_once()
+        call_args = mock_conn.fetch.call_args
+        assert "UPDATE watchlist" in call_args[0][0]
+        assert "SET is_active = FALSE" in call_args[0][0]
+        assert "expires_at < NOW()" in call_args[0][0]
+
+    @pytest.mark.anyio
+    async def test_deactivate_expired_watchlist_none_expired(self) -> None:
+        """Test deactivating when no tickers are expired."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[])
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.deactivate_expired_watchlist()
+
+        assert result == []
+
+    @pytest.mark.anyio
+    async def test_get_active_watchlist(self) -> None:
+        """Test getting active watchlist tickers."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_rows = [{"ticker": "AAPL"}, {"ticker": "MSFT"}, {"ticker": "TSLA"}]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=mock_rows)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_active_watchlist()
+
+        assert result == ["AAPL", "MSFT", "TSLA"]
+        mock_conn.fetch.assert_called_once()
+        call_args = mock_conn.fetch.call_args
+        assert "SELECT ticker FROM watchlist" in call_args[0][0]
+        assert "is_active = TRUE" in call_args[0][0]
+
+    @pytest.mark.anyio
+    async def test_get_active_watchlist_empty(self) -> None:
+        """Test getting active watchlist when empty."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=[])
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_active_watchlist()
+
+        assert result == []
+
+
+class TestDatabasePriceOutcomes:
+    """Tests for price outcome verification methods."""
+
+    @pytest.mark.anyio
+    async def test_get_signals_pending_price_outcomes(self) -> None:
+        """Test fetching signals pending price outcomes."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_rows = [
+            {
+                "time": datetime.now(timezone.utc),
+                "flow_id": "news",
+                "tickers": ["AAPL"],
+                "prices_at_signal": '{"AAPL": 175.0}',
+            },
+        ]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=mock_rows)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_signals_pending_price_outcomes("1h", limit=50)
+
+        assert result == mock_rows
+        call_args = mock_conn.fetch.call_args
+        assert "prices_1h IS NULL" in call_args[0][0]
+        assert "1 hour" in call_args[0][0]
+        assert call_args[0][1] == 50
+
+    @pytest.mark.anyio
+    async def test_get_signals_pending_price_outcomes_invalid_type(self) -> None:
+        """Test that invalid outcome_type raises ValueError."""
+        db = Database(dsn="postgresql://localhost/db")
+        db._pool = MagicMock()  # Pool exists but won't be used
+
+        with pytest.raises(ValueError, match="Invalid outcome_type: invalid"):
+            await db.get_signals_pending_price_outcomes("invalid")
+
+    @pytest.mark.anyio
+    async def test_update_signal_price_outcome(self) -> None:
+        """Test updating signal price outcome."""
+        from decimal import Decimal
+
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        now = datetime.now(timezone.utc)
+        prices = {"AAPL": Decimal("180.00"), "TSLA": Decimal("250.00")}
+
+        await db.update_signal_price_outcome(
+            signal_time=now,
+            flow_id="news",
+            outcome_type="6h",
+            prices=prices,
+        )
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        assert "SET prices_6h" in call_args[0][0]
+        assert call_args[0][2] == now
+        assert call_args[0][3] == "news"
+
+    @pytest.mark.anyio
+    async def test_update_signal_price_outcome_invalid_type(self) -> None:
+        """Test that invalid outcome_type raises ValueError."""
+        from decimal import Decimal
+
+        db = Database(dsn="postgresql://localhost/db")
+        db._pool = MagicMock()
+
+        with pytest.raises(ValueError, match="Invalid outcome_type: 2h"):
+            await db.update_signal_price_outcome(
+                signal_time=datetime.now(timezone.utc),
+                flow_id="news",
+                outcome_type="2h",
+                prices={"AAPL": Decimal("175.00")},
+            )
+
+    @pytest.mark.anyio
+    async def test_get_sentiment_snapshots_pending_price_outcomes(self) -> None:
+        """Test fetching sentiment snapshots pending price outcomes."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_rows = [
+            {"id": uuid4(), "ticker": "AAPL", "snapshot_time": datetime.now(timezone.utc)},
+        ]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=mock_rows)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_sentiment_snapshots_pending_price_outcomes("24h", limit=25)
+
+        assert result == mock_rows
+        call_args = mock_conn.fetch.call_args
+        assert "price_24h IS NULL" in call_args[0][0]
+        assert "24 hours" in call_args[0][0]
+
+    @pytest.mark.anyio
+    async def test_get_sentiment_snapshots_pending_invalid_type(self) -> None:
+        """Test that invalid outcome_type raises ValueError."""
+        db = Database(dsn="postgresql://localhost/db")
+        db._pool = MagicMock()
+
+        with pytest.raises(ValueError, match="Invalid outcome_type: 12h"):
+            await db.get_sentiment_snapshots_pending_price_outcomes("12h")
+
+    @pytest.mark.anyio
+    async def test_update_sentiment_snapshot_price_outcome(self) -> None:
+        """Test updating sentiment snapshot price outcome."""
+        from decimal import Decimal
+
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        snapshot_id = uuid4()
+
+        await db.update_sentiment_snapshot_price_outcome(
+            snapshot_id=snapshot_id,
+            outcome_type="1h",
+            price=Decimal("178.50"),
+        )
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        assert "SET price_1h" in call_args[0][0]
+        assert call_args[0][1] == 178.50
+        assert call_args[0][2] == snapshot_id
+
+    @pytest.mark.anyio
+    async def test_update_sentiment_snapshot_invalid_type(self) -> None:
+        """Test that invalid outcome_type raises ValueError."""
+        db = Database(dsn="postgresql://localhost/db")
+        db._pool = MagicMock()
+
+        with pytest.raises(ValueError, match="Invalid outcome_type: 48h"):
+            await db.update_sentiment_snapshot_price_outcome(
+                snapshot_id=uuid4(),
+                outcome_type="48h",
+                price=100.0,
+            )

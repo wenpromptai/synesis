@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Telegram (ingestion)
     telegram_api_id: int | None = Field(default=None)
     telegram_api_hash: SecretStr | None = Field(default=None)
-    telegram_session_name: str = Field(default="synesis")
+    telegram_session_name: str = Field(default="shared/sessions/synesis")
     telegram_channels: list[str] = Field(default_factory=list)
 
     # Telegram (notifications)
@@ -146,6 +146,12 @@ class Settings(BaseSettings):
     exa_api_key: SecretStr | None = Field(default=None)
     brave_api_key: SecretStr | None = Field(default=None)
 
+    # Stock Price Data (Finnhub)
+    finnhub_api_key: SecretStr | None = Field(
+        default=None,
+        description="Finnhub API key for real-time stock prices",
+    )
+
     @field_validator("searxng_url")
     @classmethod
     def validate_searxng_url(cls, v: str | None, info: ValidationInfo) -> str | None:
@@ -190,6 +196,41 @@ class Settings(BaseSettings):
             if any(pattern in v.lower() for pattern in private_patterns):
                 raise ValueError("SearXNG URL cannot point to internal network in production")
         return v
+
+    # Reddit RSS (Flow 2 - Sentiment Intelligence)
+    reddit_subreddits: list[str] = Field(
+        default=[
+            # Degen/Options (high retail sentiment, meme stocks)
+            "wallstreetbets",
+            "options",
+            "smallstreetbets",
+            "thetagang",
+            # Active trading
+            "Daytrading",
+            "pennystocks",
+            # Mainstream investing
+            "stocks",
+            "StockMarket",
+        ],
+        description="Subreddits to monitor for sentiment",
+    )
+    reddit_poll_interval: int = Field(
+        default=21600,  # 6 hours in seconds
+        description="Reddit RSS poll interval in seconds",
+    )
+
+    @field_validator("reddit_subreddits", mode="before")
+    @classmethod
+    def parse_reddit_subreddits(cls, v: str | list[str] | None) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                v = json.loads(v)
+            else:
+                v = [s.strip() for s in v.split(",") if s.strip()]
+        return [s.lstrip("r/").lstrip("/r/") for s in v]
 
     # Trading
     trading_enabled: bool = Field(default=False)

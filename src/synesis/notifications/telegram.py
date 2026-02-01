@@ -13,7 +13,8 @@ from synesis.config import get_settings
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from synesis.processing.models import LightClassification, SmartAnalysis, UnifiedMessage
+    from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
+    from synesis.processing.sentiment import SentimentSignal
 
 logger = get_logger(__name__)
 
@@ -599,5 +600,126 @@ Impact: {impact_emoji.get(impact, impact)} {impact.upper()} | Direction: {direct
 
 {SECTION_SEPARATOR}
 Research Quality: {research_quality_emoji.get(research_quality, research_quality)}"""
+
+    return msg
+
+
+def format_sentiment_signal(signal: "SentimentSignal") -> str:
+    """Format sentiment signal for Telegram.
+
+    Args:
+        signal: SentimentSignal with 6-hour sentiment data
+
+    Returns:
+        HTML-formatted message for Telegram
+    """
+    # Overall sentiment emoji mapping
+    sentiment_emoji = {
+        "bullish": "🟢 BULLISH",
+        "bearish": "🔴 BEARISH",
+        "neutral": "⚪ NEUTRAL",
+        "mixed": "🟡 MIXED",
+    }
+
+    # Ticker sentiment emoji
+    ticker_emoji = {
+        "bullish": "🟢",
+        "bearish": "🔴",
+        "neutral": "⚪",
+    }
+
+    # Build header
+    overall = signal.overall_sentiment
+    msg = f"""📊 <b>REDDIT SENTIMENT ({signal.signal_period})</b> {sentiment_emoji.get(overall, overall)}
+{SECTION_SEPARATOR}"""
+
+    # Narrative section
+    if signal.narrative_summary:
+        msg += f"""
+
+💬 <b>Narrative</b>
+<i>{_escape_html(signal.narrative_summary)}</i>"""
+
+    # Tickers section (sorted by mention count)
+    if signal.ticker_sentiments:
+        msg += """
+
+📈 <b>Tickers</b> (by mention volume)"""
+
+        # Sort by mention count descending
+        sorted_tickers = sorted(
+            signal.ticker_sentiments,
+            key=lambda t: t.mention_count,
+            reverse=True,
+        )
+
+        for ts in sorted_tickers:
+            # Determine sentiment label from avg_sentiment
+            if ts.avg_sentiment > 0.1:
+                sentiment_label = "bullish"
+            elif ts.avg_sentiment < -0.1:
+                sentiment_label = "bearish"
+            else:
+                sentiment_label = "neutral"
+
+            emoji = ticker_emoji.get(sentiment_label, "⚪")
+            company_part = f" - {_escape_html(ts.company_name)}" if ts.company_name else ""
+
+            msg += f"""
+{emoji} <code>${ts.ticker}</code>{company_part} ({ts.mention_count} mentions) {sentiment_label}"""
+
+            # Add catalysts if present
+            if ts.key_catalysts:
+                catalysts_str = ", ".join(_escape_html(c) for c in ts.key_catalysts)
+                msg += f"""
+   ↳ Catalysts: {catalysts_str}"""
+
+            # Add extreme sentiment badge
+            if ts.is_extreme_bullish:
+                msg += """
+   🔥 EXTREME BULLISH"""
+            elif ts.is_extreme_bearish:
+                msg += """
+   🔥 EXTREME BEARISH"""
+
+    # Watchlist changes section (only if there are changes)
+    if signal.watchlist_added or signal.watchlist_removed:
+        msg += """
+
+📋 <b>Watchlist Changes</b>"""
+        if signal.watchlist_added:
+            added_str = ", ".join(signal.watchlist_added)
+            msg += f"""
+➕ Added: {added_str}"""
+        if signal.watchlist_removed:
+            removed_str = ", ".join(signal.watchlist_removed)
+            msg += f"""
+➖ Removed: {removed_str}"""
+
+    # Key themes section
+    if signal.key_themes:
+        msg += """
+
+🏷️ <b>Key Themes</b>"""
+        for theme in signal.key_themes:
+            msg += f"""
+• {_escape_html(theme)}"""
+
+    # Stats section (condensed)
+    msg += f"""
+
+📊 <b>Stats</b>
+Posts: {signal.total_posts_analyzed} analyzed | {signal.high_quality_posts} high quality | {signal.spam_posts} spam filtered"""
+
+    # Subreddit breakdown
+    if signal.subreddits:
+        sorted_subs = sorted(signal.subreddits.items(), key=lambda x: x[1], reverse=True)
+        subs_str = ", ".join(f"r/{sub} ({count})" for sub, count in sorted_subs)
+        msg += f"""
+Sources: {subs_str}"""
+
+    # Footer
+    msg += f"""
+{SECTION_SEPARATOR}"""
 
     return msg

@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from synesis.processing.classifier import (
+from synesis.processing.news.classifier import (
     CLASSIFIER_SYSTEM_PROMPT,
     NewsClassifier,
     classify_message,
     create_classifier_agent,
 )
-from synesis.processing.models import (
+from synesis.processing.news import (
     EventType,
     LightClassification,
     NewsCategory,
@@ -145,7 +145,7 @@ class TestClassifyMessage:
         """Test that classify_message uses the singleton classifier."""
         mock_classification = create_mock_classification()
 
-        with patch("synesis.processing.classifier.get_classifier") as mock_get:
+        with patch("synesis.processing.news.classifier.get_classifier") as mock_get:
             mock_classifier = AsyncMock()
             mock_classifier.classify = AsyncMock(return_value=mock_classification)
             mock_get.return_value = mock_classifier
@@ -163,7 +163,7 @@ class TestCreateClassifierAgent:
 
     def test_creates_agent_with_correct_output_type(self) -> None:
         """Test that the agent has the correct output type."""
-        with patch("synesis.processing.classifier.create_model") as mock_create_model:
+        with patch("synesis.processing.news.classifier.create_model") as mock_create_model:
             mock_create_model.return_value = "test"  # Use 'test' model to avoid API key requirement
 
             agent = create_classifier_agent()

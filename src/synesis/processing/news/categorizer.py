@@ -12,7 +12,7 @@ If ambiguous, the LLM classifier determines the category.
 import re
 
 from synesis.core.logging import get_logger
-from synesis.processing.models import NewsCategory, UrgencyLevel
+from synesis.processing.news.models import NewsCategory, UrgencyLevel
 
 logger = get_logger(__name__)
 

@@ -14,9 +14,13 @@ Usage:
     AGENT_MODE=pydantic python -m synesis.agent
 """
 
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import asyncpg
 from redis.asyncio import Redis
@@ -24,22 +28,26 @@ from redis.asyncio import Redis
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.core.processor import NewsProcessor, ProcessingResult
+from synesis.ingestion.finnhub import FinnhubService
+from synesis.ingestion.prices import PriceService
+from synesis.processing.common.watchlist import WatchlistManager
 from synesis.notifications.telegram import (
     format_condensed_signal,
     send_telegram,
 )
-from synesis.processing.models import (
-    Flow1Signal,
-    ImpactLevel,
+from synesis.processing.news import (
+    NewsSignal,
     LightClassification,
     MarketEvaluation,
     SmartAnalysis,
     SourcePlatform,
     SourceType,
     UnifiedMessage,
-    UrgencyLevel,
 )
-from synesis.storage.database import get_database
+from synesis.storage.database import Database, get_database
+
+if TYPE_CHECKING:
+    from pydantic import SecretStr
 
 logger = get_logger(__name__)
 
@@ -51,7 +59,7 @@ SIGNAL_CHANNEL = "synesis:signals"
 SIGNALS_DIR = Path("shared/output")
 
 
-async def store_signal(signal: Flow1Signal, redis: Redis) -> None:
+async def store_signal(signal: NewsSignal, redis: Redis) -> None:
     """Store a signal and notify subscribers.
 
     Writes to both:
@@ -59,7 +67,7 @@ async def store_signal(signal: Flow1Signal, redis: Redis) -> None:
     - Redis pub/sub channel for real-time notifications
 
     Args:
-        signal: The Flow1Signal to store
+        signal: The NewsSignal to store
         redis: Redis client
     """
     # Ensure output directory exists
@@ -101,6 +109,7 @@ async def emit_signal_to_db(
     message: UnifiedMessage,
     extraction: LightClassification,
     analysis: SmartAnalysis,
+    prices_at_signal: dict[str, Decimal] | None = None,
 ) -> None:
     """Store signal to signals table (DB only, no Telegram).
 
@@ -108,10 +117,11 @@ async def emit_signal_to_db(
         message: Original message
         extraction: Stage 1 entity extraction
         analysis: Stage 2 smart analysis
+        prices_at_signal: Optional ticker prices at signal time
     """
     try:
         db = get_database()
-        signal = Flow1Signal(
+        signal = NewsSignal(
             timestamp=message.timestamp,
             source_platform=message.source_platform,
             source_account=message.source_account,
@@ -125,8 +135,12 @@ async def emit_signal_to_db(
             watchlist_tickers=analysis.tickers,
             watchlist_sectors=analysis.sectors,
         )
-        await db.insert_signal(signal)
-        logger.debug("Signal stored to database", message_id=message.external_id)
+        await db.insert_signal(signal, prices_at_signal=prices_at_signal)
+        logger.debug(
+            "Signal stored to database",
+            message_id=message.external_id,
+            has_prices=prices_at_signal is not None,
+        )
     except RuntimeError:
         logger.debug("Database not available, skipping signal storage")
     except asyncpg.UniqueViolationError:
@@ -213,19 +227,24 @@ async def emit_raw_message_to_db(message: UnifiedMessage) -> None:
         logger.error("Failed to store raw message", error=str(e))
 
 
-async def emit_signal(result: ProcessingResult, redis: Redis) -> None:
+async def emit_signal(
+    result: ProcessingResult,
+    redis: Redis,
+    price_service: PriceService | None = None,
+) -> None:
     """Emit a processing result as a signal.
 
-    Converts the ProcessingResult to a Flow1Signal and:
+    Converts the ProcessingResult to a NewsSignal and:
     - Stores raw message to raw_messages table (DB)
     - Stores it in JSONL files + Redis (legacy)
-    - Stores signal to signals table (DB)
+    - Stores signal to signals table (DB) with ticker prices
     - Stores each prediction to predictions table (DB)
     - Sends ONE combined Telegram message (signal + best polymarket edge)
 
     Args:
         result: The processing result to emit
         redis: Redis client
+        price_service: Optional PriceService for fetching ticker prices
     """
     # 0. Store raw message to DB (always, even for skipped)
     await emit_raw_message_to_db(result.message)
@@ -241,27 +260,42 @@ async def emit_signal(result: ProcessingResult, redis: Redis) -> None:
     if result.analysis is None or result.extraction is None:
         return
 
-    # 1. Store signal to DB (signals table)
-    await emit_signal_to_db(result.message, result.extraction, result.analysis)
+    # 1. Fetch prices for tickers (if price service available)
+    prices_at_signal: dict[str, Decimal] | None = None
+    if price_service and result.analysis.tickers:
+        try:
+            prices_at_signal = await price_service.get_prices(
+                result.analysis.tickers,
+                fallback_to_rest=True,  # Use REST API if not in cache
+            )
+            if prices_at_signal:
+                logger.debug(
+                    "Fetched prices for signal",
+                    tickers=list(prices_at_signal.keys()),
+                    message_id=result.message.external_id,
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch prices for signal",
+                error=str(e),
+                tickers=result.analysis.tickers,
+            )
 
-    # 2. Store each prediction to DB (predictions table)
+    # 2. Store signal to DB (signals table)
+    await emit_signal_to_db(
+        result.message,
+        result.extraction,
+        result.analysis,
+        prices_at_signal=prices_at_signal,
+    )
+
+    # 3. Store each prediction to DB (predictions table)
     for evaluation in result.analysis.market_evaluations:
         await emit_prediction_to_db(evaluation, result.message)
 
-    # 3. Send ONE combined Telegram message (signal + best polymarket edge if any)
-    # Skip if urgency is low OR impact is low (noise filtering)
-    if (
-        result.extraction.urgency == UrgencyLevel.low
-        or result.analysis.predicted_impact == ImpactLevel.low
-    ):
-        logger.debug(
-            "Skipping Telegram: low urgency OR low impact",
-            message_id=result.message.external_id,
-            urgency=result.extraction.urgency.value,
-            impact=result.analysis.predicted_impact.value,
-        )
-        return
-
+    # 4. Send ONE combined Telegram message (signal + best polymarket edge if any)
+    # Note: Low urgency messages skip Stage 2 entirely (processor.py), so analysis=None
+    # and we return early at line 262-263 above. No need to filter here.
     await emit_combined_telegram(result.message, result.extraction, result.analysis)
 
 
@@ -271,6 +305,7 @@ async def process_worker(
     processor: NewsProcessor,
     redis: Redis,
     shutdown: asyncio.Event,
+    price_service: PriceService | None = None,
 ) -> None:
     """Worker that processes messages from the queue.
 
@@ -280,6 +315,7 @@ async def process_worker(
         processor: Initialized NewsProcessor
         redis: Redis client for signal emission
         shutdown: Event to signal graceful shutdown
+        price_service: Optional PriceService for fetching ticker prices
     """
     log = logger.bind(worker_id=worker_id)
     log.debug("Worker started")
@@ -293,7 +329,7 @@ async def process_worker(
 
         try:
             processing_result = await processor.process_message(message)
-            await emit_signal(processing_result, redis)
+            await emit_signal(processing_result, redis, price_service=price_service)
 
             # Log summary
             if processing_result.has_edge:
@@ -321,8 +357,19 @@ async def process_worker(
     log.debug("Worker stopped")
 
 
-async def run_pydantic_agent() -> None:
+async def run_pydantic_agent(
+    price_service: PriceService | None = None,
+    finnhub_api_key: "SecretStr | None" = None,
+    watchlist: WatchlistManager | None = None,
+    redis: Redis | None = None,
+    db: Database | None = None,
+) -> None:
     """Run the PydanticAI agent with concurrent worker processing.
+
+    Args:
+        price_service: Optional shared PriceService instance (created in __main__.py)
+        finnhub_api_key: Optional Finnhub API key for FinnhubService tools
+        watchlist: Optional shared WatchlistManager (created in __main__.py)
 
     Architecture:
     - Redis consumer: Pulls messages from Redis queue (runs in main coroutine)
@@ -342,24 +389,73 @@ async def run_pydantic_agent() -> None:
         num_workers=settings.processing_workers,
     )
 
-    redis = Redis.from_url(settings.redis_url)
+    # Track ownership of resources (only close what we create)
+    own_redis = redis is None
+    own_db = db is None
+
+    # Use shared Redis (passed from __main__.py)
+    # If not provided (standalone mode), create local instance
+    if redis is None:
+        redis = Redis.from_url(settings.redis_url)
+        logger.info("Created local Redis connection (standalone mode)")
+
+    # Help mypy narrow the type (redis is guaranteed non-None after above block)
+    assert redis is not None
+
     shutdown = asyncio.Event()
     work_queue: asyncio.Queue[UnifiedMessage] = asyncio.Queue(
         maxsize=settings.processing_queue_size
     )
     workers: list[asyncio.Task[None]] = []
+    finnhub_service: FinnhubService | None = None
+    # watchlist is passed in from __main__.py (single shared instance)
+    # price_service is passed in from __main__.py (single instance)
+    # redis is passed in from __main__.py (single instance)
+    # db is passed in from __main__.py (single instance)
 
     try:
-        await redis.ping()
+        await redis.ping()  # type: ignore[misc]
         logger.info("Connected to Redis", url=settings.redis_url.split("@")[-1])
 
-        processor = NewsProcessor(redis)
+        # Use shared Database (passed from __main__.py)
+        # If not provided (standalone mode), create local instance
+        if own_db:
+            try:
+                db = Database(settings.database_url)
+                await db.connect()
+                logger.info("Database connected (standalone mode)")
+            except Exception as e:
+                logger.warning(
+                    "Database not available, WebSocket watchlist will be empty", error=str(e)
+                )
+
+        # Initialize FinnhubService for fundamental data tools (uses passed finnhub_api_key)
+        # Note: PriceService is passed in from __main__.py (single instance with WebSocket)
+        if finnhub_api_key:
+            finnhub_service = FinnhubService(
+                api_key=finnhub_api_key.get_secret_value(), redis=redis
+            )
+            logger.info("FinnhubService initialized for agent tools")
+        else:
+            logger.info("FinnhubService not initialized (no API key provided)")
+
+        # Use shared watchlist (passed from __main__.py)
+        # If not provided (standalone mode), create local instance
+        if watchlist is None:
+            watchlist = WatchlistManager(redis, db=db)
+            if db:
+                await watchlist.sync_from_db()
+            logger.info("Created local WatchlistManager (standalone mode)")
+
+        processor = NewsProcessor(redis, finnhub=finnhub_service, watchlist=watchlist)
         await processor.initialize()
 
         # Start workers with simple create_task (NOT TaskGroup)
         workers = [
             asyncio.create_task(
-                process_worker(i, work_queue, processor, redis, shutdown),
+                process_worker(
+                    i, work_queue, processor, redis, shutdown, price_service=price_service
+                ),
                 name=f"worker-{i}",
             )
             for i in range(settings.processing_workers)
@@ -374,7 +470,7 @@ async def run_pydantic_agent() -> None:
         # Main consumer loop (runs in main coroutine, not a task)
         while not shutdown.is_set():
             try:
-                result = await redis.blpop(INCOMING_QUEUE, timeout=5)
+                result = await redis.blpop([INCOMING_QUEUE], timeout=5)  # type: ignore[misc]
 
                 if result is None:
                     continue
@@ -418,7 +514,14 @@ async def run_pydantic_agent() -> None:
         await asyncio.gather(*workers, return_exceptions=True)
 
         await processor.close()
-        await redis.close()
+        if finnhub_service:
+            await finnhub_service.close()
+        # Note: price_service is owned by __main__.py, don't close it here
+        # Only close resources we created (not passed from __main__.py)
+        if own_db and db:
+            await db.disconnect()
+        if own_redis:
+            await redis.close()
         logger.info("Agent stopped")
 
 

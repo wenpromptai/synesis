@@ -7,7 +7,7 @@ Run: uv run python scripts/test_telegram_format.py
 from datetime import datetime, timezone
 
 from synesis.notifications.telegram import format_combined_signal
-from synesis.processing.models import (
+from synesis.processing.news import (
     BeatMissStatus,
     Direction,
     EventType,

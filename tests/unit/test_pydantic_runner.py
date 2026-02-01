@@ -18,10 +18,10 @@ from synesis.agent.pydantic_runner import (
     enqueue_test_message,
     store_signal,
 )
-from synesis.processing.models import (
+from synesis.processing.news import (
     Direction,
     EventType,
-    Flow1Signal,
+    NewsSignal,
     ImpactLevel,
     LightClassification,
     MarketEvaluation,
@@ -50,7 +50,7 @@ class TestStoreSignal:
     """Tests for store_signal function."""
 
     @pytest.fixture
-    def sample_signal(self) -> Flow1Signal:
+    def sample_signal(self) -> NewsSignal:
         """Create a sample signal for testing."""
         extraction = LightClassification(
             event_type=EventType.macro,
@@ -58,7 +58,7 @@ class TestStoreSignal:
             confidence=0.9,
             primary_entity="Federal Reserve",
         )
-        return Flow1Signal(
+        return NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@test",
@@ -70,7 +70,7 @@ class TestStoreSignal:
 
     @pytest.mark.anyio
     async def test_store_signal_creates_dir(
-        self, sample_signal: Flow1Signal, tmp_path: Path
+        self, sample_signal: NewsSignal, tmp_path: Path
     ) -> None:
         """Test that store_signal creates output directory."""
         mock_redis = AsyncMock()
@@ -83,7 +83,7 @@ class TestStoreSignal:
 
     @pytest.mark.anyio
     async def test_store_signal_writes_jsonl(
-        self, sample_signal: Flow1Signal, tmp_path: Path
+        self, sample_signal: NewsSignal, tmp_path: Path
     ) -> None:
         """Test that store_signal writes to JSONL file."""
         mock_redis = AsyncMock()
@@ -105,7 +105,7 @@ class TestStoreSignal:
 
     @pytest.mark.anyio
     async def test_store_signal_publishes_to_redis(
-        self, sample_signal: Flow1Signal, tmp_path: Path
+        self, sample_signal: NewsSignal, tmp_path: Path
     ) -> None:
         """Test that store_signal publishes to Redis."""
         mock_redis = AsyncMock()

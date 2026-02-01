@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from pydantic_ai.models.openai import OpenAIChatModel
 
-from synesis.processing.llm_factory import create_model
+from synesis.processing.common.llm import create_model
 
 
 class TestCreateModel:
@@ -12,7 +12,7 @@ class TestCreateModel:
 
     def test_anthropic_model_default(self) -> None:
         """Test creating Anthropic model (default, not smart)."""
-        with patch("synesis.processing.llm_factory.get_settings") as mock_settings:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "anthropic"
             settings.llm_model = "claude-3-5-haiku-20241022"
@@ -26,7 +26,7 @@ class TestCreateModel:
 
     def test_anthropic_model_smart(self) -> None:
         """Test creating Anthropic smart model."""
-        with patch("synesis.processing.llm_factory.get_settings") as mock_settings:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "anthropic"
             settings.llm_model = "claude-3-5-haiku-20241022"
@@ -40,7 +40,7 @@ class TestCreateModel:
 
     def test_openai_model_with_base_url(self) -> None:
         """Test creating OpenAI-compatible model with custom base URL."""
-        with patch("synesis.processing.llm_factory.get_settings") as mock_settings:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "openai"
             settings.llm_model = "gpt-4o-mini"
@@ -56,7 +56,7 @@ class TestCreateModel:
 
     def test_openai_model_without_base_url(self) -> None:
         """Test creating OpenAI model without custom base URL."""
-        with patch("synesis.processing.llm_factory.get_settings") as mock_settings:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "openai"
             settings.llm_model = "gpt-4o-mini"
@@ -72,7 +72,7 @@ class TestCreateModel:
 
     def test_openai_model_smart_flag(self) -> None:
         """Test that smart flag selects correct model."""
-        with patch("synesis.processing.llm_factory.get_settings") as mock_settings:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "openai"
             settings.llm_model = "gpt-4o-mini"
@@ -94,7 +94,7 @@ class TestCreateModel:
         """Test creating OpenAI model without API key raises error."""
         import openai
 
-        with patch("synesis.processing.llm_factory.get_settings") as mock_settings:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "openai"
             settings.llm_model = "gpt-4o-mini"

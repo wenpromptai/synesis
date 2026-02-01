@@ -199,7 +199,7 @@ class SourceType(str, Enum):
     news = "news"         # High urgency - act fast
     analysis = "analysis" # Normal urgency - consider
 
-class Flow1Signal(BaseModel):
+class NewsSignal(BaseModel):
     """Real-time signal emitted for each news/analysis item."""
 
     timestamp: datetime
@@ -525,7 +525,7 @@ class TickerSentimentSummary(BaseModel):
     # Evidence
     top_posts: list[PostSentiment]  # Top 5 most influential posts
 
-class Flow2Signal(BaseModel):
+class SentimentSignal(BaseModel):
     """Emitted every 6 hours."""
 
     timestamp: datetime
@@ -881,7 +881,7 @@ WHERE m.resolved_at IS NOT NULL
 ```sql
 CREATE TABLE signals (
     time TIMESTAMPTZ NOT NULL,
-    flow_id TEXT NOT NULL,           -- 'flow1', 'flow2', 'flow3'
+    flow_id TEXT NOT NULL,           -- 'news', 'sentiment', 'market_intel'
     signal_type TEXT NOT NULL,
     payload JSONB NOT NULL,
     market_id TEXT,

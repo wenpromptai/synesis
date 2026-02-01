@@ -21,7 +21,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from synesis.core.logging import get_logger
-from synesis.processing.models import UnifiedMessage
+from synesis.processing.news.models import UnifiedMessage
 
 logger = get_logger(__name__)
 

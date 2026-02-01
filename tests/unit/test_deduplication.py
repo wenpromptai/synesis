@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from synesis.processing.deduplication import (
+from synesis.processing.news.deduplication import (
     DeduplicationResult,
     MessageDeduplicator,
     SIMILARITY_THRESHOLD,
 )
-from synesis.processing.models import SourcePlatform, SourceType, UnifiedMessage
+from synesis.processing.news import SourcePlatform, SourceType, UnifiedMessage
 
 
 def create_test_message(
@@ -82,7 +82,7 @@ class TestMessageDeduplicator:
         """Test that initialize loads the Model2Vec model."""
         deduplicator = MessageDeduplicator(redis=mock_redis)
 
-        with patch("synesis.processing.deduplication.StaticModel") as mock_static_model:
+        with patch("synesis.processing.news.deduplication.StaticModel") as mock_static_model:
             mock_instance = MagicMock()
             mock_instance.encode = MagicMock(return_value=np.zeros((1, 256)))
             mock_static_model.from_pretrained = MagicMock(return_value=mock_instance)

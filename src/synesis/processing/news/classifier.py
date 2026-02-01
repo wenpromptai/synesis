@@ -14,8 +14,8 @@ from functools import lru_cache
 from pydantic_ai import Agent
 
 from synesis.core.logging import get_logger
-from synesis.processing.llm_factory import create_model
-from synesis.processing.models import (
+from synesis.processing.common.llm import create_model
+from synesis.processing.news.models import (
     LightClassification,
     UnifiedMessage,
 )
@@ -115,6 +115,16 @@ CLASSIFIER_SYSTEM_PROMPT = """You are a fast entity extractor. Extract entities,
    - "Subscribe for exclusive signals!" → low (promotional spam)
    - "GIVEAWAY: Free crypto for followers" → low (promotional spam)
 
+## Extraction Process (Think Step-by-Step)
+
+Before extracting, reason through:
+1. Read the message and identify the MAIN event (what happened?)
+2. Determine who is AFFECTED (not who is speaking/commenting)
+3. List ALL entities mentioned, then filter to relevant ones
+4. For urgency: Is this scheduled or surprise? What is market impact potential?
+
+This structured approach prevents missing key entities and ensures accurate urgency classification.
+
 ## What NOT to Extract (moved to Stage 2)
 
 DO NOT include in your output:
@@ -181,7 +191,10 @@ class NewsClassifier:
         Returns:
             LightClassification with extracted information
         """
-        from synesis.processing.categorizer import categorize_by_rules, classify_urgency_by_rules
+        from synesis.processing.news.categorizer import (
+            categorize_by_rules,
+            classify_urgency_by_rules,
+        )
 
         # Try rule-based categorization first
         rule_category = categorize_by_rules(message.text)

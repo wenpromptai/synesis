@@ -21,25 +21,33 @@ from dataclasses import dataclass
 
 from redis.asyncio import Redis
 
+from typing import TYPE_CHECKING
+
 from synesis.config import get_settings
 
 from synesis.core.logging import get_logger
 from synesis.markets.polymarket import PolymarketClient
-from synesis.processing.classifier import NewsClassifier
-from synesis.processing.deduplication import MessageDeduplicator, create_deduplicator
-from synesis.processing.models import (
-    Flow1Signal,
+from synesis.processing.news import (
+    NewsSignal,
     LightClassification,
     MarketEvaluation,
+    MessageDeduplicator,
+    NewsClassifier,
     SmartAnalysis,
+    SmartAnalyzer,
     UnifiedMessage,
+    UrgencyLevel,
+    create_deduplicator,
 )
-from synesis.processing.smart_analyzer import SmartAnalyzer
-from synesis.processing.web_search import (
+from synesis.processing.common import (
     SearchProvidersExhaustedError,
+    WatchlistManager,
     format_search_results,
     search_market_impact,
 )
+
+if TYPE_CHECKING:
+    from synesis.ingestion.finnhub import FinnhubService
 
 logger = get_logger(__name__)
 
@@ -68,15 +76,15 @@ class ProcessingResult:
     # Timing
     processing_time_ms: float = 0.0
 
-    def to_signal(self) -> Flow1Signal | None:
-        """Convert to Flow1Signal for storage/notification.
+    def to_signal(self) -> NewsSignal | None:
+        """Convert to NewsSignal for storage/notification.
 
         Returns None if the message was skipped or has no extraction.
         """
         if self.skipped or self.extraction is None:
             return None
 
-        return Flow1Signal(
+        return NewsSignal(
             timestamp=self.message.timestamp,
             source_platform=self.message.source_platform,
             source_account=self.message.source_account,
@@ -126,13 +134,22 @@ class NewsProcessor:
         result = await processor.process_message(message)
     """
 
-    def __init__(self, redis: Redis) -> None:
+    def __init__(
+        self,
+        redis: Redis,
+        finnhub: "FinnhubService | None" = None,
+        watchlist: WatchlistManager | None = None,
+    ) -> None:
         """Initialize the processor.
 
         Args:
             redis: Redis client for deduplication storage
+            finnhub: Optional FinnhubService for fundamental data tools
+            watchlist: Optional WatchlistManager for ticker tracking
         """
         self._redis = redis
+        self._finnhub = finnhub
+        self._watchlist = watchlist
         self._deduplicator: MessageDeduplicator | None = None
         self._classifier: NewsClassifier | None = None
         self._analyzer: SmartAnalyzer | None = None
@@ -208,7 +225,7 @@ class NewsProcessor:
         return self._polymarket
 
     async def _fetch_web_results(self, queries: list[str]) -> list[str]:
-        """Fetch web search results for given queries.
+        """Fetch web search results for given queries in parallel.
 
         Args:
             queries: List of search queries
@@ -217,22 +234,25 @@ class NewsProcessor:
             List of formatted search result strings
         """
         settings = get_settings()
-        results: list[str] = []
-        for query in queries[: settings.web_search_max_queries]:
+        queries_to_search = queries[: settings.web_search_max_queries]
+
+        async def safe_search(query: str) -> str:
             try:
                 search_results = await search_market_impact(query, count=5)
-                results.append(format_search_results(search_results))
+                return format_search_results(search_results)
             except SearchProvidersExhaustedError:
                 # All search providers failed - this is an infrastructure issue
                 logger.error(
                     "All search providers exhausted",
                     query=query,
                 )
-                results.append("Search unavailable: all providers failed or not configured")
+                return "Search unavailable: all providers failed or not configured"
             except Exception as e:
                 logger.warning("Web search failed", query=query, error=str(e))
-                results.append(f"Search failed: {e}")
-        return results
+                return f"Search failed: {e}"
+
+        results = await asyncio.gather(*[safe_search(q) for q in queries_to_search])
+        return list(results)
 
     async def process_message(self, message: UnifiedMessage) -> ProcessingResult:
         """Process a single message through the two-stage pipeline.
@@ -287,9 +307,30 @@ class NewsProcessor:
             event_type=extraction.event_type.value,
             primary_entity=extraction.primary_entity,
             all_entities=extraction.all_entities,
+            urgency=extraction.urgency.value,
         )
 
-        # 3. Pre-fetch context (parallel)
+        # 3. Early exit for low-urgency messages (skip Stage 2)
+        if extraction.urgency == UrgencyLevel.low:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            log.info(
+                "Skipping Stage 2 (low urgency)",
+                urgency=extraction.urgency.value,
+                urgency_reason=extraction.urgency_reasoning,
+                processing_time_ms=f"{elapsed_ms:.1f}",
+            )
+            return ProcessingResult(
+                message=message,
+                skipped=False,  # Not skipped - just minimal processing
+                skip_reason=None,
+                extraction=extraction,
+                analysis=None,  # No Stage 2 analysis
+                is_duplicate=False,
+                duplicate_of=None,
+                processing_time_ms=elapsed_ms,
+            )
+
+        # 4. Pre-fetch context (parallel) - only for high/critical urgency
         log.debug(
             "Pre-fetching context",
             search_keywords=extraction.search_keywords[:2],
@@ -302,7 +343,7 @@ class NewsProcessor:
             self.analyzer.search_polymarket(extraction.polymarket_keywords),
         )
 
-        # 4. Stage 2: Smart analysis (all informed judgments)
+        # 5. Stage 2: Smart analysis (all informed judgments)
         log.debug("Stage 2: Smart analysis with context")
 
         analysis = await self.analyzer.analyze(
@@ -311,6 +352,7 @@ class NewsProcessor:
             web_results,
             markets_text,
             http_client=self.polymarket._get_client(),  # Reuse existing client for additional searches
+            finnhub=self._finnhub,
         )
 
         if analysis is None:
@@ -331,6 +373,15 @@ class NewsProcessor:
                 markets_evaluated=len(analysis.market_evaluations),
                 has_edge=analysis.has_tradable_edge,
             )
+
+            # Add validated tickers to watchlist for price tracking
+            # Note: Ticker verification is now done by the LLM via verify_ticker_finnhub tool
+            if self._watchlist and analysis.tickers:
+                for ticker in analysis.tickers:
+                    await self._watchlist.add_ticker(
+                        ticker,
+                        source=message.source_platform.value,
+                    )
 
             # Log if edge found
             if analysis.has_tradable_edge and analysis.best_opportunity:

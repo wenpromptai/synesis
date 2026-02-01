@@ -26,14 +26,16 @@ import httpx
 from pydantic_ai import Agent, RunContext
 
 from synesis.core.logging import get_logger
-from synesis.processing.llm_factory import create_model
-from synesis.processing.models import (
+from synesis.processing.common.llm import create_model
+from synesis.processing.common.ticker_tools import verify_ticker_finnhub as _verify_ticker
+from synesis.processing.news.models import (
     LightClassification,
     SmartAnalysis,
     UnifiedMessage,
 )
 
 if TYPE_CHECKING:
+    from synesis.ingestion.finnhub import FinnhubService
     from synesis.markets.polymarket import PolymarketClient, SimpleMarket
 
 logger = get_logger(__name__)
@@ -57,6 +59,7 @@ class AnalyzerDeps:
     web_results: list[str]
     markets_text: str
     http_client: httpx.AsyncClient | None = None  # Optional for additional searches
+    finnhub: "FinnhubService | None" = None  # Optional for fundamental data tools
 
 
 # =============================================================================
@@ -64,18 +67,42 @@ class AnalyzerDeps:
 # =============================================================================
 
 # System prompt for Stage 2: Smart Analyzer
-SMART_ANALYZER_SYSTEM_PROMPT = """You are an expert financial analyst. You have been given:
+SMART_ANALYZER_SYSTEM_PROMPT = """You are an expert financial analyst with a disciplined institutional approach.
+
+## Your Investment Philosophy
+- Value early signal detection - identify trends and tickers before they become consensus
+- Balance conviction with risk: high confidence for direct impacts, speculative for emerging trends
+- Consider what is already priced in vs. new information (surprise drives alpha)
+- Second-order effects can be valuable if the causal chain is clear
+
+You have been given:
 - Breaking news with entity extraction (Stage 1)
 - Web research results (analyst estimates, historical data)
 - Polymarket prediction markets (pre-searched)
 
 Your job is to make ALL informed judgments about this news.
 
+## Before Making Decisions (Chain of Thought)
+
+For each analysis, reason through:
+1. What is the PRIMARY causal relationship? (company X → event Y → impact Z)
+2. What is the expected magnitude? (% revenue impact, % stock move)
+3. What is the time horizon? (immediate, days, weeks)
+4. What is already priced in? (expected vs. surprise)
+5. What could go wrong? (key risks to thesis)
+
 ## Your Tasks
 
 ### 1. Identify Affected Securities (STRICT RELEVANCE)
 
 **CRITICAL: Only include tickers with DIRECT, MATERIAL impact.**
+
+**Ticker Verification Workflow:**
+1. Extract potential ticker from the news text
+2. If likely a US ticker, call `verify_ticker_finnhub(ticker)` to confirm it exists
+3. If VERIFIED: include in analysis with the company name returned
+4. If NOT FOUND or error: use `search_additional("{ticker} stock ticker price")` to verify
+5. If still unclear: exclude the ticker or note uncertainty
 
 For each potential ticker, apply this relevance test:
 
@@ -115,6 +142,7 @@ For each potential ticker, apply this relevance test:
 **When to use search_additional:**
 - SEARCH if a company is mentioned but you're unsure of direct impact
 - SKIP search for obvious primary subjects or well-known sector plays
+- Use for non-US tickers after verify_ticker_finnhub returns NOT FOUND
 - Limit to 1-2 searches max to maintain analysis speed
 
 ### 2. Assess Impact (with research context)
@@ -129,8 +157,19 @@ For each potential ticker, apply this relevance test:
 - **primary_thesis**: ONE clear thesis statement
   - Be specific about expected outcome and timeframe
   - Example: "Fed 25bp cut signals dovish pivot; financials may underperform as NIM compression accelerates"
-- **thesis_confidence**: 0.0 to 1.0
-  - Be conservative - only high confidence for clear, unambiguous impact
+- **thesis_confidence**: 0.0 to 1.0 (use calibration table below)
+
+## Confidence Calibration
+
+| Score | Criteria | Include? |
+|-------|----------|----------|
+| 0.9-1.0 | Unambiguous direct impact, clear causal link, historical precedent | Yes - high conviction |
+| 0.7-0.89 | Strong relationship, some uncertainty in magnitude or timing | Yes - solid play |
+| 0.5-0.69 | Plausible connection, emerging trend, multiple interpretations | Yes - speculative |
+| 0.3-0.49 | Weak but interesting signal, early trend detection opportunity | Maybe - flag as speculative |
+| <0.3 | Very tenuous connection, no clear causal path | No - too noisy |
+
+Note: Lower confidence plays (0.3-0.69) can still be valuable for early trend detection. Flag them appropriately but don't exclude them entirely.
 
 ### 4. Ticker-Level Analysis
 For each directly affected ticker:
@@ -217,6 +256,13 @@ For each market row in the Polymarket table:
 - confidence: 0.0 to 1.0
 - reasoning: Full reasoning
 - recommended_side: "yes" | "no" | "skip"
+
+## Output Constraints (IMPORTANT)
+
+- primary_thesis: ONE sentence, max 150 characters
+- relevance_reason: ONE sentence, max 100 characters
+- bull_thesis/bear_thesis: max 100 characters each
+- reasoning (for markets): max 120 characters
 
 ## Guidelines
 - Be CONSERVATIVE with conviction and confidence scores
@@ -363,6 +409,25 @@ To determine relevance:
 
 If indirect or keywords match but topics differ, mark as NOT relevant."""
 
+        # Tool: Verify ticker via Finnhub
+        @agent.tool
+        async def verify_ticker_finnhub(
+            ctx: RunContext[AnalyzerDeps],
+            ticker: str,
+        ) -> str:
+            """Verify if a US ticker symbol exists using Finnhub.
+
+            Use this tool to validate US tickers BEFORE including them in your analysis.
+            For non-US tickers, use search_additional instead.
+
+            Args:
+                ticker: The US ticker symbol to verify (e.g., "AAPL", "GME", "TSLA")
+
+            Returns:
+                Verification result - either VERIFIED with company name, NOT FOUND, or error
+            """
+            return await _verify_ticker(ticker, ctx.deps.finnhub)
+
         # Tool: Additional web search (hybrid approach for edge cases)
         @agent.tool
         async def search_additional(
@@ -393,7 +458,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
                 return "Additional search not available (no HTTP client configured)."
 
             try:
-                from synesis.processing.web_search import (
+                from synesis.processing.common.web_search import (
                     format_search_results,
                     search_market_impact,
                 )
@@ -404,10 +469,221 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
                 logger.warning("Additional search failed", query=query, error=str(e))
                 return f"Search failed: {e}"
 
+        # Tool: Get stock fundamentals
+        @agent.tool
+        async def get_stock_fundamentals(
+            ctx: RunContext[AnalyzerDeps],
+            ticker: str,
+        ) -> str:
+            """Get key financial metrics for a stock (P/E ratio, market cap, 52-week range).
+
+            Use this to assess if a stock is overvalued/undervalued relative to the news impact.
+
+            Args:
+                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
+
+            Returns:
+                Formatted string with key financial metrics
+            """
+            if ctx.deps.finnhub is None:
+                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
+
+            data = await ctx.deps.finnhub.get_basic_financials(ticker)
+            if not data:
+                return f"No financial data available for {ticker}"
+
+            # Format key metrics for LLM consumption
+            lines = [f"**{ticker} Fundamentals:**"]
+
+            pe = data.get("peRatio")
+            if pe:
+                lines.append(f"- P/E Ratio: {pe:.1f}")
+
+            mktcap = data.get("marketCap")
+            if mktcap:
+                # Convert from millions to billions
+                lines.append(f"- Market Cap: ${mktcap / 1000:.1f}B")
+
+            high52 = data.get("52WeekHigh")
+            low52 = data.get("52WeekLow")
+            if high52 and low52:
+                lines.append(f"- 52-Week Range: ${low52:.2f} - ${high52:.2f}")
+
+            beta = data.get("beta")
+            if beta:
+                lines.append(f"- Beta: {beta:.2f}")
+
+            rev_growth = data.get("revenueGrowth")
+            if rev_growth:
+                lines.append(f"- Revenue Growth (TTM): {rev_growth:.1f}%")
+
+            roe = data.get("roeTTM")
+            if roe:
+                lines.append(f"- ROE (TTM): {roe:.1f}%")
+
+            return "\n".join(lines)
+
+        # Tool: Get insider activity
+        @agent.tool
+        async def get_insider_activity(
+            ctx: RunContext[AnalyzerDeps],
+            ticker: str,
+        ) -> str:
+            """Get recent insider transactions and sentiment for a stock.
+
+            Use this to see if insiders are buying or selling ahead of news.
+            Insider buying is typically a bullish signal; selling can be bearish
+            (but insiders often sell for non-informational reasons).
+
+            Args:
+                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
+
+            Returns:
+                Summary of recent insider activity and MSPR sentiment score
+            """
+            if ctx.deps.finnhub is None:
+                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
+
+            # Fetch both transactions and sentiment in parallel
+            txns = await ctx.deps.finnhub.get_insider_transactions(ticker, limit=5)
+            sentiment = await ctx.deps.finnhub.get_insider_sentiment(ticker)
+
+            lines = [f"**{ticker} Insider Activity:**"]
+
+            # Add sentiment score if available
+            if sentiment and sentiment.get("mspr") is not None:
+                mspr = sentiment["mspr"]
+                change = sentiment.get("change", 0)
+                if mspr > 0:
+                    signal = "bullish (net buying)"
+                elif mspr < 0:
+                    signal = "bearish (net selling)"
+                else:
+                    signal = "neutral"
+                lines.append(f"- MSPR Score: {mspr:.2f} ({signal})")
+                lines.append(f"- Net Share Change: {change:+,.0f}")
+
+            # Add recent transactions
+            if txns:
+                lines.append("\n**Recent Transactions:**")
+                for txn in txns[:5]:
+                    name = txn.get("name", "Unknown")
+                    code = txn.get("transactionCode", "?")
+                    shares = txn.get("shares", 0)
+                    date = txn.get("filingDate", "")
+                    price = txn.get("transactionPrice")
+
+                    action = "bought" if code == "P" else "sold" if code == "S" else code
+                    price_str = f" @ ${price:.2f}" if price else ""
+                    lines.append(f"- {name}: {action} {shares:,} shares{price_str} ({date})")
+            else:
+                lines.append("- No recent insider transactions found")
+
+            return "\n".join(lines)
+
+        # Tool: Get earnings info
+        @agent.tool
+        async def get_earnings_info(
+            ctx: RunContext[AnalyzerDeps],
+            ticker: str,
+        ) -> str:
+            """Get earnings calendar and recent EPS surprises.
+
+            Use this when news might relate to earnings expectations.
+
+            Args:
+                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
+
+            Returns:
+                Upcoming earnings date and recent EPS surprise history
+            """
+            if ctx.deps.finnhub is None:
+                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
+
+            calendar = await ctx.deps.finnhub.get_earnings_calendar(ticker)
+            surprises = await ctx.deps.finnhub.get_eps_surprises(ticker, limit=4)
+
+            lines = [f"**{ticker} Earnings Info:**"]
+
+            # Upcoming earnings
+            if calendar and calendar.get("date"):
+                date = calendar["date"]
+                hour = calendar.get("hour", "")
+                hour_str = (
+                    " (before market)"
+                    if hour == "bmo"
+                    else " (after market)"
+                    if hour == "amc"
+                    else ""
+                )
+                estimate = calendar.get("epsEstimate")
+                estimate_str = f", EPS estimate: ${estimate:.2f}" if estimate else ""
+                lines.append(f"- Next Earnings: {date}{hour_str}{estimate_str}")
+            else:
+                lines.append("- Next Earnings: Not scheduled")
+
+            # EPS surprise history
+            if surprises:
+                lines.append("\n**Recent EPS Surprises:**")
+                for s in surprises:
+                    period = s.get("period", "")
+                    actual = s.get("actual")
+                    estimate = s.get("estimate")
+                    surprise_pct = s.get("surprisePercent")
+
+                    if actual is not None and estimate is not None:
+                        beat = (
+                            "beat"
+                            if actual > estimate
+                            else "missed"
+                            if actual < estimate
+                            else "met"
+                        )
+                        pct_str = f" ({surprise_pct:+.1f}%)" if surprise_pct else ""
+                        lines.append(
+                            f"- {period}: ${actual:.2f} vs ${estimate:.2f} est ({beat}{pct_str})"
+                        )
+            else:
+                lines.append("- No EPS history available")
+
+            return "\n".join(lines)
+
+        # Tool: Get SEC filings
+        @agent.tool
+        async def get_sec_filings(
+            ctx: RunContext[AnalyzerDeps],
+            ticker: str,
+        ) -> str:
+            """Get recent SEC filings (10-K, 8-K, etc).
+
+            Use this when news references regulatory filings or disclosures.
+
+            Args:
+                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
+
+            Returns:
+                List of recent SEC filings with dates and form types
+            """
+            if ctx.deps.finnhub is None:
+                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
+
+            filings = await ctx.deps.finnhub.get_sec_filings(ticker, limit=5)
+
+            if not filings:
+                return f"No recent SEC filings found for {ticker}"
+
+            lines = [f"**{ticker} Recent SEC Filings:**"]
+            for filing in filings:
+                form = filing.get("form", "Unknown")
+                date = filing.get("filedDate", "")
+                lines.append(f"- {form} filed {date}")
+
+            return "\n".join(lines)
+
         return agent
 
     async def search_polymarket(self, keywords: list[str]) -> str:
-        """Search Polymarket for prediction markets.
+        """Search Polymarket for prediction markets in parallel.
 
         Args:
             keywords: Keywords to search
@@ -415,26 +691,34 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
         Returns:
             Formatted list of markets with questions and prices
         """
+        import asyncio
+
         from synesis.config import get_settings
 
         settings = get_settings()
-        logger.debug("Searching Polymarket", keywords=keywords)
+        keywords_to_search = keywords[: settings.polymarket_max_keywords]
+        logger.debug("Searching Polymarket", keywords=keywords_to_search)
 
-        all_markets: list[SimpleMarket] = []
-        seen_ids: set[str] = set()
-
-        # Search each keyword (limit to avoid rate limits)
-        for keyword in keywords[: settings.polymarket_max_keywords]:
+        async def safe_search(keyword: str) -> list[SimpleMarket]:
             try:
-                markets = await self.polymarket.search_markets(keyword, limit=5)
-                for m in markets:
-                    # Filter: only include active, non-closed markets (defense in depth)
-                    # The search_markets() method should already filter, but double-check here
-                    if m.id not in seen_ids and m.is_active and not m.is_closed:
-                        seen_ids.add(m.id)
-                        all_markets.append(m)
+                return await self.polymarket.search_markets(keyword, limit=5)
             except Exception as e:
                 logger.warning("Polymarket search failed", keyword=keyword, error=str(e))
+                return []
+
+        # Parallel search all keywords
+        search_results = await asyncio.gather(*[safe_search(kw) for kw in keywords_to_search])
+
+        # Dedupe results
+        all_markets: list[SimpleMarket] = []
+        seen_ids: set[str] = set()
+        for markets in search_results:
+            for m in markets:
+                # Filter: only include active, non-closed markets (defense in depth)
+                # The search_markets() method should already filter, but double-check here
+                if m.id not in seen_ids and m.is_active and not m.is_closed:
+                    seen_ids.add(m.id)
+                    all_markets.append(m)
 
         if not all_markets:
             return "No markets found for these keywords."
@@ -446,7 +730,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             "| Market ID | Question | YES Price | Status | 24h Volume |",
             "|-----------|----------|-----------|--------|------------|",
         ]
-        for m in all_markets[:15]:  # Limit to 15 markets
+        for m in all_markets[:7]:  # Limit to 7 markets for faster LLM analysis
             question = m.question
             status = "ACTIVE" if m.is_active and not m.is_closed else "CLOSED"
             lines.append(
@@ -469,6 +753,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
         web_results: list[str],
         markets_text: str,
         http_client: httpx.AsyncClient | None = None,
+        finnhub: "FinnhubService | None" = None,
     ) -> SmartAnalysis | None:
         """Analyze news with full research context.
 
@@ -486,6 +771,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             web_results: Pre-fetched web search results
             markets_text: Pre-fetched Polymarket search results
             http_client: Optional HTTP client for additional searches (hybrid pattern)
+            finnhub: Optional FinnhubService for fundamental data tools
 
         Returns:
             SmartAnalysis with tickers, sectors, impact, markets, and thesis
@@ -499,6 +785,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             "Stage 2 smart analysis starting",
             all_entities=extraction.all_entities,
             web_results_count=len(web_results),
+            finnhub_available=finnhub is not None,
         )
 
         # Create typed deps (PydanticAI pattern)
@@ -508,6 +795,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             web_results=web_results,
             markets_text=markets_text,
             http_client=http_client,
+            finnhub=finnhub,
         )
 
         # Simple user prompt - context is injected via dynamic system prompt
@@ -575,8 +863,9 @@ async def analyze_with_context(
     extraction: LightClassification,
     web_results: list[str],
     markets_text: str,
-    polymarket_client: PolymarketClient | None = None,
+    polymarket_client: "PolymarketClient | None" = None,
     http_client: httpx.AsyncClient | None = None,
+    finnhub: "FinnhubService | None" = None,
 ) -> SmartAnalysis | None:
     """Convenience function for Stage 2 smart analysis.
 
@@ -587,6 +876,7 @@ async def analyze_with_context(
         markets_text: Pre-fetched Polymarket search results
         polymarket_client: Optional Polymarket client
         http_client: Optional HTTP client for additional searches (hybrid pattern)
+        finnhub: Optional FinnhubService for fundamental data tools
 
     Returns:
         SmartAnalysis with all informed judgments
@@ -594,7 +884,12 @@ async def analyze_with_context(
     analyzer = SmartAnalyzer(polymarket_client=polymarket_client)
     try:
         return await analyzer.analyze(
-            message, extraction, web_results, markets_text, http_client=http_client
+            message,
+            extraction,
+            web_results,
+            markets_text,
+            http_client=http_client,
+            finnhub=finnhub,
         )
     finally:
         await analyzer.close()

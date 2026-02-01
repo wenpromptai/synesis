@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -17,9 +18,24 @@ if TYPE_CHECKING:
 
     import numpy as np
 
-    from synesis.processing.models import Flow1Signal, MarketEvaluation, UnifiedMessage
+    from synesis.processing.sentiment import SentimentSignal
+    from synesis.processing.news import NewsSignal, MarketEvaluation, UnifiedMessage
 
 logger = get_logger(__name__)
+
+# Price outcome column mappings (used by multiple methods)
+# Maps outcome_type to (column_name, SQL interval)
+SIGNAL_PRICE_OUTCOME_COLUMNS = {
+    "1h": ("prices_1h", "1 hour"),
+    "6h": ("prices_6h", "6 hours"),
+    "24h": ("prices_24h", "24 hours"),
+}
+
+SNAPSHOT_PRICE_OUTCOME_COLUMNS = {
+    "1h": ("price_1h", "1 hour"),
+    "6h": ("price_6h", "6 hours"),
+    "24h": ("price_24h", "24 hours"),
+}
 
 
 class Database:
@@ -88,11 +104,16 @@ class Database:
     # Flow 1: Signal and Message Storage
     # -------------------------------------------------------------------------
 
-    async def insert_signal(self, signal: "Flow1Signal") -> None:
-        """Insert a Flow1Signal into the signals hypertable.
+    async def insert_signal(
+        self,
+        signal: "NewsSignal",
+        prices_at_signal: dict[str, Decimal] | None = None,
+    ) -> None:
+        """Insert a NewsSignal into the signals hypertable.
 
         Args:
             signal: The signal to insert
+            prices_at_signal: Optional dict of ticker prices at signal time
         """
         # Serialize signal to JSON for payload
         payload = signal.model_dump(mode="json")
@@ -123,19 +144,27 @@ class Database:
         # Get event type from extraction
         event_type = signal.extraction.event_type.value if signal.extraction else "other"
 
+        # Convert prices to JSON-serializable format
+        prices_json = None
+        if prices_at_signal:
+            prices_json = orjson.dumps({k: float(v) for k, v in prices_at_signal.items()}).decode(
+                "utf-8"
+            )
+
         query = """
-            INSERT INTO signals (time, flow_id, signal_type, payload, markets, tickers, entities)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO signals (time, flow_id, signal_type, payload, markets, tickers, entities, prices_at_signal)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """
         await self.execute(
             query,
             signal.timestamp,
-            "flow1",
+            "news",
             event_type,
             orjson.dumps(payload).decode("utf-8"),
             orjson.dumps(markets).decode("utf-8") if markets else None,
             tickers,
             entities,
+            prices_json,
         )
         logger.debug(
             "Signal inserted",
@@ -144,6 +173,7 @@ class Database:
             tickers=tickers,
             entities=entities,
             markets_count=len(markets) if markets else 0,
+            has_prices=prices_at_signal is not None,
         )
 
     async def insert_raw_message(
@@ -214,6 +244,313 @@ class Database:
             platform=message.source_platform.value,
         )
         return message_id
+
+    # -------------------------------------------------------------------------
+    # Flow 2: Sentiment Intelligence Storage
+    # -------------------------------------------------------------------------
+
+    async def insert_sentiment_signal(self, signal: "SentimentSignal") -> None:
+        """Insert a SentimentSignal into the signals hypertable.
+
+        Args:
+            signal: The SentimentSignal to insert
+        """
+        # Serialize signal to JSON for payload
+        payload = signal.model_dump(mode="json")
+
+        query = """
+            INSERT INTO signals (time, flow_id, signal_type, payload, tickers, entities)
+            VALUES ($1, $2, $3, $4, $5, $6)
+        """
+        await self.execute(
+            query,
+            signal.timestamp,
+            "sentiment",
+            "sentiment",
+            orjson.dumps(payload).decode("utf-8"),
+            signal.watchlist,  # tickers array
+            None,  # entities not applicable for Flow 2
+        )
+        logger.debug(
+            "Sentiment signal inserted",
+            timestamp=signal.timestamp.isoformat(),
+            watchlist_size=len(signal.watchlist),
+            posts_analyzed=signal.total_posts_analyzed,
+        )
+
+    async def upsert_watchlist_ticker(
+        self,
+        ticker: str,
+        company_name: str | None,
+        added_by: str,
+        added_reason: str | None,
+        expires_at: "datetime",
+    ) -> bool:
+        """Insert or update ticker in watchlist.
+
+        Args:
+            ticker: Stock ticker symbol
+            company_name: Full company name if known
+            added_by: Source that added the ticker ('reddit', 'news', 'manual')
+            added_reason: Reason for adding
+            expires_at: When the ticker should expire from watchlist
+
+        Returns:
+            True if ticker was newly added, False if updated
+        """
+        query = """
+            INSERT INTO watchlist (ticker, company_name, added_by, added_reason, expires_at, is_active)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            ON CONFLICT (ticker) DO UPDATE SET
+                expires_at = GREATEST(watchlist.expires_at, EXCLUDED.expires_at),
+                is_active = TRUE
+            RETURNING (xmax = 0) AS is_new
+        """
+        result = await self.fetchval(
+            query, ticker, company_name, added_by, added_reason, expires_at
+        )
+        is_new = result is True
+        logger.debug(
+            "Watchlist ticker upserted",
+            ticker=ticker,
+            is_new=is_new,
+            expires_at=expires_at.isoformat(),
+        )
+        return is_new
+
+    async def deactivate_expired_watchlist(self) -> list[str]:
+        """Deactivate expired watchlist tickers.
+
+        Returns:
+            List of deactivated ticker symbols
+        """
+        query = """
+            UPDATE watchlist
+            SET is_active = FALSE
+            WHERE is_active = TRUE AND expires_at < NOW()
+            RETURNING ticker
+        """
+        rows = await self.fetch(query)
+        removed = [row["ticker"] for row in rows]
+        if removed:
+            logger.info("Watchlist tickers deactivated", tickers=removed)
+        return removed
+
+    async def get_active_watchlist(self) -> list[str]:
+        """Get all active watchlist tickers.
+
+        Returns:
+            List of active ticker symbols, sorted alphabetically
+        """
+        query = "SELECT ticker FROM watchlist WHERE is_active = TRUE ORDER BY ticker"
+        rows = await self.fetch(query)
+        return [row["ticker"] for row in rows]
+
+    async def get_active_watchlist_with_metadata(self) -> list[asyncpg.Record]:
+        """Get all active watchlist tickers with metadata.
+
+        Returns:
+            List of records with ticker, added_by, added_reason, added_at
+        """
+        query = """
+            SELECT ticker, added_by, added_reason, added_at
+            FROM watchlist
+            WHERE is_active = TRUE
+            ORDER BY ticker
+        """
+        return await self.fetch(query)
+
+    async def insert_sentiment_snapshot(
+        self,
+        ticker: str,
+        snapshot_time: "datetime",
+        bullish_ratio: float,
+        bearish_ratio: float,
+        neutral_ratio: float,
+        mention_count: int,
+        dominant_emotion: str | None = None,
+        sentiment_delta_6h: float | None = None,
+        is_extreme_bullish: bool = False,
+        is_extreme_bearish: bool = False,
+        price_at_signal: Decimal | float | None = None,
+    ) -> None:
+        """Insert sentiment snapshot for a ticker.
+
+        Args:
+            ticker: Stock ticker symbol
+            snapshot_time: Time of the snapshot
+            bullish_ratio: Ratio of bullish mentions (0.0 to 1.0)
+            bearish_ratio: Ratio of bearish mentions (0.0 to 1.0)
+            neutral_ratio: Ratio of neutral mentions (0.0 to 1.0)
+            mention_count: Number of mentions in the period
+            dominant_emotion: Dominant emotion category
+            sentiment_delta_6h: Change from previous 6h period
+            is_extreme_bullish: True if >85% bullish
+            is_extreme_bearish: True if >85% bearish
+            price_at_signal: Stock price at snapshot time
+        """
+        query = """
+            INSERT INTO sentiment_snapshots (
+                ticker, snapshot_time, bullish_ratio, bearish_ratio, neutral_ratio,
+                dominant_emotion, mention_count, sentiment_delta_6h,
+                is_extreme_bullish, is_extreme_bearish, price_at_signal
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        """
+        await self.execute(
+            query,
+            ticker,
+            snapshot_time,
+            bullish_ratio,
+            bearish_ratio,
+            neutral_ratio,
+            dominant_emotion,
+            mention_count,
+            sentiment_delta_6h,
+            is_extreme_bullish,
+            is_extreme_bearish,
+            float(price_at_signal) if price_at_signal is not None else None,
+        )
+        logger.debug(
+            "Sentiment snapshot inserted",
+            ticker=ticker,
+            snapshot_time=snapshot_time.isoformat(),
+            mention_count=mention_count,
+            has_price=price_at_signal is not None,
+        )
+
+    # -------------------------------------------------------------------------
+    # Price Outcome Verification
+    # -------------------------------------------------------------------------
+
+    async def get_signals_pending_price_outcomes(
+        self,
+        outcome_type: str,
+        limit: int = 100,
+    ) -> list[asyncpg.Record]:
+        """Get signals that need price outcome verification.
+
+        Args:
+            outcome_type: Which outcome to check ('1h', '6h', or '24h')
+            limit: Maximum number of signals to return
+
+        Returns:
+            List of signal records with time, tickers, and prices_at_signal
+        """
+        if outcome_type not in SIGNAL_PRICE_OUTCOME_COLUMNS:
+            raise ValueError(f"Invalid outcome_type: {outcome_type}")
+
+        price_col, interval = SIGNAL_PRICE_OUTCOME_COLUMNS[outcome_type]
+
+        query = f"""
+            SELECT time, flow_id, tickers, prices_at_signal
+            FROM signals
+            WHERE prices_at_signal IS NOT NULL
+              AND {price_col} IS NULL
+              AND time < NOW() - INTERVAL '{interval}'
+            ORDER BY time ASC
+            LIMIT $1
+        """
+        return await self.fetch(query, limit)
+
+    async def update_signal_price_outcome(
+        self,
+        signal_time: "datetime",
+        flow_id: str,
+        outcome_type: str,
+        prices: dict[str, Decimal],
+    ) -> None:
+        """Update signal with price outcome.
+
+        Args:
+            signal_time: Signal timestamp (part of primary key)
+            flow_id: Flow ID (part of primary key)
+            outcome_type: Which outcome to update ('1h', '6h', or '24h')
+            prices: Dict mapping ticker to price
+        """
+        if outcome_type not in SIGNAL_PRICE_OUTCOME_COLUMNS:
+            raise ValueError(f"Invalid outcome_type: {outcome_type}")
+
+        price_col, _ = SIGNAL_PRICE_OUTCOME_COLUMNS[outcome_type]
+        prices_json = orjson.dumps({k: float(v) for k, v in prices.items()}).decode("utf-8")
+
+        query = f"""
+            UPDATE signals
+            SET {price_col} = $1
+            WHERE time = $2 AND flow_id = $3
+        """
+        await self.execute(query, prices_json, signal_time, flow_id)
+        logger.debug(
+            "Signal price outcome updated",
+            signal_time=signal_time.isoformat(),
+            outcome_type=outcome_type,
+            tickers=list(prices.keys()),
+        )
+
+    async def get_sentiment_snapshots_pending_price_outcomes(
+        self,
+        outcome_type: str,
+        limit: int = 100,
+    ) -> list[asyncpg.Record]:
+        """Get sentiment snapshots that need price outcome verification.
+
+        Args:
+            outcome_type: Which outcome to check ('1h', '6h', or '24h')
+            limit: Maximum number of snapshots to return
+
+        Returns:
+            List of snapshot records with id, ticker, snapshot_time
+        """
+        if outcome_type not in SNAPSHOT_PRICE_OUTCOME_COLUMNS:
+            raise ValueError(f"Invalid outcome_type: {outcome_type}")
+
+        price_col, interval = SNAPSHOT_PRICE_OUTCOME_COLUMNS[outcome_type]
+
+        query = f"""
+            SELECT id, ticker, snapshot_time
+            FROM sentiment_snapshots
+            WHERE price_at_signal IS NOT NULL
+              AND {price_col} IS NULL
+              AND snapshot_time < NOW() - INTERVAL '{interval}'
+            ORDER BY snapshot_time ASC
+            LIMIT $1
+        """
+        return await self.fetch(query, limit)
+
+    async def update_sentiment_snapshot_price_outcome(
+        self,
+        snapshot_id: UUID,
+        outcome_type: str,
+        price: Decimal | float,
+    ) -> None:
+        """Update sentiment snapshot with price outcome.
+
+        Args:
+            snapshot_id: Snapshot UUID
+            outcome_type: Which outcome to update ('1h', '6h', or '24h')
+            price: Price at outcome time
+        """
+        if outcome_type not in SNAPSHOT_PRICE_OUTCOME_COLUMNS:
+            raise ValueError(f"Invalid outcome_type: {outcome_type}")
+
+        price_col, _ = SNAPSHOT_PRICE_OUTCOME_COLUMNS[outcome_type]
+
+        query = f"""
+            UPDATE sentiment_snapshots
+            SET {price_col} = $1
+            WHERE id = $2
+        """
+        await self.execute(query, float(price), snapshot_id)
+        logger.debug(
+            "Sentiment snapshot price outcome updated",
+            snapshot_id=str(snapshot_id),
+            outcome_type=outcome_type,
+            price=float(price),
+        )
+
+    # -------------------------------------------------------------------------
+    # Flow 1: Signal and Prediction Storage (continued)
+    # -------------------------------------------------------------------------
 
     async def insert_prediction(
         self,

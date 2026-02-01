@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 
 from synesis.core.logging import get_logger
-from synesis.processing.models import MarketOpportunity
+from synesis.processing.news import MarketOpportunity
 
 logger = get_logger(__name__)
 
