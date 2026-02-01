@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from synesis.ingestion.reddit import RedditPost
 from synesis.intelligence.sentiment.models import SentimentResult
@@ -199,6 +199,15 @@ class TickerSentimentSummary(BaseModel):
         default_factory=list,
         description="Key catalysts identified",
     )
+
+    @model_validator(mode="after")
+    def validate_ratios_sum(self) -> "TickerSentimentSummary":
+        """Validate that sentiment ratios sum to approximately 1.0."""
+        total = self.bullish_ratio + self.bearish_ratio + self.neutral_ratio
+        # Allow small floating point errors and skip validation if all zeros (defaults)
+        if total > 0 and not (0.99 <= total <= 1.01):
+            raise ValueError(f"Sentiment ratios must sum to 1.0, got {total:.4f}")
+        return self
 
 
 class SentimentSignal(BaseModel):

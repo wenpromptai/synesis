@@ -31,6 +31,18 @@ WATCHLIST_KEY = "synesis:watchlist:tickers"
 TTL_KEY_PREFIX = "synesis:watchlist:ttl:"
 METADATA_KEY_PREFIX = "synesis:watchlist:metadata:"
 
+# Lua script for atomic check-and-delete (prevents race condition)
+# Returns 1 if ticker was removed, 0 if TTL key still exists
+CLEANUP_TICKER_LUA = """
+if redis.call('exists', KEYS[1]) == 0 then
+    redis.call('srem', KEYS[2], ARGV[1])
+    redis.call('del', KEYS[3])
+    return 1
+else
+    return 0
+end
+"""
+
 
 @dataclass
 class TickerMetadata:
@@ -273,16 +285,42 @@ class WatchlistManager:
     async def get_all_with_metadata(self) -> list[TickerMetadata]:
         """Get all tickers with their metadata.
 
+        Uses Redis pipeline for efficient batch fetching (O(1) round trips
+        instead of O(n) for n tickers).
+
         Returns:
             List of TickerMetadata objects
         """
         tickers = await self.get_all()
-        results = []
+        if not tickers:
+            return []
 
+        # Use pipeline for batch fetching metadata
+        pipe = self.redis.pipeline()
         for ticker in tickers:
-            metadata = await self.get_metadata(ticker)
-            if metadata:
-                results.append(metadata)
+            metadata_key = f"{METADATA_KEY_PREFIX}{ticker}"
+            pipe.hgetall(metadata_key)
+
+        metadata_dicts = await pipe.execute()
+
+        results = []
+        for ticker, raw_data in zip(tickers, metadata_dicts):
+            if raw_data:
+                # Decode bytes to strings if needed
+                data = {
+                    (k.decode() if isinstance(k, bytes) else k): (
+                        v.decode() if isinstance(v, bytes) else v
+                    )
+                    for k, v in raw_data.items()
+                }
+                try:
+                    results.append(TickerMetadata.from_dict(data))
+                except Exception as e:
+                    logger.warning(
+                        "Failed to parse ticker metadata",
+                        ticker=ticker,
+                        error=str(e),
+                    )
 
         return results
 
@@ -292,21 +330,42 @@ class WatchlistManager:
         This should be called periodically to clean up tickers
         that haven't been seen within the TTL period.
 
+        Uses atomic Lua script to prevent race condition where a ticker
+        is re-added between checking TTL expiration and removal.
+
         Returns:
             List of removed ticker symbols
         """
         tickers = await self.get_all()
         removed = []
 
+        # Register the Lua script once
+        cleanup_script = self.redis.register_script(CLEANUP_TICKER_LUA)
+
         for ticker in tickers:
             ttl_key = f"{TTL_KEY_PREFIX}{ticker}"
-            # Check if TTL key still exists
-            exists = await self.redis.exists(ttl_key)
+            metadata_key = f"{METADATA_KEY_PREFIX}{ticker}"
 
-            if not exists:
-                # TTL expired, remove ticker
-                await self.remove_ticker(ticker)
+            # Atomic check-and-delete: only removes if TTL key doesn't exist
+            result = await cleanup_script(
+                keys=[ttl_key, WATCHLIST_KEY, metadata_key],
+                args=[ticker],
+            )
+
+            if result == 1:
                 removed.append(ticker)
+                logger.info("Ticker expired and removed from watchlist", ticker=ticker)
+
+                # Invoke callback (e.g., WebSocket unsubscription)
+                if self._on_ticker_removed:
+                    try:
+                        await self._on_ticker_removed(ticker)
+                    except Exception as e:
+                        logger.warning(
+                            "on_ticker_removed callback failed",
+                            ticker=ticker,
+                            error=str(e),
+                        )
 
         # Also cleanup in PostgreSQL if available
         if self.db:

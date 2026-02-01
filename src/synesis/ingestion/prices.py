@@ -51,6 +51,50 @@ PRICE_CACHE_TTL_SECONDS = 1800
 
 # REST API rate limit (60 calls/min on free tier)
 REST_RATE_LIMIT_DELAY = 1.1  # seconds between calls
+REST_CALLS_PER_MINUTE = 60
+
+
+class RateLimiter:
+    """Token bucket rate limiter for API calls.
+
+    Ensures we don't exceed Finnhub's rate limit even with parallel calls.
+    """
+
+    def __init__(self, calls_per_minute: int = REST_CALLS_PER_MINUTE) -> None:
+        self._calls_per_minute = calls_per_minute
+        self._calls: list[float] = []
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        """Acquire permission to make an API call, waiting if necessary."""
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+
+            # Remove calls older than 60 seconds
+            self._calls = [t for t in self._calls if t > now - 60]
+
+            if len(self._calls) >= self._calls_per_minute:
+                # Wait until oldest call expires
+                sleep_time = 60 - (now - self._calls[0]) + 0.1
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
+                    # Re-check after sleep
+                    now = asyncio.get_event_loop().time()
+                    self._calls = [t for t in self._calls if t > now - 60]
+
+            self._calls.append(now)
+
+
+# Global rate limiter instance for Finnhub REST API
+_finnhub_rate_limiter: RateLimiter | None = None
+
+
+def get_rate_limiter() -> RateLimiter:
+    """Get or create the global Finnhub rate limiter."""
+    global _finnhub_rate_limiter
+    if _finnhub_rate_limiter is None:
+        _finnhub_rate_limiter = RateLimiter()
+    return _finnhub_rate_limiter
 
 
 class PriceService:
@@ -219,22 +263,25 @@ class PriceService:
         """Connect to Finnhub WebSocket and listen for trades."""
         url = f"{FINNHUB_WS_URL}?token={self._api_key}"
 
-        async with websockets.connect(url) as ws:
-            self._ws = ws
-            self._reconnect_delay = 1.0  # Reset on successful connect
+        try:
+            async with websockets.connect(url) as ws:
+                self._ws = ws
+                self._reconnect_delay = 1.0  # Reset on successful connect
 
-            logger.info(
-                "Connected to Finnhub WebSocket",
-                subscribed_tickers=len(self._subscribed_tickers),
-            )
+                logger.info(
+                    "Connected to Finnhub WebSocket",
+                    subscribed_tickers=len(self._subscribed_tickers),
+                )
 
-            # Re-subscribe to all tickers after reconnect
-            for ticker in self._subscribed_tickers:
-                await self._send_subscribe(ticker)
+                # Re-subscribe to all tickers after reconnect
+                for ticker in self._subscribed_tickers:
+                    await self._send_subscribe(ticker)
 
-            # Listen for messages
-            async for message in ws:
-                await self._handle_ws_message(message)
+                # Listen for messages
+                async for message in ws:
+                    await self._handle_ws_message(message)
+        finally:
+            self._ws = None  # Always clear reference to avoid dangling socket
 
     async def _handle_ws_message(self, message: str | bytes) -> None:
         """Handle incoming WebSocket message.
@@ -335,6 +382,10 @@ class PriceService:
         Returns:
             Current price as Decimal, or None if fetch failed
         """
+        # Use global rate limiter to prevent exceeding API limits
+        rate_limiter = get_rate_limiter()
+        await rate_limiter.acquire()
+
         client = self._get_http_client()
         url = f"{FINNHUB_API_URL}/quote"
         params = {"symbol": ticker.upper(), "token": self._api_key}
@@ -381,13 +432,10 @@ class PriceService:
         prices: dict[str, Decimal] = {}
 
         for ticker in tickers:
+            # Rate limiting is handled globally by fetch_quote()
             price = await self.fetch_quote(ticker)
             if price is not None:
                 prices[ticker.upper()] = price
-
-            # Rate limit: 60 calls/min = 1 call per second
-            if len(tickers) > 1:
-                await asyncio.sleep(REST_RATE_LIMIT_DELAY)
 
         return prices
 

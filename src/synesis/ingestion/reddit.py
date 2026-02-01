@@ -7,6 +7,7 @@ Suitable for low-frequency polling (6 hours) with zero rate limit concerns.
 import asyncio
 import html
 import re
+from collections import OrderedDict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -120,7 +121,7 @@ class RedditRSSClient:
     )
     _running: bool = field(default=False, init=False, repr=False)
     _poll_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
-    _seen_ids: set[str] = field(default_factory=set, init=False, repr=False)
+    _seen_ids: OrderedDict[str, None] = field(default_factory=OrderedDict, init=False, repr=False)
 
     def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
@@ -240,14 +241,14 @@ class RedditRSSClient:
         # Filter to only new posts
         new_posts = [p for p in all_posts if p.post_id not in self._seen_ids]
 
-        # Update seen IDs
+        # Update seen IDs (OrderedDict maintains insertion order)
         for post in all_posts:
-            self._seen_ids.add(post.post_id)
+            self._seen_ids[post.post_id] = None
+            self._seen_ids.move_to_end(post.post_id)
 
-        # Limit seen IDs set size (keep last 10000)
-        if len(self._seen_ids) > 10000:
-            # Convert to sorted list and keep newest
-            self._seen_ids = set(list(self._seen_ids)[-5000:])
+        # Limit seen IDs size (keep newest 5000 when exceeding 10000)
+        while len(self._seen_ids) > 10000:
+            self._seen_ids.popitem(last=False)  # Remove oldest entries
 
         logger.info(
             "reddit_poll_complete",
