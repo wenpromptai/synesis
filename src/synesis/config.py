@@ -2,10 +2,18 @@
 
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from synesis.core.constants import (
+    DEFAULT_FINNHUB_API_URL,
+    DEFAULT_FINNHUB_WS_URL,
+    DEFAULT_POLYMARKET_GAMMA_API_URL,
+    DEFAULT_SIGNALS_OUTPUT_DIR,
+)
 
 
 class Settings(BaseSettings):
@@ -38,7 +46,7 @@ class Settings(BaseSettings):
     # Telegram (ingestion)
     telegram_api_id: int | None = Field(default=None)
     telegram_api_hash: SecretStr | None = Field(default=None)
-    telegram_session_name: str = Field(default="synesis")
+    telegram_session_name: str = Field(default="shared/sessions/synesis")
     telegram_channels: list[str] = Field(default_factory=list)
 
     # Telegram (notifications)
@@ -146,6 +154,12 @@ class Settings(BaseSettings):
     exa_api_key: SecretStr | None = Field(default=None)
     brave_api_key: SecretStr | None = Field(default=None)
 
+    # Stock Price Data (Finnhub)
+    finnhub_api_key: SecretStr | None = Field(
+        default=None,
+        description="Finnhub API key for real-time stock prices",
+    )
+
     @field_validator("searxng_url")
     @classmethod
     def validate_searxng_url(cls, v: str | None, info: ValidationInfo) -> str | None:
@@ -191,6 +205,41 @@ class Settings(BaseSettings):
                 raise ValueError("SearXNG URL cannot point to internal network in production")
         return v
 
+    # Reddit RSS (Flow 2 - Sentiment Intelligence)
+    reddit_subreddits: list[str] = Field(
+        default=[
+            # Degen/Options (high retail sentiment, meme stocks)
+            "wallstreetbets",
+            "options",
+            "smallstreetbets",
+            "thetagang",
+            # Active trading
+            "Daytrading",
+            "pennystocks",
+            # Mainstream investing
+            "stocks",
+            "StockMarket",
+        ],
+        description="Subreddits to monitor for sentiment",
+    )
+    reddit_poll_interval: int = Field(
+        default=21600,  # 6 hours in seconds
+        description="Reddit RSS poll interval in seconds",
+    )
+
+    @field_validator("reddit_subreddits", mode="before")
+    @classmethod
+    def parse_reddit_subreddits(cls, v: str | list[str] | None) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                v = json.loads(v)
+            else:
+                v = [s.strip() for s in v.split(",") if s.strip()]
+        return [s.lstrip("r/").lstrip("/r/") for s in v]
+
     # Trading
     trading_enabled: bool = Field(default=False)
     max_position_size: float = Field(default=100.0)
@@ -213,6 +262,24 @@ class Settings(BaseSettings):
     polymarket_max_keywords: int = Field(
         default=5,
         description="Max Polymarket keywords to search per message",
+    )
+
+    # API URLs (environment-configurable)
+    polymarket_gamma_api_url: str = Field(
+        default=DEFAULT_POLYMARKET_GAMMA_API_URL,
+        description="Polymarket Gamma API base URL",
+    )
+    finnhub_ws_url: str = Field(
+        default=DEFAULT_FINNHUB_WS_URL,
+        description="Finnhub WebSocket URL",
+    )
+    finnhub_api_url: str = Field(
+        default=DEFAULT_FINNHUB_API_URL,
+        description="Finnhub REST API base URL",
+    )
+    signals_output_dir: Path = Field(
+        default=Path(DEFAULT_SIGNALS_OUTPUT_DIR),
+        description="Directory for signal output files",
     )
 
     @property

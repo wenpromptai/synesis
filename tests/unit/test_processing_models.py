@@ -3,12 +3,12 @@
 from datetime import datetime, timezone
 
 
-from synesis.processing.models import (
+from synesis.processing.news import (
     BreakingClassification,
     Direction,
     EvaluatorOutput,
     EventType,
-    Flow1Signal,
+    NewsSignal,
     ImpactLevel,
     InvestmentAnalysis,
     LightClassification,
@@ -151,8 +151,8 @@ class TestMarketOpportunity:
         assert opp.suggested_direction == "yes"
 
 
-class TestFlow1Signal:
-    """Tests for Flow1Signal model.
+class TestNewsSignal:
+    """Tests for NewsSignal model.
 
     Uses the 2-stage architecture:
     - extraction: LightClassification (Stage 1, required)
@@ -183,7 +183,7 @@ class TestFlow1Signal:
             thesis_confidence=0.8,
         )
 
-        signal = Flow1Signal(
+        signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@DeItaone",
@@ -213,7 +213,7 @@ class TestFlow1Signal:
         )
 
         # News source = high urgency
-        news_signal = Flow1Signal(
+        news_signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@news",
@@ -225,7 +225,7 @@ class TestFlow1Signal:
         assert news_signal.urgency == "high"
 
         # Analysis source = normal urgency
-        analysis_signal = Flow1Signal(
+        analysis_signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@analyst",
@@ -237,7 +237,7 @@ class TestFlow1Signal:
         assert analysis_signal.urgency == "normal"
 
     def test_signal_serialization(self) -> None:
-        """Test JSON serialization of Flow1Signal."""
+        """Test JSON serialization of NewsSignal."""
         extraction = LightClassification(
             news_category=NewsCategory.breaking,
             event_type=EventType.macro,
@@ -246,7 +246,7 @@ class TestFlow1Signal:
             primary_entity="Federal Reserve",
         )
 
-        signal = Flow1Signal(
+        signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@test",
@@ -271,7 +271,7 @@ class TestFlow1Signal:
             primary_entity="Test",
         )
 
-        signal = Flow1Signal(
+        signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@test",

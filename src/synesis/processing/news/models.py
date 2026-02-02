@@ -23,6 +23,7 @@ class SourcePlatform(str, Enum):
 
     twitter = "twitter"
     telegram = "telegram"
+    reddit = "reddit"
 
 
 class SourceType(str, Enum):
@@ -696,11 +697,11 @@ class SmartAnalysis(BaseModel):
 
 
 # =============================================================================
-# Flow 1 Signal (Final Output)
+# News Signal (Final Output)
 # =============================================================================
 
 
-class Flow1Signal(BaseModel):
+class NewsSignal(BaseModel):
     """Real-time signal emitted for each news/analysis item.
 
     This is the final output of Flow 1, written to JSONL.

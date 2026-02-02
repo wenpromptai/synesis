@@ -1,5 +1,6 @@
 """Tests for Telegram notification service."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -9,9 +10,10 @@ from synesis.notifications.telegram import (
     format_combined_signal,
     format_investment_signal,
     format_prediction_alert,
+    format_sentiment_signal,
     send_telegram,
 )
-from synesis.processing.models import (
+from synesis.processing.news import (
     Direction,
     EventType,
     ImpactLevel,
@@ -24,7 +26,7 @@ from synesis.processing.models import (
     SourceType,
     UnifiedMessage,
 )
-from datetime import datetime, timezone
+from synesis.processing.sentiment import SentimentSignal, TickerSentimentSummary
 
 
 class TestSendTelegram:
@@ -402,3 +404,304 @@ class TestFormatCombinedSignal:
 
         assert "HISTORICAL CONTEXT" in result
         assert "2019" in result
+
+
+class TestFormatSentimentSignal:
+    """Tests for format_sentiment_signal."""
+
+    def _create_signal(self, **kwargs: object) -> SentimentSignal:
+        """Helper to create a SentimentSignal for testing."""
+        now = datetime.now(timezone.utc)
+        defaults: dict[str, object] = {
+            "timestamp": now,
+            "period_start": now,
+            "period_end": now,
+            "watchlist": [],
+            "ticker_sentiments": [],
+            "total_posts_analyzed": 0,
+            "high_quality_posts": 0,
+            "spam_posts": 0,
+            "overall_sentiment": "neutral",
+        }
+        defaults.update(kwargs)
+        return SentimentSignal(**defaults)
+
+    def test_basic_signal(self) -> None:
+        """Test basic sentiment signal formatting."""
+        signal = self._create_signal(
+            overall_sentiment="bullish",
+            narrative_summary="Market is optimistic about tech earnings",
+            total_posts_analyzed=150,
+            high_quality_posts=30,
+            spam_posts=10,
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "REDDIT SENTIMENT" in result
+        assert "BULLISH" in result
+        assert "Market is optimistic" in result
+        assert "150 analyzed" in result
+        assert "30 high quality" in result
+        assert "10 spam filtered" in result
+
+    def test_ticker_sorting_by_mention_count(self) -> None:
+        """Test tickers are sorted by mention count descending."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(ticker="LOW", mention_count=10, avg_sentiment=0.1),
+                TickerSentimentSummary(ticker="HIGH", mention_count=100, avg_sentiment=0.2),
+                TickerSentimentSummary(ticker="MED", mention_count=50, avg_sentiment=0.15),
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        # HIGH should appear before MED before LOW
+        high_pos = result.index("$HIGH")
+        med_pos = result.index("$MED")
+        low_pos = result.index("$LOW")
+        assert high_pos < med_pos < low_pos
+
+    def test_extreme_bullish_badge(self) -> None:
+        """Test extreme bullish badge is displayed."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="BULL",
+                    mention_count=20,
+                    avg_sentiment=0.9,
+                    is_extreme_bullish=True,
+                ),
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "EXTREME BULLISH" in result
+
+    def test_extreme_bearish_badge(self) -> None:
+        """Test extreme bearish badge is displayed."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="BEAR",
+                    mention_count=20,
+                    avg_sentiment=-0.9,
+                    is_extreme_bearish=True,
+                ),
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "EXTREME BEARISH" in result
+
+    def test_watchlist_added(self) -> None:
+        """Test watchlist added display."""
+        signal = self._create_signal(
+            watchlist_added=["AAPL", "TSLA"],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "Watchlist Changes" in result
+        assert "Added:" in result
+        assert "AAPL" in result
+        assert "TSLA" in result
+
+    def test_watchlist_removed(self) -> None:
+        """Test watchlist removed display."""
+        signal = self._create_signal(
+            watchlist_removed=["NFLX", "META"],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "Watchlist Changes" in result
+        assert "Removed:" in result
+        assert "NFLX" in result
+        assert "META" in result
+
+    def test_watchlist_both_added_and_removed(self) -> None:
+        """Test watchlist with both added and removed tickers."""
+        signal = self._create_signal(
+            watchlist_added=["AAPL"],
+            watchlist_removed=["NFLX"],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "Watchlist Changes" in result
+        assert "Added:" in result
+        assert "AAPL" in result
+        assert "Removed:" in result
+        assert "NFLX" in result
+
+    def test_key_themes(self) -> None:
+        """Test key themes formatting."""
+        signal = self._create_signal(
+            key_themes=["silver crash", "earnings season", "meme stocks"],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "Key Themes" in result
+        assert "silver crash" in result
+        assert "earnings season" in result
+        assert "meme stocks" in result
+
+    def test_subreddit_breakdown(self) -> None:
+        """Test subreddit breakdown in stats section."""
+        signal = self._create_signal(
+            subreddits={
+                "wallstreetbets": 100,
+                "stocks": 50,
+                "investing": 25,
+            },
+            total_posts_analyzed=175,
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "Sources:" in result
+        assert "r/wallstreetbets" in result
+        assert "r/stocks" in result
+        assert "r/investing" in result
+
+    def test_ticker_with_company_name(self) -> None:
+        """Test ticker display with company name."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="AAPL",
+                    company_name="Apple Inc.",
+                    mention_count=50,
+                    avg_sentiment=0.3,
+                ),
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "$AAPL" in result
+        assert "Apple Inc." in result
+
+    def test_ticker_with_catalysts(self) -> None:
+        """Test ticker display with key catalysts."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="TSLA",
+                    mention_count=80,
+                    avg_sentiment=0.5,
+                    key_catalysts=["earnings beat", "FSD release"],
+                ),
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "Catalysts:" in result
+        assert "earnings beat" in result
+        assert "FSD release" in result
+
+    def test_empty_ticker_sentiments(self) -> None:
+        """Test signal with no ticker sentiments."""
+        signal = self._create_signal(
+            overall_sentiment="neutral",
+            narrative_summary="Low activity period",
+            total_posts_analyzed=5,
+        )
+        result = format_sentiment_signal(signal)
+
+        # Should still format without error
+        assert "REDDIT SENTIMENT" in result
+        assert "NEUTRAL" in result
+        assert "Tickers" not in result  # No tickers section
+
+    def test_long_narrative_not_truncated(self) -> None:
+        """Test that long narrative is not truncated."""
+        long_narrative = "A" * 500 + "B" * 500
+        signal = self._create_signal(
+            narrative_summary=long_narrative,
+        )
+        result = format_sentiment_signal(signal)
+
+        # Full narrative should be present (no truncation)
+        assert "A" * 500 in result
+        assert "B" * 500 in result
+
+    def test_html_escaping(self) -> None:
+        """Test that special characters are HTML escaped."""
+        signal = self._create_signal(
+            narrative_summary="<script>alert('XSS')</script> & more",
+            key_themes=["theme <b>bold</b>"],
+        )
+        result = format_sentiment_signal(signal)
+
+        # HTML entities should be escaped
+        assert "&lt;script&gt;" in result
+        assert "&amp;" in result
+        assert "<script>" not in result  # Raw HTML should not appear
+
+    def test_html_escaping_in_company_name(self) -> None:
+        """Test that special characters in company names are HTML escaped."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="T",
+                    company_name="AT&T Inc.",
+                    mention_count=25,
+                    avg_sentiment=0.2,
+                ),
+                TickerSentimentSummary(
+                    ticker="TEST",
+                    company_name="<Test> Corp",
+                    mention_count=10,
+                    avg_sentiment=0.1,
+                ),
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        # Company names should be HTML escaped
+        assert "AT&amp;T Inc." in result
+        assert "&lt;Test&gt; Corp" in result
+        assert "AT&T Inc." not in result  # Raw & should not appear
+        assert "<Test>" not in result  # Raw HTML should not appear
+
+    def test_bearish_overall_sentiment(self) -> None:
+        """Test bearish overall sentiment display."""
+        signal = self._create_signal(
+            overall_sentiment="bearish",
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "BEARISH" in result
+        assert "🔴" in result
+
+    def test_mixed_overall_sentiment(self) -> None:
+        """Test mixed overall sentiment display."""
+        signal = self._create_signal(
+            overall_sentiment="mixed",
+        )
+        result = format_sentiment_signal(signal)
+
+        assert "MIXED" in result
+        assert "🟡" in result
+
+    def test_ticker_sentiment_labels(self) -> None:
+        """Test ticker sentiment labels from avg_sentiment."""
+        signal = self._create_signal(
+            ticker_sentiments=[
+                TickerSentimentSummary(
+                    ticker="BULL", mention_count=10, avg_sentiment=0.5
+                ),  # > 0.1 = bullish
+                TickerSentimentSummary(
+                    ticker="BEAR", mention_count=10, avg_sentiment=-0.5
+                ),  # < -0.1 = bearish
+                TickerSentimentSummary(
+                    ticker="NEUT", mention_count=10, avg_sentiment=0.05
+                ),  # -0.1 to 0.1 = neutral
+            ],
+        )
+        result = format_sentiment_signal(signal)
+
+        # Find positions and check labels
+        bull_section = result[result.index("$BULL") : result.index("$BULL") + 100]
+        bear_section = result[result.index("$BEAR") : result.index("$BEAR") + 100]
+        neut_section = result[result.index("$NEUT") : result.index("$NEUT") + 100]
+
+        assert "bullish" in bull_section
+        assert "bearish" in bear_section
+        assert "neutral" in neut_section

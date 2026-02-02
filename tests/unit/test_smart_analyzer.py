@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from synesis.processing.models import (
+from synesis.processing.news import (
     Direction,
     EventType,
     ImpactLevel,
@@ -17,7 +17,7 @@ from synesis.processing.models import (
     TickerAnalysis,
     UnifiedMessage,
 )
-from synesis.processing.smart_analyzer import (
+from synesis.processing.news.analyzer import (
     AnalyzerDeps,
     SMART_ANALYZER_SYSTEM_PROMPT,
     SmartAnalyzer,

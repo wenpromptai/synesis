@@ -9,7 +9,6 @@ import pytest
 from synesis.agent.pydantic_runner import (
     INCOMING_QUEUE,
     SIGNAL_CHANNEL,
-    SIGNALS_DIR,
     emit_combined_telegram,
     emit_prediction_to_db,
     emit_raw_message_to_db,
@@ -18,10 +17,11 @@ from synesis.agent.pydantic_runner import (
     enqueue_test_message,
     store_signal,
 )
-from synesis.processing.models import (
+from synesis.core.constants import DEFAULT_SIGNALS_OUTPUT_DIR
+from synesis.processing.news import (
     Direction,
     EventType,
-    Flow1Signal,
+    NewsSignal,
     ImpactLevel,
     LightClassification,
     MarketEvaluation,
@@ -42,15 +42,15 @@ class TestConstants:
         assert SIGNAL_CHANNEL == "synesis:signals"
 
     def test_signals_dir(self) -> None:
-        """Test signals directory path."""
-        assert SIGNALS_DIR == Path("shared/output")
+        """Test signals directory default path."""
+        assert DEFAULT_SIGNALS_OUTPUT_DIR == "shared/output"
 
 
 class TestStoreSignal:
     """Tests for store_signal function."""
 
     @pytest.fixture
-    def sample_signal(self) -> Flow1Signal:
+    def sample_signal(self) -> NewsSignal:
         """Create a sample signal for testing."""
         extraction = LightClassification(
             event_type=EventType.macro,
@@ -58,7 +58,7 @@ class TestStoreSignal:
             confidence=0.9,
             primary_entity="Federal Reserve",
         )
-        return Flow1Signal(
+        return NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.twitter,
             source_account="@test",
@@ -70,27 +70,33 @@ class TestStoreSignal:
 
     @pytest.mark.anyio
     async def test_store_signal_creates_dir(
-        self, sample_signal: Flow1Signal, tmp_path: Path
+        self, sample_signal: NewsSignal, tmp_path: Path
     ) -> None:
         """Test that store_signal creates output directory."""
         mock_redis = AsyncMock()
         mock_redis.publish = AsyncMock()
 
-        with patch("synesis.agent.pydantic_runner.SIGNALS_DIR", tmp_path / "signals"):
+        mock_settings = MagicMock()
+        mock_settings.signals_output_dir = tmp_path / "signals"
+
+        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
             await store_signal(sample_signal, mock_redis)
 
         assert (tmp_path / "signals").exists()
 
     @pytest.mark.anyio
     async def test_store_signal_writes_jsonl(
-        self, sample_signal: Flow1Signal, tmp_path: Path
+        self, sample_signal: NewsSignal, tmp_path: Path
     ) -> None:
         """Test that store_signal writes to JSONL file."""
         mock_redis = AsyncMock()
         mock_redis.publish = AsyncMock()
 
         signals_dir = tmp_path / "signals"
-        with patch("synesis.agent.pydantic_runner.SIGNALS_DIR", signals_dir):
+        mock_settings = MagicMock()
+        mock_settings.signals_output_dir = signals_dir
+
+        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
             await store_signal(sample_signal, mock_redis)
 
         # Check file was created
@@ -105,13 +111,16 @@ class TestStoreSignal:
 
     @pytest.mark.anyio
     async def test_store_signal_publishes_to_redis(
-        self, sample_signal: Flow1Signal, tmp_path: Path
+        self, sample_signal: NewsSignal, tmp_path: Path
     ) -> None:
         """Test that store_signal publishes to Redis."""
         mock_redis = AsyncMock()
         mock_redis.publish = AsyncMock()
 
-        with patch("synesis.agent.pydantic_runner.SIGNALS_DIR", tmp_path / "signals"):
+        mock_settings = MagicMock()
+        mock_settings.signals_output_dir = tmp_path / "signals"
+
+        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
             await store_signal(sample_signal, mock_redis)
 
         mock_redis.publish.assert_called_once()
@@ -407,7 +416,10 @@ class TestEmitSignal:
         mock_redis = AsyncMock()
         mock_redis.publish = AsyncMock()
 
-        with patch("synesis.agent.pydantic_runner.SIGNALS_DIR", tmp_path / "signals"):
+        mock_settings = MagicMock()
+        mock_settings.signals_output_dir = tmp_path / "signals"
+
+        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
             with patch("synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock):
                 await emit_signal(result, mock_redis)
 

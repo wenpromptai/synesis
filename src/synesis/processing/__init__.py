@@ -1,18 +1,44 @@
-"""Processing layer: LLM analysis, deduplication, entity extraction."""
+"""Processing module - organized by flow type.
 
-from synesis.processing.categorizer import categorize_news
-from synesis.processing.models import (
+Submodules:
+- news: Breaking news & analysis intelligence (Flow 1)
+- sentiment: Sentiment intelligence (Flow 2)
+- market_intel: Prediction market intelligence (Flow 3, future)
+- common: Cross-flow utilities (LLM factory, web search)
+"""
+
+# Re-exports for backward compatibility (deprecated, use submodule imports)
+from synesis.processing.common.llm import create_model
+from synesis.processing.common.web_search import (
+    Recency,
+    SearchProvidersExhaustedError,
+    format_search_results,
+    search_market_impact,
+)
+from synesis.processing.news.analyzer import (
+    AnalyzerDeps,
+    SmartAnalyzer,
+    analyze_with_context,
+)
+from synesis.processing.news.categorizer import categorize_news
+from synesis.processing.news.models import (
+    BeatMissStatus,
     BreakingClassification,
     Direction,
     EvaluatorOutput,
     EventType,
-    Flow1Signal,
+    NewsSignal,
+    GICSSector,
     ImpactLevel,
     InvestmentAnalysis,
     LightClassification,
     MarketEvaluation,
     MarketOpportunity,
+    MetricReading,
     NewsCategory,
+    NumericExtraction,
+    OddsEvaluation,
+    ResearchAnalysis,
     ResearchQuality,
     SectorImplication,
     SmartAnalysis,
@@ -20,40 +46,69 @@ from synesis.processing.models import (
     SourceType,
     TickerAnalysis,
     UnifiedMessage,
+    UrgencyLevel,
 )
-from synesis.processing.smart_analyzer import (
-    AnalyzerDeps,
-    SmartAnalyzer,
-    analyze_with_context,
+from synesis.processing.sentiment.models import (
+    SentimentSignal,
+    PostQualityAssessment,
+    PostSentiment,
+    SentimentRefinement,
+    SentimentRefinementDeps,
+    StockEmotion,
+    TickerSentimentSummary,
+    ValidatedTicker,
 )
-from synesis.processing.web_search import (
-    format_search_results,
-    search_market_impact,
-)
+from synesis.processing.sentiment.processor import SentimentProcessor
+from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
 
 __all__ = [
+    # News (Flow 1) - Analyzer
     "AnalyzerDeps",
+    "SmartAnalyzer",
+    "analyze_with_context",
+    "categorize_news",
+    # News (Flow 1) - Models
+    "BeatMissStatus",
     "BreakingClassification",
     "Direction",
     "EvaluatorOutput",
     "EventType",
-    "Flow1Signal",
+    "NewsSignal",
+    "GICSSector",
     "ImpactLevel",
     "InvestmentAnalysis",
     "LightClassification",
     "MarketEvaluation",
     "MarketOpportunity",
+    "MetricReading",
     "NewsCategory",
+    "NumericExtraction",
+    "OddsEvaluation",
+    "ResearchAnalysis",
     "ResearchQuality",
     "SectorImplication",
     "SmartAnalysis",
-    "SmartAnalyzer",
     "SourcePlatform",
     "SourceType",
     "TickerAnalysis",
     "UnifiedMessage",
-    "analyze_with_context",
-    "categorize_news",
+    "UrgencyLevel",
+    # Sentiment (Flow 2)
+    "SentimentProcessor",
+    "SentimentSignal",
+    "PostQualityAssessment",
+    "PostSentiment",
+    "SentimentRefinement",
+    "SentimentRefinementDeps",
+    "StockEmotion",
+    "TickerMetadata",
+    "TickerSentimentSummary",
+    "ValidatedTicker",
+    "WatchlistManager",
+    # Common utilities
+    "Recency",
+    "SearchProvidersExhaustedError",
+    "create_model",
     "format_search_results",
     "search_market_impact",
 ]

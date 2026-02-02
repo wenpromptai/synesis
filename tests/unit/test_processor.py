@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from synesis.core.processor import NewsProcessor, ProcessingResult
-from synesis.processing.models import (
+from synesis.processing.news import (
     Direction,
     EventType,
     ImpactLevel,
@@ -165,7 +165,7 @@ class TestProcessingResult:
         assert result.best_opportunity.market_id == "market_123"
 
     def test_to_signal(self) -> None:
-        """Test to_signal creates a Flow1Signal."""
+        """Test to_signal creates a NewsSignal."""
         message = create_test_message()
         extraction = create_test_extraction()
         analysis = create_test_analysis()
@@ -392,7 +392,7 @@ class TestFetchWebResults:
         self, processor: NewsProcessor
     ) -> None:
         """Test that SearchProvidersExhaustedError is handled with error-level logging."""
-        from synesis.processing.web_search import SearchProvidersExhaustedError
+        from synesis.processing.common import SearchProvidersExhaustedError
 
         with patch(
             "synesis.core.processor.search_market_impact",

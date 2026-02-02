@@ -30,12 +30,19 @@ CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;  -- Time-series support
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS synesis.signals (
     time TIMESTAMPTZ NOT NULL,
-    flow_id TEXT NOT NULL,              -- 'flow1', 'flow2', 'flow3'
+    flow_id TEXT NOT NULL,              -- 'news', 'sentiment', 'market_intel'
     signal_type TEXT NOT NULL,          -- 'breaking_news', 'sentiment', 'market_intel'
     payload JSONB NOT NULL,             -- Full signal data
     markets JSONB,                      -- [{"market_id": "abc", "link": "https://..."}]
     tickers TEXT[],                     -- ['AAPL', 'TSLA']
     entities TEXT[],                    -- All entities mentioned (people, companies, institutions)
+    -- RAG embedding for semantic search on narratives (Phase 1)
+    narrative_embedding vector(384),    -- fastembed bge-small-en-v1.5
+    -- Price tracking for outcome analysis
+    prices_at_signal JSONB,             -- {"AAPL": 150.25, "TSLA": 245.50} at signal time
+    prices_1h JSONB,                    -- Prices 1 hour after signal
+    prices_6h JSONB,                    -- Prices 6 hours after signal
+    prices_24h JSONB,                   -- Prices 24 hours after signal
     PRIMARY KEY (time, flow_id)
 );
 
@@ -74,6 +81,17 @@ CREATE INDEX IF NOT EXISTS idx_signals_evaluations
 CREATE INDEX IF NOT EXISTS idx_signals_research_analysis
     ON synesis.signals USING GIN ((payload->'classification'->'research_analysis') jsonb_path_ops);
 
+-- HNSW index for semantic search on signal narratives (RAG)
+-- Partial index to only index rows with embeddings
+CREATE INDEX IF NOT EXISTS idx_signals_narrative_embedding
+    ON synesis.signals USING hnsw (narrative_embedding vector_cosine_ops)
+    WHERE narrative_embedding IS NOT NULL;
+
+-- Index for finding signals needing outcome verification (price tracking)
+CREATE INDEX IF NOT EXISTS idx_signals_pending_outcomes ON synesis.signals (time)
+WHERE prices_at_signal IS NOT NULL
+  AND (prices_1h IS NULL OR prices_6h IS NULL OR prices_24h IS NULL);
+
 -- Enable compression after 7 days
 ALTER TABLE synesis.signals SET (
     timescaledb.compress,
@@ -81,8 +99,6 @@ ALTER TABLE synesis.signals SET (
 );
 SELECT add_compression_policy('synesis.signals', INTERVAL '7 days', if_not_exists => TRUE);
 
--- Retention policy: 90 days
-SELECT add_retention_policy('synesis.signals', INTERVAL '90 days', if_not_exists => TRUE);
 
 -- -----------------------------------------------------------------------------
 -- Predictions (TimescaleDB Hypertable)
@@ -125,8 +141,6 @@ ALTER TABLE synesis.predictions SET (
 );
 SELECT add_compression_policy('synesis.predictions', INTERVAL '7 days', if_not_exists => TRUE);
 
--- Retention policy: 90 days
-SELECT add_retention_policy('synesis.predictions', INTERVAL '90 days', if_not_exists => TRUE);
 
 -- -----------------------------------------------------------------------------
 -- Raw Messages
@@ -271,7 +285,7 @@ CREATE TABLE IF NOT EXISTS synesis.watchlist (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ticker TEXT NOT NULL UNIQUE,
     company_name TEXT,
-    added_by TEXT NOT NULL,             -- 'flow1', 'reddit', 'manual'
+    added_by TEXT NOT NULL,             -- 'news', 'reddit', 'manual'
     added_reason TEXT,
     added_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,             -- TTL for auto-removal
@@ -298,18 +312,33 @@ CREATE TABLE IF NOT EXISTS synesis.sentiment_snapshots (
     dominant_emotion TEXT,              -- 'fomo', 'panic', 'euphoria', etc.
     -- Volume metrics
     mention_count INTEGER NOT NULL,
-    volume_zscore DECIMAL(8,4),
     -- Change metrics
     sentiment_delta_6h DECIMAL(5,4),
     -- Flags
     is_extreme_bullish BOOLEAN DEFAULT FALSE,
     is_extreme_bearish BOOLEAN DEFAULT FALSE,
-    is_volume_spike BOOLEAN DEFAULT FALSE,
+    -- RAG embedding for sentiment context retrieval (Phase 1)
+    context_embedding vector(384),      -- fastembed bge-small-en-v1.5
+    -- Price tracking for outcome analysis
+    price_at_signal DECIMAL(12,4),      -- Price at snapshot time
+    price_1h DECIMAL(12,4),             -- Price 1 hour after snapshot
+    price_6h DECIMAL(12,4),             -- Price 6 hours after snapshot
+    price_24h DECIMAL(12,4),            -- Price 24 hours after snapshot
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_sentiment_ticker_time
     ON synesis.sentiment_snapshots (ticker, snapshot_time DESC);
+
+-- Index for finding snapshots needing outcome verification (price tracking)
+CREATE INDEX IF NOT EXISTS idx_sentiment_pending_outcomes ON synesis.sentiment_snapshots (snapshot_time)
+WHERE price_at_signal IS NOT NULL
+  AND (price_1h IS NULL OR price_6h IS NULL OR price_24h IS NULL);
+
+-- HNSW index for semantic search on sentiment context (RAG)
+CREATE INDEX IF NOT EXISTS idx_sentiment_context_embedding
+    ON synesis.sentiment_snapshots USING hnsw (context_embedding vector_cosine_ops)
+    WHERE context_embedding IS NOT NULL;
 
 -- =============================================================================
 -- CONTINUOUS AGGREGATES

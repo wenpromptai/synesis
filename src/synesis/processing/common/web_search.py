@@ -18,6 +18,10 @@ from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Fixed API URLs (external public APIs)
+EXA_API_URL = "https://api.exa.ai/search"
+BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
+
 
 class SearchProvidersExhaustedError(Exception):
     """Raised when all search providers fail or are not configured."""
@@ -161,7 +165,7 @@ async def _search_exa(
 
     async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
         response = await client.post(
-            "https://api.exa.ai/search",
+            EXA_API_URL,
             headers={"x-api-key": api_key, "Content-Type": "application/json"},
             json=payload,
         )
@@ -191,7 +195,7 @@ async def _search_brave(
 
     async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
         response = await client.get(
-            "https://api.search.brave.com/res/v1/web/search",
+            BRAVE_API_URL,
             headers={
                 "X-Subscription-Token": api_key,
                 "Accept": "application/json",

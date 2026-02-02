@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from synesis.processing.web_search import (
+from synesis.processing.common.web_search import (
     SearchProvidersExhaustedError,
     _get_date_range,
     format_search_results,
@@ -102,7 +102,7 @@ class TestSearchMarketImpact:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("synesis.processing.web_search.get_settings") as mock_settings:
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             mock_settings.return_value.searxng_url = "http://localhost:8080"
             mock_settings.return_value.exa_api_key = None
             mock_settings.return_value.brave_api_key = None
@@ -128,7 +128,7 @@ class TestSearchMarketImpact:
         }
         mock_exa_response.raise_for_status = MagicMock()
 
-        with patch("synesis.processing.web_search.get_settings") as mock_settings:
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             settings = MagicMock()
             settings.searxng_url = "http://localhost:8080"
             settings.exa_api_key = MagicMock()
@@ -153,7 +153,7 @@ class TestSearchMarketImpact:
     @pytest.mark.anyio
     async def test_all_providers_exhausted(self) -> None:
         """Test exception when all providers fail."""
-        with patch("synesis.processing.web_search.get_settings") as mock_settings:
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             settings = MagicMock()
             settings.searxng_url = None
             settings.exa_api_key = None
@@ -172,7 +172,7 @@ class TestSearchMarketImpact:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("synesis.processing.web_search.get_settings") as mock_settings:
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             mock_settings.return_value.searxng_url = "http://localhost:8080"
             mock_settings.return_value.exa_api_key = None
             mock_settings.return_value.brave_api_key = None
