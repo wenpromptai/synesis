@@ -566,6 +566,8 @@ Be strict on ticker validation. Reject if unsure."""
                     # Calculate actual ratios from raw post-level sentiment scores
                     scores = self._raw_tickers.get(ticker.ticker, [])
                     if scores:
+                        # VADER compound scores range from -1.0 to 1.0
+                        # Dead zone: scores in (-0.1, 0.1) are classified as neutral
                         bullish_count = sum(1 for s in scores if s > 0.1)
                         bearish_count = sum(1 for s in scores if s < -0.1)
                         neutral_count = len(scores) - bullish_count - bearish_count
