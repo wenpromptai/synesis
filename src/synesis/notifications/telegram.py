@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from synesis.config import get_settings
+from synesis.core.constants import TELEGRAM_MAX_MESSAGE_LENGTH
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -22,7 +23,7 @@ logger = get_logger(__name__)
 TELEGRAM_TIMEOUT = 10.0
 
 # Telegram message limit
-TELEGRAM_MAX_LENGTH = 4096
+TELEGRAM_MAX_LENGTH = TELEGRAM_MAX_MESSAGE_LENGTH
 
 # Section separators for message formatting (10 chars max for mobile)
 SECTION_SEPARATOR = "━━━━━━━━━━"

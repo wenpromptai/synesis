@@ -2,10 +2,18 @@
 
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from synesis.core.constants import (
+    DEFAULT_FINNHUB_API_URL,
+    DEFAULT_FINNHUB_WS_URL,
+    DEFAULT_POLYMARKET_GAMMA_API_URL,
+    DEFAULT_SIGNALS_OUTPUT_DIR,
+)
 
 
 class Settings(BaseSettings):
@@ -254,6 +262,24 @@ class Settings(BaseSettings):
     polymarket_max_keywords: int = Field(
         default=5,
         description="Max Polymarket keywords to search per message",
+    )
+
+    # API URLs (environment-configurable)
+    polymarket_gamma_api_url: str = Field(
+        default=DEFAULT_POLYMARKET_GAMMA_API_URL,
+        description="Polymarket Gamma API base URL",
+    )
+    finnhub_ws_url: str = Field(
+        default=DEFAULT_FINNHUB_WS_URL,
+        description="Finnhub WebSocket URL",
+    )
+    finnhub_api_url: str = Field(
+        default=DEFAULT_FINNHUB_API_URL,
+        description="Finnhub REST API base URL",
+    )
+    signals_output_dir: Path = Field(
+        default=Path(DEFAULT_SIGNALS_OUTPUT_DIR),
+        description="Directory for signal output files",
     )
 
     @property

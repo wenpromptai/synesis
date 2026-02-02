@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -55,9 +54,6 @@ logger = get_logger(__name__)
 INCOMING_QUEUE = "synesis:queue:incoming"
 SIGNAL_CHANNEL = "synesis:signals"
 
-# Output directory for signals
-SIGNALS_DIR = Path("shared/output")
-
 
 async def store_signal(signal: NewsSignal, redis: Redis) -> None:
     """Store a signal and notify subscribers.
@@ -70,12 +66,15 @@ async def store_signal(signal: NewsSignal, redis: Redis) -> None:
         signal: The NewsSignal to store
         redis: Redis client
     """
+    settings = get_settings()
+    signals_dir = settings.signals_output_dir
+
     # Ensure output directory exists
-    SIGNALS_DIR.mkdir(parents=True, exist_ok=True)
+    signals_dir.mkdir(parents=True, exist_ok=True)
 
     # Write to daily JSONL file
     date_str = signal.timestamp.strftime("%Y-%m-%d")
-    output_file = SIGNALS_DIR / f"signals_{date_str}.jsonl"
+    output_file = signals_dir / f"signals_{date_str}.jsonl"
 
     try:
         signal_json = signal.model_dump_json()

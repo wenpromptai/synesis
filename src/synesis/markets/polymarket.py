@@ -10,18 +10,17 @@ API Base: https://gamma-api.polymarket.com
 Note: This is for market discovery only. Trading uses the CLOB API.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime
 from typing import Any
 
 import httpx
 
+from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.processing.news import MarketOpportunity
 
 logger = get_logger(__name__)
-
-GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 
 
 @dataclass
@@ -61,10 +60,10 @@ class SimpleMarket:
 class PolymarketClient:
     """Client for Polymarket Gamma API (read-only market discovery)."""
 
-    base_url: str = GAMMA_API_BASE
+    base_url: str = dataclass_field(default_factory=lambda: get_settings().polymarket_gamma_api_url)
     timeout: float = 30.0
 
-    _client: httpx.AsyncClient | None = field(default=None, init=False, repr=False)
+    _client: httpx.AsyncClient | None = dataclass_field(default=None, init=False, repr=False)
 
     def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -316,12 +315,12 @@ async def find_market_opportunities(
     Returns:
         List of market opportunities
     """
-    own_client = client is None
-    active_client: PolymarketClient
-    if own_client or client is None:
+    if client is None:
         active_client = PolymarketClient()
+        own_client = True
     else:
         active_client = client
+        own_client = False
 
     opportunities = []
 

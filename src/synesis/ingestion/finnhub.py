@@ -25,22 +25,21 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from synesis.config import get_settings
+from synesis.core.constants import (
+    FINNHUB_CACHE_TTL_EARNINGS,
+    FINNHUB_CACHE_TTL_FILINGS,
+    FINNHUB_CACHE_TTL_FINANCIALS,
+    FINNHUB_CACHE_TTL_INSIDER,
+    FINNHUB_CACHE_TTL_SYMBOL,
+)
 from synesis.core.logging import get_logger
+from synesis.ingestion.prices import get_rate_limiter
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 logger = get_logger(__name__)
-
-# Finnhub API base URL
-FINNHUB_API_URL = "https://finnhub.io/api/v1"
-
-# Cache TTLs (in seconds)
-CACHE_TTL_FINANCIALS = 3600  # 1 hour
-CACHE_TTL_INSIDER = 21600  # 6 hours
-CACHE_TTL_EARNINGS = 86400  # 24 hours
-CACHE_TTL_FILINGS = 21600  # 6 hours
-CACHE_TTL_SYMBOL = 604800  # 7 days (symbols rarely change)
 
 # Redis key prefixes
 CACHE_PREFIX = "synesis:finnhub"
@@ -100,8 +99,12 @@ class FinnhubService:
         """
         import orjson
 
+        # Use global rate limiter to prevent exceeding Finnhub API limits
+        await get_rate_limiter().acquire()
+
+        settings = get_settings()
         client = self._get_http_client()
-        url = f"{FINNHUB_API_URL}{endpoint}"
+        url = f"{settings.finnhub_api_url}{endpoint}"
         params["token"] = self._api_key
 
         try:
@@ -179,7 +182,9 @@ class FinnhubService:
         }
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_FINANCIALS)
+        await self._set_cached(
+            cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_FINANCIALS
+        )
         logger.debug("Fetched basic financials", ticker=ticker)
 
         return result
@@ -238,7 +243,7 @@ class FinnhubService:
             )
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_INSIDER)
+        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_INSIDER)
         logger.debug("Fetched insider transactions", ticker=ticker, count=len(result))
 
         return result
@@ -297,7 +302,7 @@ class FinnhubService:
         }
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_INSIDER)
+        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_INSIDER)
         logger.debug("Fetched insider sentiment", ticker=ticker, mspr=result.get("mspr"))
 
         return result
@@ -351,7 +356,7 @@ class FinnhubService:
             )
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_FILINGS)
+        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_FILINGS)
         logger.debug("Fetched SEC filings", ticker=ticker, count=len(result))
 
         return result
@@ -405,7 +410,7 @@ class FinnhubService:
             )
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_EARNINGS)
+        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_EARNINGS)
         logger.debug("Fetched EPS surprises", ticker=ticker, count=len(result))
 
         return result
@@ -469,7 +474,7 @@ class FinnhubService:
         }
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_EARNINGS)
+        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_EARNINGS)
         logger.debug("Fetched earnings calendar", ticker=ticker, date=result.get("date"))
 
         return result
@@ -527,7 +532,7 @@ class FinnhubService:
                 )
 
         # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), CACHE_TTL_SYMBOL)
+        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_SYMBOL)
         logger.debug("Symbol search complete", query=query, count=len(result))
 
         return result

@@ -20,6 +20,10 @@ from model2vec import StaticModel
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from synesis.core.constants import (
+    DEFAULT_SIMILARITY_THRESHOLD,
+    DEDUP_CACHE_TTL_SECONDS,
+)
 from synesis.core.logging import get_logger
 from synesis.processing.news.models import UnifiedMessage
 
@@ -27,8 +31,8 @@ logger = get_logger(__name__)
 
 # Model2Vec model for embeddings (256-dim, very fast)
 DEFAULT_MODEL = "minishlab/potion-base-8M"
-SIMILARITY_THRESHOLD = 0.75
-REDIS_TTL_SECONDS = 60 * 60  # 60 minutes
+SIMILARITY_THRESHOLD = DEFAULT_SIMILARITY_THRESHOLD
+REDIS_TTL_SECONDS = DEDUP_CACHE_TTL_SECONDS
 REDIS_KEY_PREFIX = "dedup:emb:"
 
 

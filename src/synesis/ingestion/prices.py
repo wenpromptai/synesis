@@ -30,6 +30,11 @@ import websockets
 import websockets.exceptions
 from websockets.asyncio.client import ClientConnection
 
+from synesis.config import get_settings
+from synesis.core.constants import (
+    FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE,
+    PRICE_CACHE_TTL_SECONDS,
+)
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -37,21 +42,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Finnhub WebSocket URL
-FINNHUB_WS_URL = "wss://ws.finnhub.io"
-
-# Finnhub REST API base URL
-FINNHUB_API_URL = "https://finnhub.io/api/v1"
-
 # Redis key prefix for price cache
 PRICE_CACHE_PREFIX = "synesis:prices"
-
-# Cache TTL (30 minutes - prices are updated by WebSocket, this is fallback)
-PRICE_CACHE_TTL_SECONDS = 1800
-
-# REST API rate limit (60 calls/min on free tier)
-REST_RATE_LIMIT_DELAY = 1.1  # seconds between calls
-REST_CALLS_PER_MINUTE = 60
 
 
 class RateLimiter:
@@ -60,7 +52,7 @@ class RateLimiter:
     Ensures we don't exceed Finnhub's rate limit even with parallel calls.
     """
 
-    def __init__(self, calls_per_minute: int = REST_CALLS_PER_MINUTE) -> None:
+    def __init__(self, calls_per_minute: int = FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE) -> None:
         self._calls_per_minute = calls_per_minute
         self._calls: list[float] = []
         self._lock = asyncio.Lock()
@@ -85,15 +77,12 @@ class RateLimiter:
             self._calls.append(now)
 
 
-# Global rate limiter instance for Finnhub REST API
-_finnhub_rate_limiter: RateLimiter | None = None
+# Global rate limiter instance for Finnhub REST API (eager init to avoid race condition)
+_finnhub_rate_limiter = RateLimiter()
 
 
 def get_rate_limiter() -> RateLimiter:
-    """Get or create the global Finnhub rate limiter."""
-    global _finnhub_rate_limiter
-    if _finnhub_rate_limiter is None:
-        _finnhub_rate_limiter = RateLimiter()
+    """Get the global Finnhub rate limiter."""
     return _finnhub_rate_limiter
 
 
@@ -261,7 +250,8 @@ class PriceService:
 
     async def _connect_and_listen(self) -> None:
         """Connect to Finnhub WebSocket and listen for trades."""
-        url = f"{FINNHUB_WS_URL}?token={self._api_key}"
+        settings = get_settings()
+        url = f"{settings.finnhub_ws_url}?token={self._api_key}"
 
         try:
             async with websockets.connect(url) as ws:
@@ -386,8 +376,9 @@ class PriceService:
         rate_limiter = get_rate_limiter()
         await rate_limiter.acquire()
 
+        settings = get_settings()
         client = self._get_http_client()
-        url = f"{FINNHUB_API_URL}/quote"
+        url = f"{settings.finnhub_api_url}/quote"
         params = {"symbol": ticker.upper(), "token": self._api_key}
 
         try:

@@ -224,11 +224,16 @@ class Database:
 
         if result is None:
             # Message already exists, fetch existing ID
-            existing: UUID = await self.fetchval(
+            existing: UUID | None = await self.fetchval(
                 "SELECT id FROM raw_messages WHERE source_platform = $1 AND external_id = $2",
                 message.source_platform.value,
                 message.external_id,
             )
+            if existing is None:
+                raise RuntimeError(
+                    f"Message insert failed for {message.external_id} "
+                    "(no insert result and no existing record)"
+                )
             logger.debug(
                 "Message already exists",
                 external_id=message.external_id,

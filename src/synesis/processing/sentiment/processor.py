@@ -252,6 +252,9 @@ class SentimentProcessor:
         self._post_buffer: list[tuple[RedditPost, SentimentResult]] = []
         self._buffer_start: datetime | None = None
 
+        # Store raw ticker scores for accurate ratio calculation in generate_signal()
+        self._raw_tickers: dict[str, list[float]] = {}
+
     @property
     def refiner_agent(self) -> Agent[SentimentRefinementDeps, SentimentRefinement]:
         """Get or create the Gate 2 refiner agent."""
@@ -453,6 +456,9 @@ Unique Tickers (raw): {len(deps.raw_tickers)}
             subreddits=subreddits,
         )
 
+        # Store raw_tickers for ratio calculation in generate_signal()
+        self._raw_tickers = raw_tickers
+
         # Gate 2: LLM refinement (smart, validates tickers, generates narrative)
         deps = SentimentRefinementDeps(
             posts=posts,
@@ -557,10 +563,21 @@ Be strict on ticker validation. Reject if unsure."""
         if refinement:
             for ticker in refinement.validated_tickers:
                 if ticker.is_valid_ticker:
-                    # Calculate ratios from sentiment label
-                    bullish = 1.0 if ticker.sentiment_label == "bullish" else 0.0
-                    bearish = 1.0 if ticker.sentiment_label == "bearish" else 0.0
-                    neutral = 1.0 if ticker.sentiment_label == "neutral" else 0.0
+                    # Calculate actual ratios from raw post-level sentiment scores
+                    scores = self._raw_tickers.get(ticker.ticker, [])
+                    if scores:
+                        bullish_count = sum(1 for s in scores if s > 0.1)
+                        bearish_count = sum(1 for s in scores if s < -0.1)
+                        neutral_count = len(scores) - bullish_count - bearish_count
+                        total = len(scores)
+                        bullish = bullish_count / total
+                        bearish = bearish_count / total
+                        neutral = neutral_count / total
+                    else:
+                        # Fallback to Gate 2 label if no raw scores
+                        bullish = 1.0 if ticker.sentiment_label == "bullish" else 0.0
+                        bearish = 1.0 if ticker.sentiment_label == "bearish" else 0.0
+                        neutral = 1.0 if ticker.sentiment_label == "neutral" else 0.0
 
                     # Determine emotion from sentiment
                     emotion = self._sentiment_to_emotion(ticker.avg_sentiment)
