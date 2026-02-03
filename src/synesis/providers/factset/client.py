@@ -72,17 +72,24 @@ class FactSetClient:
             if not self._password:
                 raise ValueError("SQLSERVER_PASSWORD is not configured")
 
-            self._connection = pymssql.connect(
-                server=self._host,
-                port=str(self._port),
-                database=self._database,
-                user=self._user,
-                password=self._password,
-                as_dict=True,
-                login_timeout=30,
-                timeout=60,
-            )
-            logger.debug(f"Connected to FactSet database at {self._host}")
+            try:
+                self._connection = pymssql.connect(
+                    server=self._host,
+                    port=str(self._port),
+                    database=self._database,
+                    user=self._user,
+                    password=self._password,
+                    as_dict=True,
+                    login_timeout=30,
+                    timeout=60,
+                )
+                logger.debug(f"Connected to FactSet database at {self._host}")
+            except pymssql.OperationalError as e:
+                logger.error(f"Failed to connect to FactSet database: {e}")
+                raise ConnectionError(f"FactSet database unavailable: {e}") from e
+            except pymssql.InterfaceError as e:
+                logger.error(f"FactSet database interface error: {e}")
+                raise ConnectionError(f"FactSet database connection failed: {e}") from e
         return self._connection
 
     def _execute_query_sync(
