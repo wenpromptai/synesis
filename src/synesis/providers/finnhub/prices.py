@@ -1,21 +1,11 @@
-"""Finnhub price service with WebSocket + REST + Redis cache.
+"""Finnhub price provider implementation.
 
-This module provides real-time stock price data for Flow 1 and Flow 2 signal tracking:
-- WebSocket: Persistent connection for real-time price updates
-- REST: Fallback for cache misses and outcome verification
-- Redis: Fast cache for instant price lookups when signals fire
-
-Architecture:
-    ┌──────────────────────────────────────────────────────┐
-    │ FINNHUB WEBSOCKET (persistent connection)            │
-    │   Subscribe to watchlist tickers                     │
-    │     ↓                                                │
-    │   On trade: update Redis cache                       │
-    └──────────────────────────────────────────────────────┘
-                       ↓ (read from cache)
-    ┌──────────────────────────────────────────────────────┐
-    │ Signal fires → read prices → store on signal         │
-    └──────────────────────────────────────────────────────┘
+This module provides the Finnhub implementation of the PriceProvider protocol.
+It includes:
+- WebSocket connection for real-time price updates
+- REST API fallback for cache misses
+- Redis caching for fast lookups
+- Rate limiting to stay within API limits
 """
 
 from __future__ import annotations
@@ -86,31 +76,31 @@ def get_rate_limiter() -> RateLimiter:
     return _finnhub_rate_limiter
 
 
-class PriceService:
-    """Finnhub price service with WebSocket + REST + Redis cache.
+class FinnhubPriceProvider:
+    """Finnhub price provider with WebSocket + REST + Redis cache.
 
-    This service provides stock price data for signal tracking:
-    - get_cached_price(ticker) - instant lookup from Redis
-    - get_cached_prices(tickers) - batch lookup for multiple tickers
-    - fetch_quote(ticker) - REST API fallback
-    - start_websocket() - real-time price streaming
+    This provider implements the PriceProvider protocol and provides:
+    - get_price(ticker) - instant lookup from Redis cache
+    - get_prices(tickers) - batch lookup for multiple tickers
+    - subscribe/unsubscribe - real-time WebSocket streaming
+    - start/close - lifecycle management
 
     Usage:
-        service = PriceService(api_key="your_key", redis=redis_client)
+        provider = FinnhubPriceProvider(api_key="your_key", redis=redis_client)
 
         # Start WebSocket for real-time updates (optional)
-        await service.start_websocket()
-        await service.subscribe(["AAPL", "TSLA"])
+        await provider.start()
+        await provider.subscribe(["AAPL", "TSLA"])
 
         # Get prices when signal fires
-        prices = await service.get_cached_prices(["AAPL", "TSLA"])
+        prices = await provider.get_prices(["AAPL", "TSLA"])
 
         # Cleanup
-        await service.close()
+        await provider.close()
     """
 
     def __init__(self, api_key: str, redis: Redis) -> None:
-        """Initialize PriceService.
+        """Initialize FinnhubPriceProvider.
 
         Args:
             api_key: Finnhub API key
@@ -198,11 +188,66 @@ class PriceService:
             await self.set_cached_price(ticker, price, ttl)
 
     # ─────────────────────────────────────────────────────────────
+    # PriceProvider Protocol Implementation
+    # ─────────────────────────────────────────────────────────────
+
+    async def get_price(self, ticker: str) -> Decimal | None:
+        """Get current price for a single ticker (Protocol method).
+
+        First checks Redis cache, then falls back to REST API if needed.
+
+        Args:
+            ticker: Stock ticker symbol (e.g., "AAPL")
+
+        Returns:
+            Price as Decimal, or None if not available
+        """
+        # First, try cache
+        price = await self.get_cached_price(ticker)
+        if price is not None:
+            return price
+
+        # Fallback to REST
+        return await self.fetch_quote(ticker)
+
+    async def get_prices(
+        self,
+        tickers: list[str],
+        fallback_to_rest: bool = True,
+    ) -> dict[str, Decimal]:
+        """Get prices for multiple tickers (Protocol method).
+
+        First checks Redis cache, then falls back to REST API if needed.
+
+        Args:
+            tickers: List of ticker symbols
+            fallback_to_rest: Whether to use REST API for cache misses
+
+        Returns:
+            Dict mapping ticker to price
+        """
+        if not tickers:
+            return {}
+
+        # First, try cache
+        prices = await self.get_cached_prices(tickers)
+
+        # Find missing tickers
+        missing = [t for t in tickers if t.upper() not in prices]
+
+        if missing and fallback_to_rest:
+            logger.debug("Fetching missing prices via REST", missing=missing)
+            rest_prices = await self.fetch_quotes(missing)
+            prices.update(rest_prices)
+
+        return prices
+
+    # ─────────────────────────────────────────────────────────────
     # WebSocket (real-time)
     # ─────────────────────────────────────────────────────────────
 
-    async def start_websocket(self) -> None:
-        """Start WebSocket connection for real-time prices.
+    async def start(self) -> None:
+        """Start WebSocket connection for real-time prices (Protocol method).
 
         This runs the WebSocket in a background task. Call subscribe()
         to add tickers to the real-time feed.
@@ -213,7 +258,7 @@ class PriceService:
 
         self._running = True
         self._ws_task = asyncio.create_task(self._ws_loop())
-        logger.info("PriceService WebSocket started")
+        logger.info("FinnhubPriceProvider WebSocket started")
 
     async def stop_websocket(self) -> None:
         """Stop WebSocket connection."""
@@ -231,7 +276,7 @@ class PriceService:
                 pass
             self._ws_task = None
 
-        logger.info("PriceService WebSocket stopped")
+        logger.info("FinnhubPriceProvider WebSocket stopped")
 
     async def _ws_loop(self) -> None:
         """Main WebSocket loop with reconnection."""
@@ -323,7 +368,7 @@ class PriceService:
             await self._ws.send(msg)
 
     async def subscribe(self, tickers: list[str]) -> None:
-        """Subscribe to real-time price updates for tickers.
+        """Subscribe to real-time price updates (Protocol method).
 
         Args:
             tickers: List of ticker symbols to subscribe to
@@ -337,7 +382,7 @@ class PriceService:
                 logger.debug("Subscribed to ticker", ticker=ticker_upper)
 
     async def unsubscribe(self, tickers: list[str]) -> None:
-        """Unsubscribe from real-time price updates.
+        """Unsubscribe from real-time price updates (Protocol method).
 
         Args:
             tickers: List of ticker symbols to unsubscribe from
@@ -430,65 +475,36 @@ class PriceService:
 
         return prices
 
-    async def get_prices(
-        self,
-        tickers: list[str],
-        fallback_to_rest: bool = True,
-    ) -> dict[str, Decimal]:
-        """Get prices for tickers, with optional REST fallback.
-
-        First checks Redis cache, then falls back to REST API if needed.
-
-        Args:
-            tickers: List of ticker symbols
-            fallback_to_rest: Whether to use REST API for cache misses
-
-        Returns:
-            Dict mapping ticker to price
-        """
-        if not tickers:
-            return {}
-
-        # First, try cache
-        prices = await self.get_cached_prices(tickers)
-
-        # Find missing tickers
-        missing = [t for t in tickers if t.upper() not in prices]
-
-        if missing and fallback_to_rest:
-            logger.debug("Fetching missing prices via REST", missing=missing)
-            rest_prices = await self.fetch_quotes(missing)
-            prices.update(rest_prices)
-
-        return prices
-
     # ─────────────────────────────────────────────────────────────
     # Lifecycle
     # ─────────────────────────────────────────────────────────────
 
     async def close(self) -> None:
-        """Clean up resources."""
+        """Clean up resources (Protocol method)."""
         await self.stop_websocket()
 
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
 
-        logger.info("PriceService closed")
+        logger.info("FinnhubPriceProvider closed")
 
+
+# Backwards compatibility aliases
+PriceService = FinnhubPriceProvider
 
 # Global price service instance (initialized in lifespan)
-_price_service: PriceService | None = None
+_price_service: FinnhubPriceProvider | None = None
 
 
-def get_price_service() -> PriceService:
+def get_price_service() -> FinnhubPriceProvider:
     """Get the global price service instance."""
     if _price_service is None:
         raise RuntimeError("PriceService not initialized")
     return _price_service
 
 
-async def init_price_service(api_key: str, redis: Redis) -> PriceService:
+async def init_price_service(api_key: str, redis: Redis) -> FinnhubPriceProvider:
     """Initialize the global price service instance.
 
     Args:
@@ -496,10 +512,10 @@ async def init_price_service(api_key: str, redis: Redis) -> PriceService:
         redis: Redis client
 
     Returns:
-        Initialized PriceService
+        Initialized FinnhubPriceProvider
     """
     global _price_service
-    _price_service = PriceService(api_key, redis)
+    _price_service = FinnhubPriceProvider(api_key, redis)
     return _price_service
 
 

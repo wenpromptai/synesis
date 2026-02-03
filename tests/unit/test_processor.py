@@ -19,6 +19,7 @@ from synesis.processing.news import (
     SourceType,
     TickerAnalysis,
     UnifiedMessage,
+    UrgencyLevel,
 )
 
 
@@ -37,8 +38,15 @@ def create_test_message(
     )
 
 
-def create_test_extraction() -> LightClassification:
-    """Create a test Stage 1 extraction (no judgment calls)."""
+def create_test_extraction(
+    urgency: UrgencyLevel = UrgencyLevel.critical,
+    impact: ImpactLevel = ImpactLevel.high,
+) -> LightClassification:
+    """Create a test Stage 1 extraction.
+
+    By default, creates an extraction that will pass to Stage 2
+    (urgency=critical + impact=high).
+    """
     return LightClassification(
         news_category=NewsCategory.breaking,
         event_type=EventType.macro,
@@ -48,6 +56,8 @@ def create_test_extraction() -> LightClassification:
         all_entities=["Federal Reserve", "Jerome Powell"],
         polymarket_keywords=["Fed", "rate cut"],
         search_keywords=["Fed rate cut forecast"],
+        urgency=urgency,
+        predicted_impact=impact,
     )
 
 

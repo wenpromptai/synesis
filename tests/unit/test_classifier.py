@@ -58,7 +58,7 @@ class TestClassifierSystemPrompt:
     def test_prompt_contains_key_instructions(self) -> None:
         """Test that the system prompt contains key instructions."""
         assert "entity extractor" in CLASSIFIER_SYSTEM_PROMPT.lower()
-        assert "event type" in CLASSIFIER_SYSTEM_PROMPT.lower()
+        assert "event_type" in CLASSIFIER_SYSTEM_PROMPT.lower()
         assert "polymarket" in CLASSIFIER_SYSTEM_PROMPT.lower()
 
     def test_prompt_lists_event_types(self) -> None:
@@ -192,14 +192,18 @@ class TestLightClassificationModel:
         """Test that LightClassification does NOT have Stage 2 fields.
 
         These fields moved to SmartAnalysis in the 2-stage architecture.
+        Note: predicted_impact is now in Stage 1 for gating, but refined in Stage 2.
         """
         classification = create_mock_classification()
 
         # Stage 2 fields that should NOT exist on LightClassification
-        assert not hasattr(classification, "predicted_impact")
+        # Note: predicted_impact IS on LightClassification (for gating)
         assert not hasattr(classification, "market_direction")
         assert not hasattr(classification, "tickers")
         assert not hasattr(classification, "sectors")
+
+        # predicted_impact SHOULD exist (for Stage 2 gating)
+        assert hasattr(classification, "predicted_impact")
 
     def test_confidence_bounds(self) -> None:
         """Test that confidence is bounded 0-1."""

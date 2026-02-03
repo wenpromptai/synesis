@@ -2,7 +2,7 @@
 
 import asyncio
 from synesis.config import get_settings
-from synesis.ingestion.finnhub import FinnhubService
+from synesis.providers import FinnhubService
 from redis.asyncio import Redis
 
 

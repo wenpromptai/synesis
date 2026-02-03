@@ -27,8 +27,7 @@ from redis.asyncio import Redis
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.core.processor import NewsProcessor, ProcessingResult
-from synesis.ingestion.finnhub import FinnhubService
-from synesis.ingestion.prices import PriceService
+from synesis.providers import FinnhubService, PriceService
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.notifications.telegram import (
     format_condensed_signal,

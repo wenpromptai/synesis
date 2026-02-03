@@ -38,11 +38,8 @@ CREATE TABLE IF NOT EXISTS synesis.signals (
     entities TEXT[],                    -- All entities mentioned (people, companies, institutions)
     -- RAG embedding for semantic search on narratives (Phase 1)
     narrative_embedding vector(384),    -- fastembed bge-small-en-v1.5
-    -- Price tracking for outcome analysis
+    -- Price at signal time (for outcome analysis)
     prices_at_signal JSONB,             -- {"AAPL": 150.25, "TSLA": 245.50} at signal time
-    prices_1h JSONB,                    -- Prices 1 hour after signal
-    prices_6h JSONB,                    -- Prices 6 hours after signal
-    prices_24h JSONB,                   -- Prices 24 hours after signal
     PRIMARY KEY (time, flow_id)
 );
 
@@ -86,11 +83,6 @@ CREATE INDEX IF NOT EXISTS idx_signals_research_analysis
 CREATE INDEX IF NOT EXISTS idx_signals_narrative_embedding
     ON synesis.signals USING hnsw (narrative_embedding vector_cosine_ops)
     WHERE narrative_embedding IS NOT NULL;
-
--- Index for finding signals needing outcome verification (price tracking)
-CREATE INDEX IF NOT EXISTS idx_signals_pending_outcomes ON synesis.signals (time)
-WHERE prices_at_signal IS NOT NULL
-  AND (prices_1h IS NULL OR prices_6h IS NULL OR prices_24h IS NULL);
 
 -- Enable compression after 7 days
 ALTER TABLE synesis.signals SET (
@@ -319,21 +311,13 @@ CREATE TABLE IF NOT EXISTS synesis.sentiment_snapshots (
     is_extreme_bearish BOOLEAN DEFAULT FALSE,
     -- RAG embedding for sentiment context retrieval (Phase 1)
     context_embedding vector(384),      -- fastembed bge-small-en-v1.5
-    -- Price tracking for outcome analysis
+    -- Price at snapshot time (for outcome analysis)
     price_at_signal DECIMAL(12,4),      -- Price at snapshot time
-    price_1h DECIMAL(12,4),             -- Price 1 hour after snapshot
-    price_6h DECIMAL(12,4),             -- Price 6 hours after snapshot
-    price_24h DECIMAL(12,4),            -- Price 24 hours after snapshot
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_sentiment_ticker_time
     ON synesis.sentiment_snapshots (ticker, snapshot_time DESC);
-
--- Index for finding snapshots needing outcome verification (price tracking)
-CREATE INDEX IF NOT EXISTS idx_sentiment_pending_outcomes ON synesis.sentiment_snapshots (snapshot_time)
-WHERE price_at_signal IS NOT NULL
-  AND (price_1h IS NULL OR price_6h IS NULL OR price_24h IS NULL);
 
 -- HNSW index for semantic search on sentiment context (RAG)
 CREATE INDEX IF NOT EXISTS idx_sentiment_context_embedding

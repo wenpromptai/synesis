@@ -27,7 +27,7 @@ from pydantic_ai import Agent, RunContext
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
-from synesis.processing.common.ticker_tools import verify_ticker_finnhub as _verify_ticker
+from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.news.models import (
     LightClassification,
     SmartAnalysis,
@@ -35,8 +35,8 @@ from synesis.processing.news.models import (
 )
 
 if TYPE_CHECKING:
-    from synesis.ingestion.finnhub import FinnhubService
     from synesis.markets.polymarket import PolymarketClient, SimpleMarket
+    from synesis.providers import FinnhubService
 
 logger = get_logger(__name__)
 

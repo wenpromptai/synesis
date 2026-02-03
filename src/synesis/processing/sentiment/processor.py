@@ -35,15 +35,15 @@ from synesis.processing.sentiment.models import (
     TickerSentimentSummary,
 )
 from synesis.processing.common.llm import create_model
-from synesis.processing.common.ticker_tools import verify_ticker_finnhub as _verify_ticker
+from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.common.watchlist import WatchlistManager
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from synesis.config import Settings
-    from synesis.ingestion.finnhub import FinnhubService
-    from synesis.ingestion.prices import PriceService
+    from synesis.providers import FinnhubService
+    from synesis.providers.base import PriceProvider, TickerProvider
     from synesis.storage.database import Database
 
 logger = get_logger(__name__)
@@ -200,8 +200,8 @@ class SentimentProcessor:
         settings: Settings,
         redis: Redis,
         db: Database | None = None,
-        price_service: "PriceService | None" = None,
-        finnhub: "FinnhubService | None" = None,
+        price_service: "PriceProvider | None" = None,
+        finnhub: "FinnhubService | TickerProvider | None" = None,
         watchlist: "WatchlistManager | None" = None,
     ) -> None:
         """Initialize Flow 2 processor.
@@ -210,8 +210,8 @@ class SentimentProcessor:
             settings: Application settings
             redis: Redis client for watchlist storage
             db: Optional PostgreSQL database for persistence
-            price_service: Optional PriceService for fetching ticker prices
-            finnhub: Optional FinnhubService for ticker verification
+            price_service: Optional PriceProvider for fetching ticker prices
+            finnhub: Optional TickerProvider for ticker verification
             watchlist: Optional shared WatchlistManager (created in __main__.py)
         """
         self.settings = settings
@@ -727,8 +727,8 @@ async def create_sentiment_processor(
     settings: Settings,
     redis: Redis,
     db: Database | None = None,
-    price_service: "PriceService | None" = None,
-    finnhub: "FinnhubService | None" = None,
+    price_service: "PriceProvider | None" = None,
+    finnhub: "FinnhubService | TickerProvider | None" = None,
     watchlist: "WatchlistManager | None" = None,
 ) -> SentimentProcessor:
     """Create a Sentiment processor instance.
@@ -737,8 +737,8 @@ async def create_sentiment_processor(
         settings: Application settings
         redis: Redis client
         db: Optional PostgreSQL database for persistence
-        price_service: Optional PriceService for fetching ticker prices
-        finnhub: Optional FinnhubService for ticker verification
+        price_service: Optional PriceProvider for fetching ticker prices
+        finnhub: Optional TickerProvider for ticker verification
         watchlist: Optional shared WatchlistManager (created in __main__.py)
 
     Returns:

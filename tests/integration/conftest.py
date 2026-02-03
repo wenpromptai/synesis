@@ -309,7 +309,7 @@ def finnhub_service(mock_redis: Any) -> Any:
     if not settings.finnhub_api_key:
         return None
 
-    from synesis.ingestion.finnhub import FinnhubService
+    from synesis.providers import FinnhubService
 
     api_key = settings.finnhub_api_key.get_secret_value()
     return FinnhubService(api_key=api_key, redis=mock_redis)

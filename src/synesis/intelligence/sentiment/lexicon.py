@@ -937,5 +937,82 @@ TICKER_BLACKLIST: Final[frozenset[str]] = frozenset(
         "MA",
         "PA",
         "OK",
+        # Reddit/WSB-specific false positives
+        "WSB",  # r/wallstreetbets
+        "OP",  # Original poster
+        "TL",  # Part of TLDR
+        "DR",  # Part of TLDR
+        "YTD",  # Year to date
+        "TTM",  # Trailing twelve months
+        "JP",  # Partial (not JPM)
+        "HV",  # High volatility
+        # Options strategy terms
+        "CSP",  # Cash Secured Put
+        "CC",  # Covered Call
+        "IC",  # Iron Condor
+        "TF",  # The F***
+        "PMCC",  # Poor Man's Covered Call
+        # News/media
+        "CNBC",
+        "CNN",
+        "BBC",
+        "FOX",
+        # Misc false positives
+        "COVID",
+        "III",  # Roman numeral
+        "EACH",
+        "SOLD",
+        "THAT",
+        "JUST",
+        "THIS",
+        "VERY",
+        "ONLY",
+        "MUCH",
+        "EVEN",
+        "MOST",
+        "MORE",
+        "ALSO",
+        "BACK",
+        "BEEN",
+        "OVER",
+        "SUCH",
+        "THAN",
+        "THEM",
+        "THEN",
+        "WHEN",
+        "WILL",
+        "WITH",
+        "SOME",
+        "WHAT",
+        "TAKE",
+        "LIKE",
+        "MAKE",
+        "KNOW",
+        "TIME",
+        "YEAR",
+        "GOOD",
+        "WELL",
+        "SAME",
+        "LAST",
+        "NEXT",
+        "HIGH",
+        "LOOK",
+        "GIVE",
+        "WORK",
+        "PART",
+        "CASE",
+        "WEEK",
+        "OPEN",
+        "FIND",
+        "LONG",
+        "DOWN",
+        "COME",
+        "MADE",
+        "LIVE",
+        "SAFE",
+        "HUGE",
+        "MOVE",
+        "VHUB",  # Not a ticker
+        "JTAI",  # Not a real ticker
     }
 )

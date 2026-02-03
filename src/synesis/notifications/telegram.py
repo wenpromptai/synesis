@@ -299,7 +299,7 @@ def format_condensed_signal(
     # Build message
     msg = f"""📢 <b>SIGNAL</b> {direction_emoji.get(direction, "⚪")} {direction.upper()} | {impact_emoji.get(impact, "ℹ️")} {impact.upper()}
 
-<blockquote>{_escape_html(original_text)}</blockquote>
+<i>{_escape_html(original_text)}</i>
 
 💡 <b>Thesis:</b> {_escape_html(analysis.primary_thesis)}
 <i>Confidence: {analysis.thesis_confidence:.0%}</i>"""
@@ -428,7 +428,7 @@ Urgency: {urgency_emoji.get(urgency, urgency)} {urgency.upper()}"""
     msg += f"""
 
 📝 <b>ORIGINAL MESSAGE</b>
-<blockquote>{_escape_html(message.text)}</blockquote>
+<i>{_escape_html(message.text)}</i>
 
 📊 <b>SUMMARY</b>
 {_escape_html(extraction.summary)}
