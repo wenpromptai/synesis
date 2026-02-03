@@ -7,6 +7,36 @@ Performance notes:
 - Use date range filters instead of TOP N DESC patterns
 """
 
+import re
+
+# FactSet fsym_id format: alphanumeric with hyphens (e.g., "ABC123-R", "XYZ789-S")
+_FSYM_ID_PATTERN = re.compile(r"^[A-Z0-9]+-[A-Z0-9]+$")
+
+
+def safe_fsym_ids_for_in_clause(fsym_ids: list[str]) -> str:
+    """Safely format fsym_ids for SQL IN clause to prevent SQL injection.
+
+    Args:
+        fsym_ids: List of FactSet security IDs
+
+    Returns:
+        Comma-separated quoted string safe for IN clause
+
+    Raises:
+        ValueError: If any fsym_id doesn't match expected format
+    """
+    if not fsym_ids:
+        raise ValueError("fsym_ids cannot be empty")
+
+    validated = []
+    for fsym_id in fsym_ids:
+        fsym_id = fsym_id.upper().strip()
+        if not _FSYM_ID_PATTERN.match(fsym_id):
+            raise ValueError(f"Invalid fsym_id format: {fsym_id}")
+        validated.append(f"'{fsym_id}'")
+
+    return ", ".join(validated)
+
 # =============================================================================
 # TICKER RESOLUTION
 # =============================================================================
@@ -165,6 +195,7 @@ ORDER BY price_date
 """
 
 # Get latest prices for multiple securities (batch)
+# Usage: PRICES_BATCH_BY_DATE.format(fsym_ids=safe_fsym_ids_for_in_clause(ids))
 PRICES_BATCH_BY_DATE = """
 SELECT
     fsym_id,
