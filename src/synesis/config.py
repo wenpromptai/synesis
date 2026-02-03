@@ -160,6 +160,52 @@ class Settings(BaseSettings):
         description="Finnhub API key for real-time stock prices",
     )
 
+    # Provider Selection (allows swapping data providers)
+    price_provider: Literal["finnhub"] = Field(
+        default="finnhub",
+        description="Price data provider (finnhub, polygon, yahoo in future)",
+    )
+    ticker_provider: Literal["finnhub"] = Field(
+        default="finnhub",
+        description="Ticker validation provider (finnhub, polygon, sec in future)",
+    )
+    fundamentals_provider: Literal["finnhub", "none"] = Field(
+        default="finnhub",
+        description="Fundamentals data provider (finnhub, polygon, none)",
+    )
+
+    # Crawl4AI (web crawling)
+    crawl4ai_url: str = Field(
+        default="http://localhost:11235",
+        description="Crawl4AI service URL",
+    )
+    crawl4ai_api_token: SecretStr | None = Field(
+        default=None,
+        description="Optional Crawl4AI API token for authentication",
+    )
+
+    # FactSet SQL Server
+    sqlserver_host: str = Field(
+        default="",
+        description="FactSet SQL Server host",
+    )
+    sqlserver_port: int = Field(
+        default=1433,
+        description="FactSet SQL Server port",
+    )
+    sqlserver_database: str = Field(
+        default="",
+        description="FactSet SQL Server database name",
+    )
+    sqlserver_user: str = Field(
+        default="",
+        description="FactSet SQL Server username",
+    )
+    sqlserver_password: SecretStr | None = Field(
+        default=None,
+        description="FactSet SQL Server password",
+    )
+
     @field_validator("searxng_url")
     @classmethod
     def validate_searxng_url(cls, v: str | None, info: ValidationInfo) -> str | None:

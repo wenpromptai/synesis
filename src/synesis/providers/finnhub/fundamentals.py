@@ -1,12 +1,11 @@
-"""Finnhub API service for fundamental data.
+"""Finnhub fundamentals provider implementation.
 
-Provides access to Finnhub's fundamental data endpoints for agent tool use:
+This module provides the Finnhub implementation of the FundamentalsProvider protocol.
+It supports:
 - Basic financials (P/E, market cap, 52w range)
-- Insider transactions
-- Insider sentiment (MSPR)
+- Insider transactions and sentiment
 - SEC filings
-- EPS surprises
-- Earnings calendar
+- EPS surprises and earnings calendar
 
 Rate limiting: Free tier = 60 calls/min across ALL endpoints.
 Caching strategy:
@@ -14,8 +13,6 @@ Caching strategy:
 - Insider txns/sentiment: 6 hours (filed daily)
 - Earnings calendar: 24 hours (known in advance)
 - SEC filings: 6 hours
-
-Uses Redis for caching to minimize API calls.
 """
 
 from __future__ import annotations
@@ -31,34 +28,40 @@ from synesis.core.constants import (
     FINNHUB_CACHE_TTL_FILINGS,
     FINNHUB_CACHE_TTL_FINANCIALS,
     FINNHUB_CACHE_TTL_INSIDER,
-    FINNHUB_CACHE_TTL_SYMBOL,
 )
 from synesis.core.logging import get_logger
-from synesis.ingestion.prices import get_rate_limiter
+from synesis.providers.finnhub.prices import get_rate_limiter
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 logger = get_logger(__name__)
 
-# Redis key prefixes
+# Redis key prefix
 CACHE_PREFIX = "synesis:finnhub"
 
 
-class FinnhubService:
-    """Finnhub API client for fundamental data endpoints.
+class FinnhubFundamentalsProvider:
+    """Finnhub fundamentals provider for company financial data.
 
-    Provides cached access to Finnhub fundamental data for agent tools.
+    This provider implements the FundamentalsProvider protocol and provides:
+    - get_basic_financials(ticker) - P/E, market cap, etc.
+    - get_insider_transactions(ticker) - Recent insider buys/sells
+    - get_insider_sentiment(ticker) - MSPR score
+    - get_earnings_calendar(ticker) - Next earnings date
+    - get_eps_surprises(ticker) - Historical EPS surprises
+    - get_sec_filings(ticker) - Recent SEC filings
+
     Uses Redis caching to minimize API calls within rate limits.
 
     Usage:
-        service = FinnhubService(api_key="your_key", redis=redis_client)
-        financials = await service.get_basic_financials("AAPL")
-        await service.close()
+        provider = FinnhubFundamentalsProvider(api_key="your_key", redis=redis_client)
+        financials = await provider.get_basic_financials("AAPL")
+        await provider.close()
     """
 
     def __init__(self, api_key: str, redis: Redis) -> None:
-        """Initialize FinnhubService.
+        """Initialize FinnhubFundamentalsProvider.
 
         Args:
             api_key: Finnhub API key
@@ -123,11 +126,11 @@ class FinnhubService:
             return None
 
     # ─────────────────────────────────────────────────────────────
-    # Basic Financials
+    # FundamentalsProvider Protocol Implementation
     # ─────────────────────────────────────────────────────────────
 
     async def get_basic_financials(self, ticker: str) -> dict[str, Any] | None:
-        """Get key financial metrics (P/E, market cap, 52w range, etc).
+        """Get key financial metrics (Protocol method).
 
         Endpoint: /stock/metric?symbol={ticker}&metric=all
 
@@ -136,8 +139,7 @@ class FinnhubService:
 
         Returns:
             Dict with financial metrics, or None if not available.
-            Keys include: peBasicExclExtraTTM, marketCapitalization,
-            52WeekHigh, 52WeekLow, revenueGrowthTTMYoy, etc.
+            Keys include: peRatio, marketCap, 52WeekHigh, 52WeekLow, etc.
         """
         import orjson
 
@@ -189,12 +191,8 @@ class FinnhubService:
 
         return result
 
-    # ─────────────────────────────────────────────────────────────
-    # Insider Data
-    # ─────────────────────────────────────────────────────────────
-
     async def get_insider_transactions(self, ticker: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Get recent insider transactions (buys/sells).
+        """Get recent insider transactions (Protocol method).
 
         Endpoint: /stock/insider-transactions?symbol={ticker}
 
@@ -249,7 +247,7 @@ class FinnhubService:
         return result
 
     async def get_insider_sentiment(self, ticker: str) -> dict[str, Any] | None:
-        """Get aggregate insider sentiment (MSPR score).
+        """Get aggregate insider sentiment (MSPR score) (Protocol method).
 
         Endpoint: /stock/insider-sentiment?symbol={ticker}
 
@@ -307,12 +305,8 @@ class FinnhubService:
 
         return result
 
-    # ─────────────────────────────────────────────────────────────
-    # SEC Filings
-    # ─────────────────────────────────────────────────────────────
-
     async def get_sec_filings(self, ticker: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Get recent SEC filings.
+        """Get recent SEC filings (Protocol method).
 
         Endpoint: /stock/filings?symbol={ticker}
 
@@ -361,12 +355,8 @@ class FinnhubService:
 
         return result
 
-    # ─────────────────────────────────────────────────────────────
-    # Earnings Data
-    # ─────────────────────────────────────────────────────────────
-
     async def get_eps_surprises(self, ticker: str, limit: int = 4) -> list[dict[str, Any]]:
-        """Get historical EPS surprises.
+        """Get historical EPS surprises (Protocol method).
 
         Endpoint: /stock/earnings?symbol={ticker}
 
@@ -416,7 +406,7 @@ class FinnhubService:
         return result
 
     async def get_earnings_calendar(self, ticker: str) -> dict[str, Any] | None:
-        """Get next earnings date.
+        """Get next earnings date (Protocol method).
 
         Endpoint: /calendar/earnings?symbol={ticker}
 
@@ -480,112 +470,12 @@ class FinnhubService:
         return result
 
     # ─────────────────────────────────────────────────────────────
-    # Symbol Lookup / Ticker Verification
-    # ─────────────────────────────────────────────────────────────
-
-    async def search_symbol(self, query: str) -> list[dict[str, str]]:
-        """Search for stock symbols matching a query.
-
-        Endpoint: /search?q={query}
-
-        Args:
-            query: Search query (ticker or company name)
-
-        Returns:
-            List of matching symbols with: symbol, description, type
-        """
-        import orjson
-
-        query = query.upper()
-        cache_key = f"{CACHE_PREFIX}:symbol_search:{query}"
-
-        # Check cache
-        cached = await self._get_cached(cache_key)
-        if cached:
-            try:
-                cached_list: list[dict[str, str]] = orjson.loads(cached)
-                return cached_list
-            except Exception:
-                pass
-
-        # Fetch from API
-        data = await self._fetch_finnhub("/search", {"q": query})
-        if data is None or not isinstance(data, dict):
-            return []
-
-        results = data.get("result", [])
-        if not results:
-            return []
-
-        # Filter to common stock types and simplify
-        result: list[dict[str, str]] = []
-        for item in results[:10]:  # Limit to top 10
-            symbol_type = item.get("type", "")
-            # Include common stocks, ETFs, ADRs
-            if symbol_type in ("Common Stock", "ETF", "ADR", "REIT", ""):
-                result.append(
-                    {
-                        "symbol": item.get("symbol", ""),
-                        "description": item.get("description", ""),
-                        "type": symbol_type,
-                    }
-                )
-
-        # Cache the result
-        await self._set_cached(cache_key, orjson.dumps(result).decode(), FINNHUB_CACHE_TTL_SYMBOL)
-        logger.debug("Symbol search complete", query=query, count=len(result))
-
-        return result
-
-    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None]:
-        """Verify if a ticker symbol exists on a major exchange.
-
-        Uses the symbol search endpoint to confirm the ticker is valid.
-
-        Args:
-            ticker: Stock ticker symbol to verify (e.g., "AAPL")
-
-        Returns:
-            Tuple of (is_valid, company_name):
-            - is_valid: True if ticker exists on major exchange
-            - company_name: Company name if found, None otherwise
-        """
-        ticker = ticker.upper()
-
-        # Search for exact match
-        results = await self.search_symbol(ticker)
-
-        if not results:
-            logger.debug("Ticker not found", ticker=ticker)
-            return False, None
-
-        # Look for exact symbol match
-        for item in results:
-            if item.get("symbol", "").upper() == ticker:
-                company_name = item.get("description", "")
-                logger.debug(
-                    "Ticker verified",
-                    ticker=ticker,
-                    company=company_name,
-                    type=item.get("type"),
-                )
-                return True, company_name
-
-        # No exact match found
-        logger.debug(
-            "No exact ticker match",
-            ticker=ticker,
-            similar=[r.get("symbol") for r in results[:3]],
-        )
-        return False, None
-
-    # ─────────────────────────────────────────────────────────────
     # Lifecycle
     # ─────────────────────────────────────────────────────────────
 
     async def close(self) -> None:
-        """Clean up resources."""
+        """Clean up resources (Protocol method)."""
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
-        logger.debug("FinnhubService closed")
+        logger.debug("FinnhubFundamentalsProvider closed")

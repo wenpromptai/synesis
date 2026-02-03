@@ -4,9 +4,10 @@ This module provides fast, tool-free entity extraction that:
 - Extracts primary entity and all mentioned entities
 - Generates search keywords for web and Polymarket research
 - Determines news category and event type
+- Estimates urgency and impact for Stage 2 gating
 
-Stage 1 makes NO judgment calls (no tickers, sectors, impact, direction).
-All informed judgments are deferred to Stage 2 Smart Analyzer.
+Stage 1 makes minimal judgment calls (impact estimate only).
+Tickers, sectors, direction deferred to Stage 2 Smart Analyzer.
 """
 
 from functools import lru_cache
@@ -22,118 +23,46 @@ from synesis.processing.news.models import (
 
 logger = get_logger(__name__)
 
-# System prompt for Stage 1: Entity Extraction (NO judgment calls)
-CLASSIFIER_SYSTEM_PROMPT = """You are a fast entity extractor. Extract entities, keywords, numeric data, AND urgency - NO judgment calls on tickers/sectors/impact/direction.
+# System prompt for Stage 1: Entity Extraction (minimal judgment calls)
+CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords, numeric data, urgency, impact. NO tickers/sectors/direction.
 
-## What to Extract
+## Extract
 
-1. **Primary Entity**: The MAIN entity affected by this news.
-   - "Trump praises Visa for rewards" → "Visa" (not Trump - he's commenting)
-   - "Fed announces rate decision" → "Federal Reserve"
-   - "Apple reports earnings" → "Apple"
+1. **primary_entity**: Main entity AFFECTED (not who's commenting)
+   "Trump praises Visa" → "Visa" | "Fed cuts rates" → "Federal Reserve"
 
-2. **All Entities**: ALL companies, people, and institutions mentioned.
-   - "Trump praises Visa, MasterCard could follow" → ["Visa", "MasterCard", "Trump"]
-   - Include everyone mentioned, even peripherally
-   - **EXCLUDE the news source/account** (e.g., @DeItaone, @FirstSquawk, @marketfeed are sources, not entities)
-   - **EXCLUDE entities from URLs** (e.g., "reuters.com", "bloomberg.com", "zerohedge" in links are not entities)
+2. **all_entities**: All companies/people/institutions mentioned. EXCLUDE news sources (@DeItaone) and URLs.
 
-3. **News Category**:
-   - breaking: Unexpected events (*BREAKING, JUST IN, surprise announcements)
-   - economic_calendar: Scheduled releases (CPI, FOMC, NFP, earnings)
-   - other: Analysis, commentary, opinions
+3. **news_category**: breaking | economic_calendar | other
 
-4. **Event Type**: macro | earnings | geopolitical | corporate | regulatory | crypto | political | other
+4. **event_type**: macro | earnings | geopolitical | corporate | regulatory | crypto | political | other
 
-5. **Summary**: One clear sentence describing what happened.
+5. **summary**: One sentence.
 
-6. **Search Keywords** (for web research):
-   Generate 2-3 specific search queries for research:
-   - "{primary_entity} {event} analyst forecast"
-   - "{topic} market impact historical"
-   - "{primary_entity} news latest"
+6. **search_keywords**: 2-3 web search queries ("{entity} {event} forecast")
 
-7. **Polymarket Keywords** (for prediction market search):
-   Generate 3-5 keywords to search prediction markets.
-   RULES:
-   - Use PRIMARY ENTITY and specific topic
-   - NO peripheral mentions (person commenting ≠ entity affected)
-   - Examples:
-     * "Trump announces Visa will change rewards" → ["Visa", "credit card", "rewards"]
-     * "Fed cuts rates by 25bps" → ["Federal Reserve", "interest rate", "rate cut"]
-     * "NVDA beats earnings by 20%" → ["Nvidia", "earnings", "AI chips"]
+7. **polymarket_keywords**: 3-5 keywords for prediction markets. Use primary entity + topic only.
 
-8. **Numeric Data** (for economic_calendar and earnings only):
-   Extract ALL numeric metrics when present.
+8. **numeric_data** (economic/earnings only):
+   Extract metrics: actual (required), estimate ("vs X est"), previous ("prev X"), unit (%, bps, $, B, M), period
+   beat_miss: inflation lower=beat | growth higher=beat | inline if within 0.1 | unknown if no estimate
+   surprise_magnitude: actual - estimate
 
-   Example input:
-   "*AUSTRALIA CPI Q4: 2.4% Y/Y (vs 2.5% est, prev 2.8%)
-    *AUSTRALIA TRIMMED MEAN CPI Q4: 3.2% Y/Y (vs 3.3% est)"
+9. **urgency** + urgency_reasoning (1 sentence):
+   - critical: Surprise Fed, breaking M&A, unexpected policy
+   - high: Scheduled data release, earnings beat/miss
+   - normal: General news, routine announcements
+   - low: Opinions, commentary, promotional/spam content
+   Mark LOW if: promotional, giveaways, engagement bait, self-promotion, no market relevance
 
-   Extract:
-   - metric_name: "CPI Y/Y", actual: 2.4, estimate: 2.5, previous: 2.8, unit: "%", period: "Q4"
-   - metric_name: "Trimmed Mean CPI Y/Y", actual: 3.2, estimate: 3.3, previous: null, unit: "%", period: "Q4"
+10. **impact** + impact_reasoning (1 sentence):
+    - high: Major policy, earnings surprise >10%, significant M&A, breaking geopolitical
+    - medium: Sector news, guidance, regulatory, expected data
+    - low: Minor updates, commentary, routine, no market relevance
+    Consider: New info or priced in? Major indices or niche? Historical reaction?
 
-   For each metric:
-   - actual: The reported value (REQUIRED)
-   - estimate: Expected/consensus value (if "vs X est" or "expected X")
-   - previous: Prior period value (if "prev X" or "prior X")
-   - unit: %, bps, $, B (billion), M (million), K (thousand)
-   - period: Q1-Q4, month name, year
-
-   Calculate beat_miss:
-   - For inflation metrics (CPI, PPI, PCE): lower than estimate = beat, higher = miss
-   - For growth metrics (GDP, earnings, revenue): higher than estimate = beat, lower = miss
-   - inline: actual == estimate (within 0.1)
-   - unknown: no estimate provided
-
-   Calculate surprise_magnitude: actual - estimate (same units)
-   Set headline_metric to the primary metric (usually the first or most important one).
-   Set overall_beat_miss based on headline metric's status.
-
-9. **Urgency Level** (for trading prioritization):
-   - critical: Act IMMEDIATELY - surprise Fed decision, breaking M&A, unexpected rate cut/hike
-   - high: Act FAST - scheduled economic data release, earnings with beat/miss, policy announcements
-   - normal: Can wait - general news, updates, routine announcements
-   - low: Background noise with NO market impact - opinions, analysis, commentary, retweets, threads, AND promotional/spam content
-
-   **IMPORTANT: Mark as LOW urgency if the message is:**
-   - Promotional content (subscribe, follow, boost, join, sign up)
-   - Giveaways, airdrops, referral codes, affiliate links
-   - Engagement bait (don't miss, last chance, act now, limited time)
-   - Channel/account self-promotion
-   - Content with no financial/market relevance
-
-   Provide brief reasoning (1 sentence) for your urgency assessment.
-
-   Examples:
-   - "*FED CUTS RATES BY 50BPS VS 25BPS EXPECTED" → critical (surprise magnitude)
-   - "CPI comes in at 2.4% vs 2.5% expected" → high (scheduled data, small beat)
-   - "Analysts expect Fed to cut in March" → low (opinion/forecast)
-   - "Apple reports Q4 earnings beat" → high (earnings with outcome)
-   - "Boost this channel ♥️" → low (promotional content, no market impact)
-   - "Subscribe for exclusive signals!" → low (promotional spam)
-   - "GIVEAWAY: Free crypto for followers" → low (promotional spam)
-
-## Extraction Process (Think Step-by-Step)
-
-Before extracting, reason through:
-1. Read the message and identify the MAIN event (what happened?)
-2. Determine who is AFFECTED (not who is speaking/commenting)
-3. List ALL entities mentioned, then filter to relevant ones
-4. For urgency: Is this scheduled or surprise? What is market impact potential?
-
-This structured approach prevents missing key entities and ensures accurate urgency classification.
-
-## What NOT to Extract (moved to Stage 2)
-
-DO NOT include in your output:
-- Stock tickers (Stage 2 determines these with research)
-- Sectors (Stage 2 determines these with research)
-- Impact level (Stage 2 determines this with research)
-- Market direction (Stage 2 determines this with research)
-
-Your job is FAST entity extraction. Stage 2 makes all informed judgments."""
+## DO NOT Extract (Stage 2)
+Tickers, sectors, market direction - Stage 2 determines with research."""
 
 
 def create_classifier_agent() -> Agent[None, LightClassification]:

@@ -47,7 +47,7 @@ from synesis.processing.common import (
 )
 
 if TYPE_CHECKING:
-    from synesis.ingestion.finnhub import FinnhubService
+    from synesis.providers import FinnhubService
 
 logger = get_logger(__name__)
 
@@ -311,12 +311,20 @@ class NewsProcessor:
         )
 
         # 3. Early exit for low-urgency messages (skip Stage 2)
-        if extraction.urgency == UrgencyLevel.low:
+        # Only proceed to Stage 2 if urgency is CRITICAL or HIGH
+        should_skip_stage2 = extraction.urgency in (
+            UrgencyLevel.low,
+            UrgencyLevel.normal,
+        )
+
+        if should_skip_stage2:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
-                "Skipping Stage 2 (low urgency)",
+                "Skipping Stage 2 (filtered by urgency)",
                 urgency=extraction.urgency.value,
+                impact=extraction.predicted_impact.value,
                 urgency_reason=extraction.urgency_reasoning,
+                impact_reason=extraction.impact_reasoning,
                 processing_time_ms=f"{elapsed_ms:.1f}",
             )
             return ProcessingResult(

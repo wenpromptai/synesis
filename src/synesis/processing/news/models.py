@@ -356,7 +356,8 @@ class LightClassification(BaseModel):
     """Stage 1 lightweight entity extractor output.
 
     Fast, tool-free extraction focusing on entities and keywords.
-    NO judgment calls (tickers, sectors, impact, direction) - those move to Stage 2.
+    Minimal judgment calls (urgency + impact estimate only).
+    Tickers, sectors, direction deferred to Stage 2.
     """
 
     # News category (rule-based mostly, LLM fallback)
@@ -401,6 +402,16 @@ class LightClassification(BaseModel):
         description="Message-level urgency for trading prioritization",
     )
     urgency_reasoning: str = Field(default="", description="LLM reasoning for urgency level")
+
+    # Impact (estimated in Stage 1 for gating, refined in Stage 2 with research)
+    predicted_impact: ImpactLevel = Field(
+        default=ImpactLevel.medium,
+        description="Predicted market impact level (high | medium | low)",
+    )
+    impact_reasoning: str = Field(
+        default="",
+        description="Brief reasoning for impact assessment",
+    )
 
 
 class BreakingClassification(BaseModel):

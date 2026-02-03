@@ -274,22 +274,25 @@ class RedditRSSClient:
             try:
                 posts = await self.poll_all_subreddits()
 
-                # Skip callbacks on first run (just populate seen_ids)
+                # Invoke callbacks for all posts (including first run for sentiment analysis)
+                for post in posts:
+                    for callback in self._callbacks:
+                        try:
+                            await callback(post)
+                        except Exception as e:
+                            logger.error(
+                                "reddit_callback_error",
+                                error=str(e),
+                                post_id=post.post_id,
+                            )
+
                 if first_run:
-                    log.info("reddit_initial_poll_complete", seen_ids=len(self._seen_ids))
+                    log.info(
+                        "reddit_initial_poll_complete",
+                        seen_ids=len(self._seen_ids),
+                        posts_processed=len(posts),
+                    )
                     first_run = False
-                else:
-                    # Invoke callbacks for new posts
-                    for post in posts:
-                        for callback in self._callbacks:
-                            try:
-                                await callback(post)
-                            except Exception as e:
-                                logger.error(
-                                    "reddit_callback_error",
-                                    error=str(e),
-                                    post_id=post.post_id,
-                                )
 
             except Exception as e:
                 log.error("reddit_poll_error", error=str(e))

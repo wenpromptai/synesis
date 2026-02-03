@@ -367,7 +367,7 @@ async def test_finnhub_service(ticker: str = "AAPL") -> bool:
     try:
         from redis.asyncio import Redis
         from synesis.config import get_settings
-        from synesis.ingestion.finnhub import FinnhubService
+        from synesis.providers import FinnhubService
 
         settings = get_settings()
         if not settings.finnhub_api_key:

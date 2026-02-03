@@ -24,6 +24,7 @@ FINNHUB_CACHE_TTL_INSIDER = 21600  # 6 hours
 FINNHUB_CACHE_TTL_EARNINGS = 86400  # 24 hours
 FINNHUB_CACHE_TTL_FILINGS = 21600  # 6 hours
 FINNHUB_CACHE_TTL_SYMBOL = 604800  # 7 days
+FINNHUB_CACHE_TTL_US_SYMBOLS = 86400  # 24 hours for bulk US symbol list
 
 # ─────────────────────────────────────────────────────────────
 # Default Thresholds (can be overridden in Settings)
