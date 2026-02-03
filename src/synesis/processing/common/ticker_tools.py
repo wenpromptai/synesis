@@ -50,6 +50,6 @@ async def verify_ticker(
             f"NOT FOUND: '{ticker}' not found in US exchanges. "
             f"Could be non-US ticker, invalid, or delisted. Use web search to verify."
         )
-    except Exception as e:
+    except (ConnectionError, TimeoutError, ValueError, KeyError, RuntimeError, OSError) as e:
         logger.warning("Ticker verification failed", ticker=ticker, error=str(e))
         return f"Ticker verification error: {e}. Use web search to verify '{ticker}' instead."
