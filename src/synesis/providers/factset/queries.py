@@ -37,6 +37,7 @@ def safe_fsym_ids_for_in_clause(fsym_ids: list[str]) -> str:
 
     return ", ".join(validated)
 
+
 # =============================================================================
 # TICKER RESOLUTION
 # =============================================================================
@@ -97,6 +98,28 @@ FROM ff_v3.ff_sec_entity se WITH (NOLOCK)
 JOIN sym_v1.sym_entity e WITH (NOLOCK) ON se.factset_entity_id = e.factset_entity_id
 LEFT JOIN sym_v1.sym_entity_sector es WITH (NOLOCK) ON e.factset_entity_id = es.factset_entity_id
 WHERE se.fsym_id = %(fsym_security_id)s
+"""
+
+# =============================================================================
+# BULK TICKER DATA (for TickerProvider)
+# =============================================================================
+
+# Fetch all tickers with company names for bulk verification.
+# Joins sym_ticker_region → fgp_sec_coverage to get proper_name + security_type.
+# Filters to equity-like types (SHARE, ADR, GDR, NVDR, ETF_ETF, etc.)
+# Returns ticker_region (e.g., "AAPL-US"), bare ticker, region, and company name.
+ALL_TICKERS = """
+SELECT
+    t.ticker_region,
+    s.proper_name,
+    s.fref_security_type
+FROM sym_v1.sym_ticker_region t WITH (NOLOCK)
+JOIN fgp_v1.fgp_sec_coverage s WITH (NOLOCK) ON t.fsym_id = s.fsym_id
+WHERE s.fref_security_type IN (
+    'SHARE', 'ADR', 'GDR', 'NVDR', 'PREFEQ',
+    'ETF_ETF', 'ETF_NAV', 'ETF_MF',
+    'REIT', 'MLP', 'CEFS'
+)
 """
 
 # =============================================================================

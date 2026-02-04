@@ -2,7 +2,7 @@
 
 import pytest
 
-from synesis.intelligence.sentiment import SentimentAnalyzer, SentimentResult
+from synesis.processing.sentiment import SentimentAnalyzer, SentimentResult
 
 
 @pytest.fixture
@@ -209,3 +209,121 @@ class TestEdgeCases:
         result = await analyzer.analyze("$tsla AAPL")
         # Cashtags work lowercase, bare tickers need uppercase
         assert "TSLA" in result.tickers_mentioned or "AAPL" in result.tickers_mentioned
+
+
+class TestMentionCountFromRealData:
+    """Test that mention_count in generate_signal() uses real Gate 1 data, not LLM output."""
+
+    @pytest.mark.asyncio
+    async def test_mention_count_equals_raw_ticker_scores(self) -> None:
+        """mention_count must equal len(scores) from _raw_tickers, not an LLM field."""
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock, Mock, patch
+
+        from synesis.ingestion.reddit import RedditPost
+        from synesis.processing.sentiment.models import (
+            SentimentRefinement,
+            ValidatedTicker,
+        )
+        from synesis.processing.sentiment.processor import SentimentProcessor
+
+        mock_redis = AsyncMock()
+        # WatchlistManager.get_all() uses redis.smembers → returns set of tickers
+        mock_redis.smembers = AsyncMock(return_value=set())
+        # WatchlistManager.cleanup_expired() calls redis.register_script() (sync)
+        # which returns a callable script object that is then awaited
+        mock_redis.register_script = Mock(return_value=AsyncMock(return_value=0))
+
+        processor = SentimentProcessor(
+            settings=AsyncMock(),
+            redis=mock_redis,
+        )
+
+        # Simulate Gate 1 output: AAPL mentioned in 3 posts, TSLA in 7 posts
+        processor._raw_tickers = {
+            "AAPL": [0.5, -0.2, 0.8],  # 3 posts
+            "TSLA": [0.3, 0.1, -0.4, 0.6, 0.2, -0.1, 0.9],  # 7 posts
+        }
+
+        # Simulate buffered posts (count doesn't matter for this test,
+        # but buffer must be non-empty so process_posts is called)
+        now = datetime.now(timezone.utc)
+        fake_post = RedditPost(
+            post_id="p1",
+            subreddit="wallstreetbets",
+            author="user",
+            title="test",
+            content="test content",
+            url="https://reddit.com/r/test/1",
+            permalink="/r/test/1",
+            timestamp=now,
+            raw={},
+        )
+        processor._post_buffer = [
+            (
+                fake_post,
+                SentimentResult(
+                    compound=0.5,
+                    positive=0.6,
+                    negative=0.1,
+                    neutral=0.3,
+                    confidence=0.8,
+                ),
+            )
+        ]
+        processor._buffer_start = now
+
+        # Mock process_posts to return a refinement with validated tickers
+        # Includes a hallucinated ticker (MSFT) that Gate 1 never extracted
+        mock_refinement = SentimentRefinement(
+            validated_tickers=[
+                ValidatedTicker(
+                    ticker="AAPL",
+                    company_name="Apple Inc",
+                    is_valid_ticker=True,
+                    avg_sentiment=0.37,
+                    sentiment_label="bullish",
+                    confidence=0.9,
+                ),
+                ValidatedTicker(
+                    ticker="TSLA",
+                    company_name="Tesla Inc",
+                    is_valid_ticker=True,
+                    avg_sentiment=0.23,
+                    sentiment_label="bullish",
+                    confidence=0.85,
+                ),
+                ValidatedTicker(
+                    ticker="MSFT",
+                    company_name="Microsoft Corp",
+                    is_valid_ticker=True,
+                    avg_sentiment=0.10,
+                    sentiment_label="neutral",
+                    confidence=0.7,
+                ),
+            ],
+            rejected_tickers=[],
+            overall_sentiment="bullish",
+            narrative_summary="Test narrative",
+        )
+
+        # Patch process_posts so we skip the real LLM call
+        with patch.object(processor, "process_posts", return_value=mock_refinement):
+            signal = await processor.generate_signal()
+
+        # The key assertion: mention_count must come from _raw_tickers, not LLM
+        ticker_map = {ts.ticker: ts for ts in signal.ticker_sentiments}
+
+        assert "AAPL" in ticker_map
+        assert "TSLA" in ticker_map
+        assert ticker_map["AAPL"].mention_count == 3, (
+            f"AAPL mention_count should be 3 (from raw_tickers), got {ticker_map['AAPL'].mention_count}"
+        )
+        assert ticker_map["TSLA"].mention_count == 7, (
+            f"TSLA mention_count should be 7 (from raw_tickers), got {ticker_map['TSLA'].mention_count}"
+        )
+
+        # MSFT was hallucinated by the LLM (not in _raw_tickers) — must be excluded
+        assert "MSFT" not in ticker_map, (
+            "MSFT should be excluded from signal because it has no Gate 1 raw_tickers scores"
+        )

@@ -1,36 +1,32 @@
-"""Entry point for running the agent as a module.
+"""Agent lifecycle module used by the FastAPI server.
 
-This is a complete end-to-end system that:
-1. Starts ingestion (Twitter WebSocket stream, Telegram listener, Reddit RSS)
-2. Pushes incoming messages to Redis queue (Flow 1)
-3. Processes Reddit posts through sentiment pipeline (Flow 2)
-4. Agent processes messages from the queue using PydanticAI
+Provides `agent_lifespan()` — an async context manager that starts and stops
+the full ingestion + processing pipeline (Twitter, Telegram, Reddit, sentiment,
+PydanticAI agent workers). The FastAPI app calls this from its own lifespan.
 
-Usage:
-    uv run -m synesis.agent
-
-Configuration:
-    Set in .env:
+Configuration (set in .env):
     - TWITTERAPI_API_KEY: For Twitter stream
     - TELEGRAM_API_ID, TELEGRAM_API_HASH: For Telegram
     - REDDIT_SUBREDDITS: For Reddit RSS (default: wallstreetbets,stocks,options)
 """
 
 import asyncio
-import signal
 import sys
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 from redis.asyncio import Redis
 
-from synesis.config import Settings, get_settings
-from synesis.core.logging import get_logger, setup_logging
-from synesis.providers import FinnhubTickerProvider, PriceService
+from synesis.config import Settings
+from synesis.core.logging import get_logger
+from synesis.providers import FactSetTickerProvider, PriceService
+from synesis.providers.factset.client import get_factset_client
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.ingestion.twitterapi import Tweet, TwitterStreamClient
-from synesis.notifications.telegram import format_sentiment_signal, send_telegram
+from synesis.notifications.telegram import format_sentiment_signal, send_long_telegram
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.sentiment import SentimentProcessor
 from synesis.processing.news import SourcePlatform, SourceType, UnifiedMessage
@@ -40,6 +36,22 @@ logger = get_logger(__name__)
 
 # Redis queue key
 INCOMING_QUEUE = "synesis:queue:incoming"
+
+
+@dataclass
+class AgentState:
+    """Holds references to all running agent resources."""
+
+    redis: Redis
+    db: Database | None
+    settings: Settings
+    agent_task: asyncio.Task[None] | None
+    twitter_enabled: bool
+    telegram_enabled: bool
+    reddit_enabled: bool
+    sentiment_enabled: bool
+    db_enabled: bool
+    _background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
 
 async def push_to_queue(redis: Redis, message: UnifiedMessage) -> None:
@@ -180,7 +192,13 @@ async def run_sentiment_signal_loop(
 
             # Send to Telegram
             telegram_message = format_sentiment_signal(signal)
-            await send_telegram(telegram_message)
+            sent = await send_long_telegram(telegram_message)
+            if not sent:
+                logger.error(
+                    "Failed to send sentiment signal to Telegram",
+                    watchlist_size=len(signal.watchlist),
+                    message_length=len(telegram_message),
+                )
 
             logger.info(
                 "Sentiment signal generated and published",
@@ -237,24 +255,16 @@ async def run_watchlist_cleanup_loop(
             # Continue running, don't crash the loop
 
 
-async def run_unified_agent() -> None:
-    """Run the complete agent system: ingestion + processing.
+@asynccontextmanager
+async def agent_lifespan(
+    settings: Settings,
+    shutdown_event: asyncio.Event,
+) -> AsyncIterator[AgentState]:
+    """Async context manager that starts/stops the entire agent pipeline.
 
-    This function:
-    1. Connects to Redis
-    2. Starts ingestion (Twitter, Telegram, Reddit RSS)
-    3. Ingestion callbacks push messages to Redis queue (Flow 1)
-    4. Reddit posts go through Flow 2 sentiment pipeline
-    5. Agent loop (pydantic) processes from queue
+    Yields an AgentState with references to all running resources.
+    On exit, gracefully shuts down everything.
     """
-    settings = get_settings()
-    setup_logging(settings)
-
-    logger.info(
-        "Starting Synesis Agent",
-        llm_provider=settings.llm_provider,
-    )
-
     # Track resources for cleanup
     redis: Redis | None = None
     db: Database | None = None
@@ -267,16 +277,6 @@ async def run_unified_agent() -> None:
     agent_task: asyncio.Task[None] | None = None
     sentiment_signal_task: asyncio.Task[None] | None = None
     watchlist_cleanup_task: asyncio.Task[None] | None = None
-    shutdown_event = asyncio.Event()
-
-    def handle_shutdown(signum: int, frame: object) -> None:
-        """Handle shutdown signals."""
-        logger.info("Shutdown signal received", signal=signum)
-        shutdown_event.set()
-
-    # Register signal handlers
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
 
     try:
         # 1. Connect to Redis
@@ -372,11 +372,11 @@ async def run_unified_agent() -> None:
 
         # 5. Start Reddit RSS client + sentiment processor (if configured)
         if settings.reddit_subreddits:
-            # Initialize ticker provider (for ticker verification)
+            # Initialize ticker provider (FactSet for pre-verification)
             ticker_provider = None
-            if settings.finnhub_api_key:
-                ticker_provider = FinnhubTickerProvider(
-                    api_key=settings.finnhub_api_key.get_secret_value(),
+            if settings.sqlserver_host:
+                ticker_provider = FactSetTickerProvider(
+                    client=get_factset_client(),
                     redis=redis,
                 )
 
@@ -387,7 +387,7 @@ async def run_unified_agent() -> None:
                 db=db,
                 price_service=price_service,
                 watchlist=watchlist,
-                finnhub=ticker_provider,
+                ticker_provider=ticker_provider,
             )
 
             # Initialize Reddit RSS client
@@ -404,7 +404,7 @@ async def run_unified_agent() -> None:
                 poll_interval_hours=settings.reddit_poll_interval // 3600,
             )
 
-            # Start sentiment signal generation loop (runs immediately, then every poll_interval)
+            # Start sentiment signal generation loop
             sentiment_signal_task = asyncio.create_task(
                 run_sentiment_signal_loop(
                     sentiment_processor,
@@ -415,6 +415,13 @@ async def run_unified_agent() -> None:
             )
         else:
             logger.info("No Reddit subreddits configured, sentiment disabled")
+
+        # Warn if Telegram notification config is incomplete
+        if not settings.telegram_bot_token or not settings.telegram_chat_id:
+            logger.warning(
+                "Telegram notification config incomplete — signals will NOT be sent to Telegram. "
+                "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env"
+            )
 
         # Check we have at least one source (news or sentiment)
         has_news_source = twitter_client is not None or telegram_listener is not None
@@ -478,12 +485,25 @@ async def run_unified_agent() -> None:
             queue=INCOMING_QUEUE,
         )
 
-        # 6. Wait for shutdown
-        await shutdown_event.wait()
+        # Build background tasks list for the state
+        background_tasks: list[asyncio.Task[None]] = []
+        if sentiment_signal_task:
+            background_tasks.append(sentiment_signal_task)
+        if watchlist_cleanup_task:
+            background_tasks.append(watchlist_cleanup_task)
 
-    except Exception as e:
-        logger.exception("Fatal error in agent", error=str(e))
-        raise
+        yield AgentState(
+            redis=redis,
+            db=db,
+            settings=settings,
+            agent_task=agent_task,
+            twitter_enabled=twitter_client is not None,
+            telegram_enabled=telegram_listener is not None,
+            reddit_enabled=reddit_client is not None,
+            sentiment_enabled=sentiment_processor is not None,
+            db_enabled=db_initialized,
+            _background_tasks=background_tasks,
+        )
 
     finally:
         # Graceful shutdown
@@ -541,7 +561,3 @@ async def run_unified_agent() -> None:
             logger.info("Redis disconnected")
 
         logger.info("Agent shutdown complete")
-
-
-if __name__ == "__main__":
-    asyncio.run(run_unified_agent())

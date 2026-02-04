@@ -26,11 +26,11 @@ uv run mypy src/
 # Test
 uv run pytest
 
-# Run development server
-uv run fastapi dev src/synesis/main.py
+# Run (production — server + agent in one process)
+uv run synesis
 
-# Run production
-uv run fastapi run src/synesis/main.py
+# Run (development — auto-reload on file save)
+uv run synesis --reload
 
 # Docker services (PostgreSQL, Redis)
 docker compose up -d
@@ -39,14 +39,18 @@ docker compose up -d
 ## Project Structure
 
 ```
-src/synesis/           # Main application
-├── core/              # Shared utilities (logging, events, config)
-├── ingestion/         # Telegram/Twitter listeners
-├── processing/        # LLM analysis, deduplication
-├── markets/           # Polymarket API integration
-├── trading/           # Strategies and execution
-├── feedback/          # Outcome tracking, win rate analytics
-├── storage/           # Database clients
+src/synesis/
+├── core/              # Logging, constants, dependencies
+├── ingestion/         # Twitter, Telegram, Reddit listeners
+├── processing/        # All analysis pipelines
+│   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
+│   ├── sentiment/     # Flow 2: Reddit sentiment (Gate 1 lexicon + Gate 2 LLM)
+│   └── common/        # Shared utilities (watchlist, LLM, web search)
+├── providers/         # External data (Finnhub, FactSet, Crawl4AI)
+├── markets/           # Polymarket integration
+├── notifications/     # Telegram notifications
+├── storage/           # PostgreSQL + Redis clients
+├── agent/             # Agent runner, lifespan, PydanticAI
 └── api/               # HTTP/WebSocket endpoints
 
 tests/                 # Test files

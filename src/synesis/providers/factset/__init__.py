@@ -18,10 +18,13 @@ from synesis.providers.factset.models import (
     FactSetSharesOutstanding,
 )
 from synesis.providers.factset.provider import FactSetProvider
+from synesis.providers.factset.ticker import FactSetTickerProvider
 
 __all__ = [
     # Main provider
     "FactSetProvider",
+    # Ticker provider
+    "FactSetTickerProvider",
     # Database client
     "FactSetClient",
     # Models

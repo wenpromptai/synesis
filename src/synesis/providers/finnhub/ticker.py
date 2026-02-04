@@ -150,7 +150,9 @@ class FinnhubTickerProvider:
                     )
                     return self._us_symbols or {}
                 except Exception as e:
-                    logger.warning("Failed to parse US symbols cache, will fetch from API", error=str(e))
+                    logger.warning(
+                        "Failed to parse US symbols cache, will fetch from API", error=str(e)
+                    )
 
             # Fetch from Finnhub API
             logger.info("Fetching all US symbols from Finnhub...")
@@ -211,7 +213,11 @@ class FinnhubTickerProvider:
                 cached_list: list[dict[str, str]] = orjson.loads(cached)
                 return cached_list
             except Exception as e:
-                logger.warning("Failed to parse symbol search cache, will fetch from API", error=str(e), query=query)
+                logger.warning(
+                    "Failed to parse symbol search cache, will fetch from API",
+                    error=str(e),
+                    query=query,
+                )
 
         # Fetch from API
         data = await self._fetch_finnhub("/search", {"q": query})

@@ -96,6 +96,13 @@ async def create_ticker_provider(
     settings = get_settings()
     provider_type = settings.ticker_provider
 
+    if provider_type == "factset":
+        from synesis.providers.factset import FactSetTickerProvider
+        from synesis.providers.factset.client import get_factset_client
+
+        logger.debug("Creating FactSetTickerProvider")
+        return FactSetTickerProvider(client=get_factset_client(), redis=redis)
+
     if provider_type == "finnhub":
         key = api_key or (
             settings.finnhub_api_key.get_secret_value() if settings.finnhub_api_key else None
@@ -105,12 +112,6 @@ async def create_ticker_provider(
 
         logger.debug("Creating FinnhubTickerProvider")
         return FinnhubTickerProvider(api_key=key, redis=redis)
-
-    # Future: Add other providers here
-    # elif provider_type == "polygon":
-    #     return PolygonTickerProvider(...)
-    # elif provider_type == "sec":
-    #     return SECTickerProvider(...)
 
     raise ValueError(f"Unsupported ticker provider: {provider_type}")
 

@@ -148,8 +148,6 @@ CREATE TABLE IF NOT EXISTS synesis.raw_messages (
     embedding vector(256),              -- Model2Vec embedding for dedup
     source_timestamp TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ DEFAULT NOW(),
-    is_duplicate BOOLEAN DEFAULT FALSE,
-    duplicate_of UUID REFERENCES synesis.raw_messages(id),
     UNIQUE (source_platform, external_id)
 );
 

@@ -102,6 +102,7 @@ from synesis.providers.factset import (
     FactSetProvider,
     FactSetSecurity,
     FactSetSharesOutstanding,
+    FactSetTickerProvider,
 )
 
 __all__ = [
@@ -131,6 +132,7 @@ __all__ = [
     "CrawlResult",
     # FactSet implementation
     "FactSetProvider",
+    "FactSetTickerProvider",
     "FactSetClient",
     "FactSetPrice",
     "FactSetSecurity",

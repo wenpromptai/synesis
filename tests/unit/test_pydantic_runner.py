@@ -308,7 +308,7 @@ class TestEmitCombinedTelegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
         ) as mock_send:
             await emit_combined_telegram(message, extraction, analysis)
 
@@ -342,7 +342,7 @@ class TestEmitCombinedTelegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
         ) as mock_send:
             await emit_combined_telegram(message, extraction, analysis)
 

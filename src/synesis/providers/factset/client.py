@@ -196,7 +196,7 @@ class FactSetClient:
             True if connection is working, False otherwise
         """
         try:
-            result = await self.execute_scalar("SELECT 1")
+            result = await self.execute_scalar("SELECT 1 AS ok")
             return bool(result == 1)
         except Exception as e:
             logger.error(f"FactSet health check failed: {e}")

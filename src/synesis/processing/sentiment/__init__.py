@@ -1,17 +1,20 @@
 """Flow 2: Sentiment Intelligence.
 
 This module contains:
-- Reddit sentiment processing (Gate 1: lexicon, Gate 2: LLM refinement)
+- Lexicon-based sentiment analyzer (Gate 1)
+- LLM refinement processor (Gate 2)
 - Ticker watchlist management with TTL-based expiration
 - 6-hour sentiment signal generation
 """
 
+from synesis.processing.sentiment.analyzer import SentimentAnalyzer
 from synesis.processing.sentiment.models import (
-    SentimentSignal,
     PostQualityAssessment,
     PostSentiment,
     SentimentRefinement,
     SentimentRefinementDeps,
+    SentimentResult,
+    SentimentSignal,
     StockEmotion,
     TickerSentimentSummary,
     ValidatedTicker,
@@ -26,12 +29,15 @@ from synesis.processing.common.watchlist import (
 )
 
 __all__ = [
+    # Analyzer
+    "SentimentAnalyzer",
+    "SentimentResult",
     # Models
-    "SentimentSignal",
     "PostQualityAssessment",
     "PostSentiment",
     "SentimentRefinement",
     "SentimentRefinementDeps",
+    "SentimentSignal",
     "StockEmotion",
     "TickerSentimentSummary",
     "ValidatedTicker",

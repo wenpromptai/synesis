@@ -25,9 +25,9 @@ from pydantic_ai import Agent, RunContext
 
 from synesis.core.logging import get_logger
 from synesis.ingestion.reddit import RedditPost
-from synesis.intelligence.sentiment.analyzer import SentimentAnalyzer
-from synesis.intelligence.sentiment.models import SentimentResult
+from synesis.processing.sentiment.analyzer import SentimentAnalyzer
 from synesis.processing.sentiment.models import (
+    SentimentResult,
     SentimentSignal,
     SentimentRefinement,
     SentimentRefinementDeps,
@@ -35,14 +35,12 @@ from synesis.processing.sentiment.models import (
     TickerSentimentSummary,
 )
 from synesis.processing.common.llm import create_model
-from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.common.watchlist import WatchlistManager
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from synesis.config import Settings
-    from synesis.providers import FinnhubService
     from synesis.providers.base import PriceProvider, TickerProvider
     from synesis.storage.database import Database
 
@@ -59,122 +57,66 @@ You have been given:
 - Reddit posts from finance subreddits
 - Lexicon-based sentiment analysis results (Gate 1)
 - Raw ticker mentions with sentiment scores
+- Pre-verified ticker information (tickers matched via FactSet with company names)
 
-Your job is to REFINE the lexicon analysis by:
+## 1. Context-Check Each Pre-Verified Ticker
 
-## 1. Validate Tickers (CRITICAL)
+Each ticker below was matched by FactSet to a company name — but the match may be WRONG.
+Read the post content to determine what the author actually means by that symbol.
 
-The lexicon extracts ticker-like patterns but produces FALSE POSITIVES.
+For each pre-verified ticker, output a ValidatedTicker with:
+- **is_valid_ticker = True** if the symbol has ANY valid financial meaning in context:
+  - If the FactSet company name matches what the author means → keep company_name as-is
+  - If the FactSet match is WRONG but the symbol refers to a real financial instrument → set is_valid_ticker=True and **correct company_name** to what the author actually means:
+    - SPX + "Spirax Group" → correct company_name to "S&P 500 Index"
+    - VIX + "VIX Securities" → correct company_name to "CBOE Volatility Index"
+    - BTC + some obscure equity → correct company_name to "Bitcoin"
+    - ETH + random match → correct company_name to "Ethereum"
+    - DXY + wrong match → correct company_name to "US Dollar Index"
+  - The key question is: does this symbol carry financial meaning in the post?
+- **is_valid_ticker = False** + rejection_reason ONLY if:
+  - The symbol has ZERO financial meaning in the post (e.g., used as a random word or acronym unrelated to markets)
 
-**Common False Positives to REJECT**:
-- Common words in caps: WEEK, WHAT, OPEN, CLOSE, VS, FOR, THE, NOW, EOD, ATH, DTE, OTM, ITM
-- Subreddit/platform terms: DD, YOLO, FOMO, WSB, OP, IMO, TL, DR, ELI, TLDR
-- Finance terms not tickers: CEO, CFO, IPO, ETF, SEC, FED, GDP, CPI, EPS, PE, IV, DCA, LEAPS
-- Partial matches: IT (not Intel), AM, PM, US, UK, EU, AI, EV, ER
-
-**IMPORTANT - Meme Stocks ARE VALID**:
-- GME (GameStop) - THE original meme stock
-- AMC (AMC Entertainment) - movie theater meme stock
-- DJT (Trump Media) - legitimate NASDAQ ticker, popular political meme stock
-- BBBY (Bed Bath & Beyond) - even if delisted, was heavily discussed
-- DWAC - Trump SPAC before merger
-- Other politically/culturally significant stocks popular on WSB
-
-**Validation Criteria**:
-- Is traded on major exchange (NYSE, NASDAQ, etc.) - OR recently delisted but still discussed
-- Context suggests stock discussion (mentions of calls, puts, positions, tendies, etc.)
-- If unsure, USE THE verify_ticker_finnhub TOOL first, then web_search as fallback
-
-For each ticker, provide:
-- is_valid_ticker: true/false
-- rejection_reason: Why it's not valid (if rejected)
-- confidence: How confident you are (0.6+ to include)
-
-**Ticker Verification Workflow**:
-1. Call `verify_ticker_finnhub(ticker)` for US ticker verification
-2. If VERIFIED: include with the company name returned
-3. If NOT FOUND: use `web_search("{ticker} stock ticker price")` to check non-US/delisted
-4. If still unclear: reject the ticker
-
-**When to use verify_ticker_finnhub tool**:
-- Ticker looks legitimate but you're not 100% sure it exists
-- Short tickers (2-3 letters) that could be words OR stocks
-- Political/cultural stocks you haven't heard of
-- ANY ticker where rejection would be borderline
+Confidence guidelines:
+- 0.9+ : Post explicitly names the company/instrument or discusses specific news about it
+- 0.7-0.9 : Context strongly implies the financial instrument (earnings, price targets, DD)
+- 0.5-0.7 : Ambiguous but plausible financial reference
+- Below 0.5 : Reject (is_valid_ticker = False)
 
 ## 2. Assess Post Quality
 
-Reddit posts vary wildly in quality:
-
-**HIGH quality**:
-- DD (Due Diligence) with research and thesis
-- Earnings analysis with numbers
-- Technical analysis with specific levels
-- News with market implications
-
-**MEDIUM quality**:
-- Simple position posts with reasoning
-- Questions that reveal sentiment
-- News shares with brief commentary
-
-**LOW quality**:
-- Memes without substance
-- One-word reactions
-- Off-topic posts
-
-**SPAM**:
-- Promotional content
-- Crypto shilling unrelated to stocks
-- Bot-like repetitive content
+**HIGH**: DD with research, earnings analysis, technical analysis with levels, news with implications
+**MEDIUM**: Position posts with reasoning, sentiment-revealing questions, news with commentary
+**LOW**: Memes without substance, one-word reactions, off-topic
+**SPAM**: Promotional, crypto shilling, bot-like content
 
 ## 3. Generate Narrative Summary
 
-Create a 2-3 sentence narrative that:
-- Summarizes the dominant sentiment and WHY
-- Highlights any extreme positions or unusual activity
-- Notes key themes (earnings, macro events, specific stocks)
-
-Example:
-"WSB sentiment is strongly bearish on silver (SLV) following today's flash crash, with multiple loss porn posts. PayPal (PYPL) seeing renewed interest ahead of earnings. Overall market mood is cautious with focus on Fed rate decision."
-
-## 4. Identify Extreme Sentiment
-
-Flag tickers with extreme sentiment (>85% one direction):
-- These are potential contrarian signals
-- High conviction crowd positions often precede reversals
-
-## Sentiment Aggregation (for multi-post analysis)
-
-When synthesizing sentiment across posts:
-1. Weight by quality: HIGH=3x, MEDIUM=1x, LOW/SPAM=ignore
-2. Calculate bullish vs bearish ratio per ticker
-3. Flag "crowded" positions (>80% one direction) as contrarian signals
-4. Distinguish event-driven sentiment (earnings, FDA) vs. general mood
-
-## Narrative Summary Format
-
-Your narrative_summary MUST follow this structure:
+Create a 2-3 sentence narrative:
 - Sentence 1: Overall market mood and dominant theme
 - Sentence 2: Top 2-3 tickers with strongest sentiment and why
 - Sentence 3: Key catalysts or upcoming events driving sentiment
 
-Example: "WSB sentiment is cautiously bullish with focus on tech earnings. NVDA and AMD dominate discussion with bullish calls ahead of AI chip demand reports. Key catalyst is Fed decision Wednesday, with most expecting a hawkish hold."
+## 4. Identify Themes
 
-## Confidence Calibration for Tickers
+Extract key market themes (e.g., "earnings season", "rate cut expectations", "AI momentum").
 
-| Score | Criteria |
-|-------|----------|
-| 0.9-1.0 | verify_ticker_finnhub returned VERIFIED |
-| 0.7-0.89 | Strong context (calls, puts, DD, positions mentioned) |
-| 0.6-0.69 | Likely ticker but borderline context |
-| <0.6 | Do not include |
+## 5. Identify Extreme Sentiment
+
+Flag tickers with >85% one-directional sentiment as potential contrarian signals.
+
+## Sentiment Aggregation
+
+1. Weight by quality: HIGH=3x, MEDIUM=1x, LOW/SPAM=ignore
+2. Calculate bullish vs bearish ratio per ticker
+3. Flag "crowded" positions (>80% one direction)
+4. Distinguish event-driven sentiment (earnings, FDA) vs. general mood
 
 ## Guidelines
-- Use verify_ticker_finnhub tool first, then web_search as fallback - better to verify than wrongly reject
-- Context is key: "bought 100 DJT calls" = valid ticker, "THE market is up" = not a ticker
+- Context is key: the FactSet company name is provided but may not match the author's intent — CORRECT the company_name rather than rejecting the ticker
 - WSB culture: "regarded" = regarded, "apes" = retail traders, "tendies" = gains
-- Meme stocks and politically significant stocks ARE legitimate tickers
-- Confidence scores should be conservative (0.7+ for high confidence)"""
+- Confidence scores should be conservative (0.7+ for high confidence)
+- ONLY output ValidatedTickers for tickers in the Pre-Verified Tickers table. Do NOT add tickers you find in the post content that aren't in the table."""
 
 
 # =============================================================================
@@ -201,7 +143,7 @@ class SentimentProcessor:
         redis: Redis,
         db: Database | None = None,
         price_service: "PriceProvider | None" = None,
-        finnhub: "FinnhubService | TickerProvider | None" = None,
+        ticker_provider: "TickerProvider | None" = None,
         watchlist: "WatchlistManager | None" = None,
     ) -> None:
         """Initialize Flow 2 processor.
@@ -211,14 +153,14 @@ class SentimentProcessor:
             redis: Redis client for watchlist storage
             db: Optional PostgreSQL database for persistence
             price_service: Optional PriceProvider for fetching ticker prices
-            finnhub: Optional TickerProvider for ticker verification
+            ticker_provider: Optional TickerProvider for ticker verification
             watchlist: Optional shared WatchlistManager (created in __main__.py)
         """
         self.settings = settings
         self.redis = redis
         self.db = db
         self.price_service = price_service
-        self._finnhub = finnhub
+        self._ticker_provider = ticker_provider
 
         # Use provided watchlist or create new one (for standalone use)
         if watchlist is not None:
@@ -317,6 +259,27 @@ class SentimentProcessor:
                     scores_preview += f" (+{len(scores) - 5} more)"
                 tickers_section += f"| {ticker} | {len(scores)} | {avg:.2f} | {scores_preview} |\n"
 
+            # Format pre-verified tickers (single table — all validated via FactSet)
+            verified_section = "## Pre-Verified Tickers\n\n"
+            if deps.pre_verified:
+                verified_section += "All tickers below were matched by FactSet. Context-check each one against the post content — the company name may be wrong.\n\n"
+                verified_section += "| Ticker | Company Name |\n"
+                verified_section += "|--------|--------------|\n"
+                for ticker in sorted(deps.pre_verified.keys()):
+                    verified_section += f"| {ticker} | {deps.pre_verified[ticker]} |\n"
+            else:
+                verified_section += "_No verified tickers this batch._\n"
+
+            # Format NOT FOUND tickers (auto-rejected)
+            not_found = [t for t in deps.raw_tickers if t not in deps.pre_verified]
+            not_found_section = ""
+            if not_found:
+                not_found_section = "## NOT FOUND Tickers (Auto-Rejected)\n\n"
+                not_found_section += "| Ticker |\n"
+                not_found_section += "|--------|\n"
+                for ticker in sorted(not_found):
+                    not_found_section += f"| {ticker} |\n"
+
             subreddits_str = ", ".join(deps.subreddits) if deps.subreddits else "various"
 
             return f"""
@@ -324,29 +287,16 @@ class SentimentProcessor:
 Total Posts: {len(deps.posts)}
 Subreddits: {subreddits_str}
 Unique Tickers (raw): {len(deps.raw_tickers)}
+Pre-verified (valid): {len(deps.pre_verified)}
+Not found (rejected): {len(not_found)}
+
+{verified_section}
+
+{not_found_section}
 
 {posts_section}
 
 {tickers_section}"""
-
-        # Tool: Verify ticker via Finnhub (US exchanges only)
-        @agent.tool
-        async def verify_ticker_finnhub(
-            ctx: RunContext[SentimentRefinementDeps],
-            ticker: str,
-        ) -> str:
-            """Verify if a US ticker symbol exists using Finnhub.
-
-            Use this tool to validate US tickers. For non-US or delisted tickers,
-            use web_search as a fallback.
-
-            Args:
-                ticker: The US ticker symbol to verify (e.g., "AAPL", "GME", "DJT")
-
-            Returns:
-                Verification result - VERIFIED with company name, NOT FOUND, or error
-            """
-            return await _verify_ticker(ticker, self._finnhub)
 
         # Tool: Web search for ticker verification fallback
         @agent.tool
@@ -354,13 +304,14 @@ Unique Tickers (raw): {len(deps.raw_tickers)}
             ctx: RunContext[SentimentRefinementDeps],
             query: str,
         ) -> str:
-            """Search the web for ticker verification or additional context.
+            """Search the web for additional research and context.
 
-            Use this as a fallback when verify_ticker_finnhub returns NOT FOUND,
-            or when you need to verify non-US tickers or delisted stocks.
+            Use to fetch background info, recent news, or historical context
+            about companies, events, or market conditions — NOT for ticker verification
+            (tickers are already pre-verified via FactSet).
 
             Args:
-                query: Search query (e.g., "DJT stock ticker price")
+                query: Search query (e.g., "NVDA earnings Q4 2026 results")
 
             Returns:
                 Formatted search results
@@ -459,36 +410,62 @@ Unique Tickers (raw): {len(deps.raw_tickers)}
         # Store raw_tickers for ratio calculation in generate_signal()
         self._raw_tickers = raw_tickers
 
-        # Gate 2: LLM refinement (smart, validates tickers, generates narrative)
+        # Pre-verify tickers in batch (before Gate 2, eliminates tool calls)
+        pre_verified: dict[str, str] = {}
+        if self._ticker_provider and raw_tickers:
+            for ticker in raw_tickers:
+                try:
+                    is_valid, company_name = await self._ticker_provider.verify_ticker(ticker)
+                    if is_valid and company_name:
+                        pre_verified[ticker] = company_name
+                except Exception as e:
+                    logger.warning("Pre-verify failed", ticker=ticker, error=str(e))
+
+            log.info(
+                "Ticker pre-verification complete",
+                total=len(raw_tickers),
+                verified=len(pre_verified),
+                rejected=len(raw_tickers) - len(pre_verified),
+            )
+
+        # Collect NOT FOUND tickers (auto-rejected, appended after LLM)
+        not_found_tickers = [t for t in raw_tickers if t not in pre_verified]
+
+        log.info(
+            "Pre-verification complete",
+            verified=len(pre_verified),
+            not_found=len(not_found_tickers),
+        )
+
+        # Gate 2: LLM context-checks pre-verified tickers + narrative/quality/themes
         deps = SentimentRefinementDeps(
             posts=posts,
             lexicon_results=lexicon_results,
             raw_tickers=raw_tickers,
             subreddits=subreddits,
+            pre_verified=pre_verified,
         )
 
         user_prompt = """Analyze the Reddit posts and lexicon results above.
 
-1. **Validate each ticker** in the aggregated mentions table:
-   - Mark false positives as is_valid_ticker=false
-   - Only include tickers with confidence >= 0.6
+For each pre-verified ticker, output a ValidatedTicker:
+- Context-check the FactSet company name against post content
+- If the FactSet match is correct, keep company_name as-is with is_valid_ticker=True
+- If the FactSet match is WRONG but the symbol has real financial meaning, set is_valid_ticker=True and CORRECT company_name to what the author actually means
+- Only set is_valid_ticker=False if the symbol has zero financial meaning in context
 
-2. **Assess post quality** for each post:
-   - Label as high/medium/low/spam
-   - Note if it's DD, YOLO, or contains thesis
-
-3. **Generate narrative summary**:
-   - 2-3 sentences summarizing the sentiment
-   - Include specific tickers and catalysts
-
-4. **Flag extreme sentiment**:
-   - List tickers with >85% bullish or bearish
-
-Be strict on ticker validation. Reject if unsure."""
+Also:
+1. **Assess post quality** (high/medium/low/spam)
+2. **Generate narrative summary** (2-3 sentences covering validated tickers)
+3. **Identify key themes** (market themes, catalysts, sector rotations)
+4. **Flag extreme sentiment** (>85% one direction for any ticker)"""
 
         try:
             agent_result = await self.refiner_agent.run(user_prompt, deps=deps)
             refinement = agent_result.output
+
+            # Append NOT FOUND tickers to LLM's rejected list
+            refinement.rejected_tickers.extend(not_found_tickers)
 
             # Update watchlist with validated tickers
             for validated_ticker in refinement.validated_tickers:
@@ -514,8 +491,9 @@ Be strict on ticker validation. Reject if unsure."""
 
         except Exception as e:
             log.exception("Gate 2 refinement failed", error=str(e))
-            # Return partial result from Gate 1 analysis
+            # Return empty validated + all raw tickers as rejected
             return SentimentRefinement(
+                validated_tickers=[],
                 rejected_tickers=list(raw_tickers.keys()),
                 narrative_summary=f"Gate 2 analysis failed: {e}",
             )
@@ -565,21 +543,24 @@ Be strict on ticker validation. Reject if unsure."""
                 if ticker.is_valid_ticker:
                     # Calculate actual ratios from raw post-level sentiment scores
                     scores = self._raw_tickers.get(ticker.ticker, [])
-                    if scores:
-                        # VADER compound scores range from -1.0 to 1.0
-                        # Dead zone: scores in (-0.1, 0.1) are classified as neutral
-                        bullish_count = sum(1 for s in scores if s > 0.1)
-                        bearish_count = sum(1 for s in scores if s < -0.1)
-                        neutral_count = len(scores) - bullish_count - bearish_count
-                        total = len(scores)
-                        bullish = bullish_count / total
-                        bearish = bearish_count / total
-                        neutral = neutral_count / total
-                    else:
-                        # Fallback to Gate 2 label if no raw scores
-                        bullish = 1.0 if ticker.sentiment_label == "bullish" else 0.0
-                        bearish = 1.0 if ticker.sentiment_label == "bearish" else 0.0
-                        neutral = 1.0 if ticker.sentiment_label == "neutral" else 0.0
+                    if not scores:
+                        logger.info(
+                            "Skipping ticker not found in Gate 1 raw_tickers",
+                            ticker=ticker.ticker,
+                            company_name=ticker.company_name,
+                            confidence=ticker.confidence,
+                        )
+                        continue
+
+                    # VADER compound scores range from -1.0 to 1.0
+                    # Dead zone: scores in (-0.1, 0.1) are classified as neutral
+                    bullish_count = sum(1 for s in scores if s > 0.1)
+                    bearish_count = sum(1 for s in scores if s < -0.1)
+                    neutral_count = len(scores) - bullish_count - bearish_count
+                    total = len(scores)
+                    bullish = bullish_count / total
+                    bearish = bearish_count / total
+                    neutral = neutral_count / total
 
                     # Determine emotion from sentiment
                     emotion = self._sentiment_to_emotion(ticker.avg_sentiment)
@@ -588,7 +569,7 @@ Be strict on ticker validation. Reject if unsure."""
                         TickerSentimentSummary(
                             ticker=ticker.ticker,
                             company_name=ticker.company_name,
-                            mention_count=ticker.mention_count,
+                            mention_count=len(scores),
                             bullish_ratio=bullish,
                             bearish_ratio=bearish,
                             neutral_ratio=neutral,
@@ -682,7 +663,7 @@ Be strict on ticker validation. Reject if unsure."""
                     tickers_with_prices=len(ticker_prices),
                 )
             except Exception as e:
-                log.warning("Failed to persist Flow 2 signal to PostgreSQL", error=str(e))
+                log.error("Failed to persist Flow 2 signal to PostgreSQL", error=str(e))
 
         # Clear buffer for next period
         self._post_buffer = []
@@ -728,7 +709,7 @@ async def create_sentiment_processor(
     redis: Redis,
     db: Database | None = None,
     price_service: "PriceProvider | None" = None,
-    finnhub: "FinnhubService | TickerProvider | None" = None,
+    ticker_provider: "TickerProvider | None" = None,
     watchlist: "WatchlistManager | None" = None,
 ) -> SentimentProcessor:
     """Create a Sentiment processor instance.
@@ -738,7 +719,7 @@ async def create_sentiment_processor(
         redis: Redis client
         db: Optional PostgreSQL database for persistence
         price_service: Optional PriceProvider for fetching ticker prices
-        finnhub: Optional TickerProvider for ticker verification
+        ticker_provider: Optional TickerProvider for ticker verification
         watchlist: Optional shared WatchlistManager (created in __main__.py)
 
     Returns:
@@ -749,7 +730,7 @@ async def create_sentiment_processor(
         redis,
         db=db,
         price_service=price_service,
-        finnhub=finnhub,
+        ticker_provider=ticker_provider,
         watchlist=watchlist,
     )
 

@@ -11,7 +11,7 @@ Key characteristics:
 - Easy to debug
 
 Usage:
-    AGENT_MODE=pydantic python -m synesis.agent
+    uv run synesis
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from synesis.providers import FinnhubService, PriceService
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.notifications.telegram import (
     format_condensed_signal,
-    send_telegram,
+    send_long_telegram,
 )
 from synesis.processing.news import (
     NewsSignal,
@@ -198,8 +198,12 @@ async def emit_combined_telegram(
         analysis=analysis,
     )
 
-    # Single message, no splitting needed
-    await send_telegram(telegram_msg)
+    sent = await send_long_telegram(telegram_msg)
+    if not sent:
+        logger.error(
+            "Failed to send news signal to Telegram",
+            message_id=message.external_id,
+        )
     logger.debug(
         "Combined signal sent to Telegram",
         message_id=message.external_id,

@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
-from synesis.intelligence.sentiment.analyzer import SentimentAnalyzer
+from synesis.processing.sentiment.analyzer import SentimentAnalyzer
 
 
 async def test_single_subreddit(subreddit: str, verbose: bool = False) -> list[RedditPost]:

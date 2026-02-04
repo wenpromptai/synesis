@@ -95,11 +95,11 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     settings = get_settings()
 
     if not settings.telegram_bot_token:
-        logger.debug("Telegram bot token not configured, skipping notification")
+        logger.warning("Telegram bot token not configured, skipping notification")
         return False
 
     if not settings.telegram_chat_id:
-        logger.debug("Telegram chat ID not configured, skipping notification")
+        logger.warning("Telegram chat ID not configured, skipping notification")
         return False
 
     url = (
@@ -130,7 +130,7 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
                 return False
 
     except httpx.HTTPError as e:
-        logger.warning("Failed to send Telegram message", error=str(e))
+        logger.error("Failed to send Telegram message", error=str(e))
         return False
     except (json.JSONDecodeError, KeyError) as e:
         logger.error("Failed to parse Telegram API response", error=str(e))
@@ -299,7 +299,7 @@ def format_condensed_signal(
     # Build message
     msg = f"""📢 <b>SIGNAL</b> {direction_emoji.get(direction, "⚪")} {direction.upper()} | {impact_emoji.get(impact, "ℹ️")} {impact.upper()}
 
-<i>{_escape_html(original_text)}</i>
+<blockquote>{_escape_html(original_text)}</blockquote>
 
 💡 <b>Thesis:</b> {_escape_html(analysis.primary_thesis)}
 <i>Confidence: {analysis.thesis_confidence:.0%}</i>"""
@@ -428,7 +428,7 @@ Urgency: {urgency_emoji.get(urgency, urgency)} {urgency.upper()}"""
     msg += f"""
 
 📝 <b>ORIGINAL MESSAGE</b>
-<i>{_escape_html(message.text)}</i>
+<blockquote>{_escape_html(message.text)}</blockquote>
 
 📊 <b>SUMMARY</b>
 {_escape_html(extraction.summary)}

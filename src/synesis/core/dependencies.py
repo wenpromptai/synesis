@@ -2,11 +2,13 @@
 
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from redis.asyncio import Redis
 
+from synesis.agent import AgentState
 from synesis.config import Settings, get_settings
-from synesis.core.events import EventBus
+from synesis.providers.factset.client import get_factset_client
+from synesis.providers.factset.provider import FactSetProvider
 from synesis.storage.database import Database, get_database
 from synesis.storage.redis import get_redis
 
@@ -19,14 +21,18 @@ def get_db() -> Database:
     return get_database()
 
 
-async def get_event_bus(
-    redis: Annotated[Redis, Depends(get_redis)],
-) -> EventBus:
-    """Get event bus dependency."""
-    return EventBus(redis)
+async def get_agent_state(request: Request) -> AgentState:
+    """Get AgentState from app.state (set during lifespan)."""
+    return request.app.state.agent  # type: ignore[no-any-return]
+
+
+def get_factset_provider() -> FactSetProvider:
+    """Get FactSet provider with singleton client."""
+    return FactSetProvider(client=get_factset_client())
 
 
 # Annotated dependencies for use in route handlers
 DbDep = Annotated[Database, Depends(get_db)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
-EventBusDep = Annotated[EventBus, Depends(get_event_bus)]
+AgentStateDep = Annotated[AgentState, Depends(get_agent_state)]
+FactSetProviderDep = Annotated[FactSetProvider, Depends(get_factset_provider)]

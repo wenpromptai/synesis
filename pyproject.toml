@@ -43,6 +43,9 @@ dependencies = [
     "pymssql>=2.3.11",
 ]
 
+[project.scripts]
+synesis = "synesis.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3.0",

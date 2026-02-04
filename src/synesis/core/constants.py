@@ -8,6 +8,7 @@ For configurable values, see config.py Settings.
 # API Rate Limits (external constraints)
 # ─────────────────────────────────────────────────────────────
 FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE = 60  # Free tier limit
+FINNHUB_WS_MAX_SYMBOLS = 50  # Free tier WebSocket subscription limit
 
 # ─────────────────────────────────────────────────────────────
 # Message Limits (platform constraints)
