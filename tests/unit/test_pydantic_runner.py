@@ -43,7 +43,7 @@ class TestConstants:
 
     def test_signals_dir(self) -> None:
         """Test signals directory default path."""
-        assert DEFAULT_SIGNALS_OUTPUT_DIR == "shared/output"
+        assert DEFAULT_SIGNALS_OUTPUT_DIR == "output/signals"
 
 
 class TestStoreSignal:

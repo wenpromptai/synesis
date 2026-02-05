@@ -51,8 +51,9 @@ shared/**
 !shared/*/
 !shared/*/.gitkeep
 
-# Output files (signals, etc.)
-output/
+# Output files (signals, etc.) - keep folder, ignore contents
+output/**
+!output/.gitkeep
 
 # Build
 dist/

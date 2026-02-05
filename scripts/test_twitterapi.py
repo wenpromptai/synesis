@@ -11,7 +11,7 @@ from synesis.config import get_settings
 from synesis.core.logging import setup_logging
 from synesis.ingestion.twitterapi import Tweet, TwitterClient
 
-OUTPUT_DIR = Path(__file__).parent.parent / "shared" / "output"
+OUTPUT_DIR = Path(__file__).parent.parent / "output" / "test"
 OUTPUT_FILE = OUTPUT_DIR / "twitter_tweets.jsonl"
 
 
