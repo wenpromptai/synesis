@@ -631,8 +631,7 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
 
     # Build header
     overall = signal.overall_sentiment
-    msg = f"""📊 <b>REDDIT SENTIMENT ({signal.signal_period})</b> {sentiment_emoji.get(overall, overall)}
-{SECTION_SEPARATOR}"""
+    msg = f"""📊 <b>REDDIT SENTIMENT ({signal.signal_period})</b> {sentiment_emoji.get(overall, overall)}"""
 
     # Narrative section
     if signal.narrative_summary:
@@ -643,8 +642,9 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
 
     # Tickers section (sorted by mention count)
     if signal.ticker_sentiments:
-        msg += """
+        msg += f"""
 
+{SECTION_SEPARATOR}
 📈 <b>Tickers</b> (by mention volume)"""
 
         # Sort by mention count descending
@@ -693,8 +693,9 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
 
     # Watchlist changes section (only if there are changes)
     if signal.watchlist_added or signal.watchlist_removed:
-        msg += """
+        msg += f"""
 
+{SECTION_SEPARATOR}
 📋 <b>Watchlist Changes</b>"""
         if signal.watchlist_added:
             added_str = ", ".join(signal.watchlist_added)
@@ -717,6 +718,7 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
     # Stats section (condensed)
     msg += f"""
 
+{SECTION_SEPARATOR}
 📊 <b>Stats</b>
 Posts: {signal.total_posts_analyzed} analyzed | {signal.high_quality_posts} high quality | {signal.spam_posts} spam filtered"""
 
