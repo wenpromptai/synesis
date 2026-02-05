@@ -663,7 +663,11 @@ Also:
                     tickers_with_prices=len(ticker_prices),
                 )
             except Exception as e:
-                log.error("Failed to persist Flow 2 signal to PostgreSQL", error=str(e))
+                log.error(
+                    "Failed to persist Flow 2 signal to PostgreSQL",
+                    error=str(e),
+                    exc_info=True,
+                )
 
         # Clear buffer for next period
         self._post_buffer = []

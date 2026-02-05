@@ -654,7 +654,11 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
             reverse=True,
         )
 
-        for ts in sorted_tickers:
+        # Split into shown (actionable) vs collapsed (noise) tickers
+        shown = [t for t in sorted_tickers if t.mention_count >= 2 or abs(t.avg_sentiment) > 0.1]
+        collapsed_count = len(sorted_tickers) - len(shown)
+
+        for ts in shown:
             # Determine sentiment label from avg_sentiment
             if ts.avg_sentiment > 0.1:
                 sentiment_label = "bullish"
@@ -682,6 +686,10 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
             elif ts.is_extreme_bearish:
                 msg += """
    🔥 EXTREME BEARISH"""
+
+        if collapsed_count:
+            msg += f"""
+⚪ <i>+ {collapsed_count} other tickers (1 mention, neutral)</i>"""
 
     # Watchlist changes section (only if there are changes)
     if signal.watchlist_added or signal.watchlist_removed:

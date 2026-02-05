@@ -31,6 +31,8 @@ async def get_latest_prices(
     tickers: str = Query(..., description="Comma-separated tickers (e.g. AAPL,MSFT,NVDA)"),
 ) -> dict[str, FactSetPrice]:
     ticker_list = [t.strip() for t in tickers.split(",") if t.strip()]
+    if len(ticker_list) > 100:
+        raise HTTPException(400, detail="Too many tickers requested (max 100)")
     return await provider.get_latest_prices(ticker_list)
 
 

@@ -72,7 +72,7 @@ class FactSetTickerProvider:
                         "Loaded tickers from Redis cache",
                         count=len(self._symbols) if self._symbols else 0,
                     )
-                    return self._symbols or {}
+                    return self._symbols if self._symbols is not None else {}
                 except Exception as e:
                     logger.warning("Failed to parse ticker cache", error=str(e))
 

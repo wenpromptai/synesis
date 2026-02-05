@@ -958,6 +958,12 @@ TICKER_BLACKLIST: Final[frozenset[str]] = frozenset(
         "BBC",
         "FOX",
         # Non-financial words/slang (FactSet matches obscure companies)
+        "EVERY",  # Everysport Group AB — English word
+        "ADS",  # Adaltis Inc — English word "ads"
+        "AGI",  # Common acronym (artificial general intelligence)
+        "IRE",  # English word "ire"
+        "HVN",  # Harvey Nash — abbreviation noise
+        "GOLD",  # Gold.com — commodity word, not ticker intent
         "GOAT",
         "LLM",
         "GLOBE",
