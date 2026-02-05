@@ -1,7 +1,7 @@
 """Sentiment lexicon data: word scores, modifiers, and finance-specific terms.
 
 This module contains hardcoded lexicon constants for fast access. The full lexicons
-are stored in data/lexicons/*.json and can be loaded for extensibility.
+can be passed to SentimentLexicon or loaded from JSON files for extensibility.
 """
 
 from typing import Final
@@ -957,6 +957,44 @@ TICKER_BLACKLIST: Final[frozenset[str]] = frozenset(
         "CNN",
         "BBC",
         "FOX",
+        # Non-financial words/slang (FactSet matches obscure companies)
+        "EVERY",  # Everysport Group AB — English word
+        "ADS",  # Adaltis Inc — English word "ads"
+        "AGI",  # Common acronym (artificial general intelligence)
+        "IRE",  # English word "ire"
+        "HVN",  # Harvey Nash — abbreviation noise
+        "GOLD",  # Gold.com — commodity word, not ticker intent
+        "GOAT",
+        "LLM",
+        "GLOBE",
+        "ETC",
+        "ROMA",
+        "FIX",
+        "ICE",
+        # Tech/internet terms
+        "AWS",
+        "FPS",
+        "PCB",
+        "EV",
+        "IP",
+        # Finance jargon (terms, not ticker references)
+        "FCF",
+        "CAGR",
+        "ATR",
+        "ADX",
+        "TSX",
+        "INR",
+        "GLP",
+        # Reddit/forum abbreviations
+        "TIA",
+        "FTA",
+        # Ambiguous 2-letter (no longer caught by deleted _is_ambiguous)
+        "SP",
+        "VV",
+        "SK",
+        "AP",
+        "AY",
+        "HP",
         # Misc false positives
         "COVID",
         "III",  # Roman numeral
@@ -1014,5 +1052,40 @@ TICKER_BLACKLIST: Final[frozenset[str]] = frozenset(
         "MOVE",
         "VHUB",  # Not a ticker
         "JTAI",  # Not a real ticker
+        # Common-word tickers (real symbols used as English words on Reddit)
+        "CASH",
+        "CPI",
+        "FED",
+        "FIVE",
+        "FREE",
+        "HOPE",
+        "LIFE",
+        "LOVE",
+        "MAIN",
+        "MAX",
+        "MIND",
+        "NEAR",
+        "NICE",
+        "PLAY",
+        "PLUS",
+        "RACE",
+        "RARE",
+        "RATE",
+        "REAL",
+        "RIDE",
+        "ROCK",
+        "SALE",
+        "SAVE",
+        "SELF",
+        "SNAP",
+        "SPIN",
+        "SPOT",
+        "STAR",
+        "STAY",
+        "STEP",
+        "STOP",
+        "TRUE",
+        "TURN",
+        "VIEW",
     }
 )

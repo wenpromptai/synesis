@@ -8,6 +8,7 @@ For configurable values, see config.py Settings.
 # API Rate Limits (external constraints)
 # ─────────────────────────────────────────────────────────────
 FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE = 60  # Free tier limit
+FINNHUB_WS_MAX_SYMBOLS = 50  # Free tier WebSocket subscription limit
 
 # ─────────────────────────────────────────────────────────────
 # Message Limits (platform constraints)
@@ -46,4 +47,4 @@ MAX_MARKETS_FOR_ANALYSIS = 7
 DEFAULT_POLYMARKET_GAMMA_API_URL = "https://gamma-api.polymarket.com"
 DEFAULT_FINNHUB_WS_URL = "wss://ws.finnhub.io"
 DEFAULT_FINNHUB_API_URL = "https://finnhub.io/api/v1"
-DEFAULT_SIGNALS_OUTPUT_DIR = "shared/output"
+DEFAULT_SIGNALS_OUTPUT_DIR = "output/signals"

@@ -95,11 +95,11 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     settings = get_settings()
 
     if not settings.telegram_bot_token:
-        logger.debug("Telegram bot token not configured, skipping notification")
+        logger.warning("Telegram bot token not configured, skipping notification")
         return False
 
     if not settings.telegram_chat_id:
-        logger.debug("Telegram chat ID not configured, skipping notification")
+        logger.warning("Telegram chat ID not configured, skipping notification")
         return False
 
     url = (
@@ -130,7 +130,7 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
                 return False
 
     except httpx.HTTPError as e:
-        logger.warning("Failed to send Telegram message", error=str(e))
+        logger.error("Failed to send Telegram message", error=str(e))
         return False
     except (json.JSONDecodeError, KeyError) as e:
         logger.error("Failed to parse Telegram API response", error=str(e))
@@ -299,7 +299,7 @@ def format_condensed_signal(
     # Build message
     msg = f"""📢 <b>SIGNAL</b> {direction_emoji.get(direction, "⚪")} {direction.upper()} | {impact_emoji.get(impact, "ℹ️")} {impact.upper()}
 
-<i>{_escape_html(original_text)}</i>
+<blockquote>{_escape_html(original_text)}</blockquote>
 
 💡 <b>Thesis:</b> {_escape_html(analysis.primary_thesis)}
 <i>Confidence: {analysis.thesis_confidence:.0%}</i>"""
@@ -428,7 +428,7 @@ Urgency: {urgency_emoji.get(urgency, urgency)} {urgency.upper()}"""
     msg += f"""
 
 📝 <b>ORIGINAL MESSAGE</b>
-<i>{_escape_html(message.text)}</i>
+<blockquote>{_escape_html(message.text)}</blockquote>
 
 📊 <b>SUMMARY</b>
 {_escape_html(extraction.summary)}
@@ -654,7 +654,11 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
             reverse=True,
         )
 
-        for ts in sorted_tickers:
+        # Split into shown (actionable) vs collapsed (noise) tickers
+        shown = [t for t in sorted_tickers if t.mention_count >= 2 or abs(t.avg_sentiment) > 0.1]
+        collapsed_count = len(sorted_tickers) - len(shown)
+
+        for ts in shown:
             # Determine sentiment label from avg_sentiment
             if ts.avg_sentiment > 0.1:
                 sentiment_label = "bullish"
@@ -682,6 +686,10 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
             elif ts.is_extreme_bearish:
                 msg += """
    🔥 EXTREME BEARISH"""
+
+        if collapsed_count:
+            msg += f"""
+⚪ <i>+ {collapsed_count} other tickers (1 mention, neutral)</i>"""
 
     # Watchlist changes section (only if there are changes)
     if signal.watchlist_added or signal.watchlist_removed:

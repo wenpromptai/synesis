@@ -165,9 +165,9 @@ class Settings(BaseSettings):
         default="finnhub",
         description="Price data provider (finnhub, polygon, yahoo in future)",
     )
-    ticker_provider: Literal["finnhub"] = Field(
-        default="finnhub",
-        description="Ticker validation provider (finnhub, polygon, sec in future)",
+    ticker_provider: Literal["finnhub", "factset"] = Field(
+        default="factset",
+        description="Ticker validation provider (factset, finnhub)",
     )
     fundamentals_provider: Literal["finnhub", "none"] = Field(
         default="finnhub",
@@ -284,7 +284,7 @@ class Settings(BaseSettings):
                 v = json.loads(v)
             else:
                 v = [s.strip() for s in v.split(",") if s.strip()]
-        return [s.lstrip("r/").lstrip("/r/") for s in v]
+        return [s.removeprefix("/r/").removeprefix("r/") for s in v]
 
     # Trading
     trading_enabled: bool = Field(default=False)

@@ -29,6 +29,8 @@ dependencies = [
     "eth-account>=0.13.0",
     # Vector/Embeddings (for deduplication)
     "pgvector>=0.3.6",
+    # Rate limiting
+    "slowapi>=0.1.9",
     # Utilities
     "python-dotenv>=1.0.1",
     "tenacity>=9.0.0",
@@ -42,6 +44,9 @@ dependencies = [
     "finnhub-python>=2.4.0",
     "pymssql>=2.3.11",
 ]
+
+[project.scripts]
+synesis = "synesis.cli:main"
 
 [project.optional-dependencies]
 dev = [

@@ -90,10 +90,7 @@ class TestNewsE2E:
                     )
 
             # Store in mock DB
-            await mock_db.insert_raw_message(
-                breaking_news_message,
-                is_duplicate=result.is_duplicate,
-            )
+            await mock_db.insert_raw_message(breaking_news_message)
 
             signal = result.to_signal()
             if signal:

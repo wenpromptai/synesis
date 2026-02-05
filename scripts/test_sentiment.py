@@ -95,7 +95,7 @@ async def test_watchlist() -> None:
 async def test_gate1(subreddit: str, limit: int) -> None:
     """Test Gate 1: Lexicon analysis on Reddit posts."""
     from synesis.ingestion.reddit import RedditRSSClient
-    from synesis.intelligence.sentiment.analyzer import SentimentAnalyzer
+    from synesis.processing.sentiment.analyzer import SentimentAnalyzer
 
     print(f"\n=== Testing Gate 1 on r/{subreddit} ===\n")
 

@@ -23,6 +23,7 @@ from websockets.asyncio.client import ClientConnection
 from synesis.config import get_settings
 from synesis.core.constants import (
     FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE,
+    FINNHUB_WS_MAX_SYMBOLS,
     PRICE_CACHE_TTL_SECONDS,
 )
 from synesis.core.logging import get_logger
@@ -376,6 +377,13 @@ class FinnhubPriceProvider:
         for ticker in tickers:
             ticker_upper = ticker.upper()
             if ticker_upper not in self._subscribed_tickers:
+                if len(self._subscribed_tickers) >= FINNHUB_WS_MAX_SYMBOLS:
+                    logger.warning(
+                        "WebSocket symbol limit reached, skipping",
+                        limit=FINNHUB_WS_MAX_SYMBOLS,
+                        skipped=ticker_upper,
+                    )
+                    break
                 self._subscribed_tickers.add(ticker_upper)
                 if self._ws:
                     await self._send_subscribe(ticker_upper)

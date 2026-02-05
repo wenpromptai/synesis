@@ -43,7 +43,7 @@ class TestConstants:
 
     def test_signals_dir(self) -> None:
         """Test signals directory default path."""
-        assert DEFAULT_SIGNALS_OUTPUT_DIR == "shared/output"
+        assert DEFAULT_SIGNALS_OUTPUT_DIR == "output/signals"
 
 
 class TestStoreSignal:
@@ -308,7 +308,7 @@ class TestEmitCombinedTelegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
         ) as mock_send:
             await emit_combined_telegram(message, extraction, analysis)
 
@@ -342,7 +342,7 @@ class TestEmitCombinedTelegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
         ) as mock_send:
             await emit_combined_telegram(message, extraction, analysis)
 

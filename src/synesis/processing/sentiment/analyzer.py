@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from synesis.intelligence.sentiment.lexicon import (
+from synesis.processing.sentiment.lexicon import (
     BASE_LEXICON,
     BOOSTERS,
     CAPS_EMPHASIS,
@@ -28,7 +28,7 @@ from synesis.intelligence.sentiment.lexicon import (
     SPECIAL_CONJUNCTIONS,
     TICKER_BLACKLIST,
 )
-from synesis.intelligence.sentiment.models import SentimentResult
+from synesis.processing.sentiment.models import SentimentResult
 
 
 @dataclass(slots=True)
@@ -296,19 +296,6 @@ class SentimentAnalyzer:
             ticker_sentiments=ticker_sentiments,
             confidence=round(confidence, 4),
         )
-
-    def analyze_sync(self, text: str) -> SentimentResult:
-        """Synchronous version of analyze for convenience.
-
-        Args:
-            text: Text to analyze.
-
-        Returns:
-            SentimentResult.
-        """
-        import asyncio
-
-        return asyncio.get_event_loop().run_until_complete(self.analyze(text))
 
     def _tokenize(self, text: str) -> list[TokenInfo]:
         """Tokenize text into words and emoji.
