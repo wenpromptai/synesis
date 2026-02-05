@@ -194,15 +194,11 @@ def mock_db() -> Any:
     async def mock_insert_raw_message(
         message: Any,
         embedding: Any = None,
-        is_duplicate: bool = False,
-        duplicate_of: str | None = None,
     ) -> str:
         _test_raw_messages.append(
             {
                 "message": message,
                 "embedding": embedding,
-                "is_duplicate": is_duplicate,
-                "duplicate_of": duplicate_of,
                 "inserted_at": datetime.now(timezone.utc),
             }
         )

@@ -166,16 +166,12 @@ class Database:
         self,
         message: "UnifiedMessage",
         embedding: "np.ndarray | None" = None,
-        is_duplicate: bool = False,
-        duplicate_of: UUID | None = None,
     ) -> UUID:
         """Insert a raw message into the raw_messages table.
 
         Args:
             message: The unified message to insert
             embedding: Optional embedding vector (256-dim)
-            is_duplicate: Whether this is a duplicate message
-            duplicate_of: UUID of the original message if duplicate
 
         Returns:
             UUID of the inserted message
@@ -189,9 +185,9 @@ class Database:
         query = """
             INSERT INTO raw_messages (
                 source_platform, source_account, source_type, external_id,
-                raw_text, embedding, source_timestamp, is_duplicate, duplicate_of
+                raw_text, embedding, source_timestamp
             )
-            VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6::vector, $7)
             ON CONFLICT (source_platform, external_id) DO NOTHING
             RETURNING id
         """
@@ -204,8 +200,6 @@ class Database:
             message.text,
             embedding_str,
             message.timestamp,
-            is_duplicate,
-            duplicate_of,
         )
 
         if result is None:

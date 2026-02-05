@@ -5,9 +5,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from synesis.agent import agent_lifespan
 from synesis.api import api_router
+from synesis.api.routes.factset import limiter
 from synesis.config import get_settings
 from synesis.core.dependencies import AgentStateDep
 from synesis.core.logging import get_logger, setup_logging
@@ -37,6 +40,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # Infrastructure (no prefix, not versioned)
 
