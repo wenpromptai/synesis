@@ -1002,24 +1002,6 @@ CREATE INDEX idx_wallet_metrics_profitable
 ```sql
 -- Retention policy: keep raw signals for 90 days
 SELECT add_retention_policy('signals', INTERVAL '90 days');
-
--- Continuous aggregate for hourly rollups
-CREATE MATERIALIZED VIEW signals_hourly
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket('1 hour', time) AS bucket,
-    flow_id,
-    signal_type,
-    count(*) AS signal_count
-FROM signals
-GROUP BY bucket, flow_id, signal_type;
-
--- Refresh policy for continuous aggregate
-SELECT add_continuous_aggregate_policy('signals_hourly',
-    start_offset => INTERVAL '3 hours',
-    end_offset => INTERVAL '1 hour',
-    schedule_interval => INTERVAL '1 hour'
-);
 ```
 
 ---

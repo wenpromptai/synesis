@@ -36,6 +36,7 @@ src/synesis/
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
 │   ├── sentiment/     # Flow 2: Reddit sentiment (Gate 1 lexicon + Gate 2 LLM)
+│   ├── mkt_intel/     # Flow 3: Prediction market intelligence
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data (Finnhub, FactSet, Crawl4AI)
 ├── markets/           # Polymarket integration
