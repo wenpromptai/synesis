@@ -336,28 +336,42 @@ async def get_shares_outstanding(
 @router.get("/securities/{ticker}/market-cap")
 @limiter.limit("60/minute")
 async def get_market_cap(
-    request: Request, ticker: str, provider: FactSetProviderDep
+    request: Request,
+    ticker: str,
+    provider: FactSetProviderDep,
+    price_date: date | None = Query(
+        None,
+        alias="date",
+        description="Date for historical market cap (YYYY-MM-DD). Defaults to current.",
+    ),
 ) -> dict[str, object]:
-    """Get current market capitalization for a security.
+    """Get market capitalization for a security.
 
-    Calculated as shares outstanding multiplied by current price.
+    For current market cap (no date), uses unadjusted price × current shares.
+    For historical dates, uses split-adjusted price × adj shares so that
+    split factors cancel out and the result is accurate.
 
     Args:
         ticker: Stock ticker symbol (e.g., "AAPL")
+        date: Optional date for historical market cap
 
     Returns:
-        Dictionary with ticker and market_cap value in USD.
+        Dictionary with ticker, market_cap value in USD, and date if specified.
 
     Raises:
         HTTPException: 404 if market cap cannot be computed.
 
     Example:
         GET /api/v1/factset/securities/AAPL/market-cap
+        GET /api/v1/factset/securities/AAPL/market-cap?date=2020-08-28
     """
-    mcap = await provider.get_market_cap(ticker)
+    mcap = await provider.get_market_cap(ticker, price_date)
     if mcap is None:
         raise HTTPException(404, detail=f"Cannot compute market cap for '{ticker}'")
-    return {"ticker": ticker, "market_cap": mcap}
+    result: dict[str, object] = {"ticker": ticker, "market_cap": mcap}
+    if price_date is not None:
+        result["date"] = price_date.isoformat()
+    return result
 
 
 @router.get("/securities/{ticker}/adjustment-factors")

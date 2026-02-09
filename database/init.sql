@@ -172,9 +172,17 @@ CREATE TABLE IF NOT EXISTS synesis.markets (
     platform TEXT NOT NULL,             -- 'polymarket', 'kalshi'
     external_id TEXT NOT NULL,          -- Platform's market ID
     condition_id TEXT,                  -- Polymarket condition_id
+    ticker TEXT,                        -- Kalshi ticker
     question TEXT NOT NULL,
     description TEXT,
     category TEXT,
+    -- Live price/volume (updated by WebSocket + REST)
+    yes_price DECIMAL(6,4),             -- Current YES price
+    no_price DECIMAL(6,4),              -- Current NO price
+    volume_24h DECIMAL(20,6),           -- 24h volume
+    open_interest DECIMAL(20,6),        -- Open interest
+    liquidity DECIMAL(20,6),            -- Liquidity
+    -- Dates
     end_date TIMESTAMPTZ,
     resolved_at TIMESTAMPTZ,
     winning_outcome TEXT,               -- 'yes', 'no', or specific outcome
@@ -264,6 +272,44 @@ CREATE INDEX IF NOT EXISTS idx_wallet_metrics_profitable
     WHERE total_trades >= 10;
 
 -- =============================================================================
+-- FLOW 3: MARKET INTELLIGENCE - SNAPSHOTS
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Market Snapshots (TimescaleDB Hypertable)
+-- Volume/price history for analysis
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.market_snapshots (
+    time TIMESTAMPTZ NOT NULL,
+    platform TEXT NOT NULL,
+    market_external_id TEXT NOT NULL,
+    category TEXT,                      -- Market category
+    yes_price DECIMAL(6,4),
+    no_price DECIMAL(6,4),
+    volume_1h DECIMAL(20,6),            -- Real WS-accumulated hourly volume (NULL if no WS)
+    volume_24h DECIMAL(20,6),           -- 24h volume from REST API
+    volume_total DECIMAL(20,6),         -- All-time total volume
+    trade_count_1h INTEGER,             -- Trade count in last hour
+    open_interest DECIMAL(20,6),
+    PRIMARY KEY (time, platform, market_external_id)
+);
+
+SELECT create_hypertable('synesis.market_snapshots', 'time',
+    chunk_time_interval => INTERVAL '1 day',
+    if_not_exists => TRUE
+);
+
+-- Compression after 7 days
+ALTER TABLE synesis.market_snapshots SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'platform, market_external_id'
+);
+SELECT add_compression_policy('synesis.market_snapshots', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- Retention: 90 days
+SELECT add_retention_policy('synesis.market_snapshots', INTERVAL '90 days', if_not_exists => TRUE);
+
+-- =============================================================================
 -- FLOW 2: SENTIMENT
 -- =============================================================================
 
@@ -321,78 +367,6 @@ CREATE INDEX IF NOT EXISTS idx_sentiment_ticker_time
 CREATE INDEX IF NOT EXISTS idx_sentiment_context_embedding
     ON synesis.sentiment_snapshots USING hnsw (context_embedding vector_cosine_ops)
     WHERE context_embedding IS NOT NULL;
-
--- =============================================================================
--- CONTINUOUS AGGREGATES
--- =============================================================================
-
--- Hourly signal rollups for dashboards
-CREATE MATERIALIZED VIEW IF NOT EXISTS synesis.signals_hourly
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket('1 hour', time) AS bucket,
-    flow_id,
-    signal_type,
-    count(*) AS signal_count
-FROM synesis.signals
-GROUP BY bucket, flow_id, signal_type
-WITH NO DATA;
-
--- Refresh policy for continuous aggregate
-SELECT add_continuous_aggregate_policy('synesis.signals_hourly',
-    start_offset => INTERVAL '3 hours',
-    end_offset => INTERVAL '1 hour',
-    schedule_interval => INTERVAL '1 hour',
-    if_not_exists => TRUE
-);
-
--- =============================================================================
--- HELPER FUNCTIONS
--- =============================================================================
-
--- Function to update wallet metrics after trade resolution
-CREATE OR REPLACE FUNCTION synesis.update_wallet_metrics_on_resolution()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Update aggregated metrics
-    UPDATE synesis.wallet_metrics
-    SET
-        wins = wins + CASE WHEN NEW.is_win THEN 1 ELSE 0 END,
-        losses = losses + CASE WHEN NOT NEW.is_win THEN 1 ELSE 0 END,
-        win_rate = (wins + CASE WHEN NEW.is_win THEN 1 ELSE 0 END)::DECIMAL /
-                   NULLIF(total_trades, 0),
-        total_pnl = total_pnl + COALESCE(NEW.pnl, 0),
-        updated_at = NOW()
-    WHERE wallet_id = NEW.wallet_id;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger for wallet metrics update
-DROP TRIGGER IF EXISTS trg_wallet_trade_resolved ON synesis.wallet_trades;
-CREATE TRIGGER trg_wallet_trade_resolved
-    AFTER UPDATE OF is_win ON synesis.wallet_trades
-    FOR EACH ROW
-    WHEN (OLD.is_win IS NULL AND NEW.is_win IS NOT NULL)
-    EXECUTE FUNCTION synesis.update_wallet_metrics_on_resolution();
-
--- Function to auto-create wallet_metrics row when wallet is created
-CREATE OR REPLACE FUNCTION synesis.create_wallet_metrics()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO synesis.wallet_metrics (wallet_id)
-    VALUES (NEW.id)
-    ON CONFLICT (wallet_id) DO NOTHING;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_wallet_created ON synesis.wallets;
-CREATE TRIGGER trg_wallet_created
-    AFTER INSERT ON synesis.wallets
-    FOR EACH ROW
-    EXECUTE FUNCTION synesis.create_wallet_metrics();
 
 -- =============================================================================
 -- GRANTS (for application user)

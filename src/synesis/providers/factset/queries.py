@@ -449,6 +449,12 @@ ORDER BY effective_date
 # SHARES OUTSTANDING
 # =============================================================================
 
+# Note: adj_shares_outstanding is retroactively adjusted for ALL subsequent
+# stock splits. For historical dates, this means the value already incorporates
+# future splits — it does NOT reflect the actual share count at that time.
+# To get true market cap for a historical date, use adjusted_price × adj_shares
+# so the split factors cancel out.
+
 # Current shares outstanding (uses fsym_security_id, not fsym_id)
 # Note: Column mappings based on actual FactSet schema:
 #   one_adr_eq = ADR ratio (how many ordinary shares = 1 ADR)
@@ -462,6 +468,19 @@ SELECT TOP 1
     hasadr_flag
 FROM fgp_v1.fgp_shares_sec_curr WITH (NOLOCK)
 WHERE fsym_security_id = %(fsym_security_id)s
+ORDER BY report_date DESC
+"""
+
+# Shares outstanding as of a specific date (most recent report on or before target_date)
+# Used for historical market cap: returns the report closest to but not after the target date.
+SHARES_OUTSTANDING_AS_OF_DATE = """
+SELECT TOP 1
+    fsym_security_id,
+    report_date,
+    adj_shares_outstanding
+FROM fgp_v1.fgp_shares_sec_hist WITH (NOLOCK)
+WHERE fsym_security_id = %(fsym_security_id)s
+  AND report_date <= %(target_date)s
 ORDER BY report_date DESC
 """
 

@@ -48,3 +48,19 @@ DEFAULT_POLYMARKET_GAMMA_API_URL = "https://gamma-api.polymarket.com"
 DEFAULT_FINNHUB_WS_URL = "wss://ws.finnhub.io"
 DEFAULT_FINNHUB_API_URL = "https://finnhub.io/api/v1"
 DEFAULT_SIGNALS_OUTPUT_DIR = "output/signals"
+
+# ─────────────────────────────────────────────────────────────
+# Prediction Market API URLs
+# ─────────────────────────────────────────────────────────────
+DEFAULT_POLYMARKET_DATA_API_URL = "https://data-api.polymarket.com"
+DEFAULT_POLYMARKET_CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+DEFAULT_KALSHI_API_URL = "https://api.elections.kalshi.com/trade-api/v2"
+DEFAULT_KALSHI_WS_URL = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+
+# ─────────────────────────────────────────────────────────────
+# Market Intelligence (Flow 3)
+# ─────────────────────────────────────────────────────────────
+MARKET_INTEL_SNAPSHOT_INTERVAL = 300  # 5 min snapshots for volume tracking
+MARKET_INTEL_MAX_TRACKED_MARKETS = 100  # Max markets to track via WebSocket
+MARKET_INTEL_REDIS_PREFIX = "synesis:mkt_intel"
+KALSHI_RATE_LIMIT_CALLS_PER_SECOND = 10  # Kalshi public API rate limit

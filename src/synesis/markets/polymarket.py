@@ -301,6 +301,185 @@ class PolymarketClient:
 
         return markets
 
+    async def get_expiring_markets(self, hours: int = 24) -> list[SimpleMarket]:
+        """Get markets expiring within the specified hours.
+
+        Args:
+            hours: Hours until expiration to filter by
+
+        Returns:
+            List of markets expiring soon
+        """
+        from datetime import datetime, timedelta, timezone
+
+        client = self._get_client()
+        now = datetime.now(timezone.utc)
+        end_max = now + timedelta(hours=hours)
+
+        params: dict[str, Any] = {
+            "limit": 50,
+            "active": "true",
+            "closed": "false",
+            "end_date_min": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end_date_max": end_max.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "order": "endDate",
+            "ascending": "true",
+        }
+
+        try:
+            response = await client.get("/markets", params=params)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error("Polymarket expiring markets error", status_code=e.response.status_code)
+            return []
+        except httpx.RequestError as e:
+            logger.error("Polymarket expiring markets request error", error=str(e))
+            return []
+
+        markets = []
+        for market_data in data:
+            try:
+                market = self._parse_market(market_data)
+                if market.question and market.is_active and not market.is_closed:
+                    markets.append(market)
+            except (KeyError, ValueError) as e:
+                logger.warning("Failed to parse expiring market", error=str(e))
+        return markets
+
+
+@dataclass
+class PolymarketDataClient:
+    """Client for Polymarket Data API (wallet positions, trades, holders).
+
+    API Base: https://data-api.polymarket.com
+    """
+
+    base_url: str = dataclass_field(default_factory=lambda: get_settings().polymarket_data_api_url)
+    timeout: float = 30.0
+
+    _client: httpx.AsyncClient | None = dataclass_field(default=None, init=False, repr=False)
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                headers={"Accept": "application/json"},
+            )
+        return self._client
+
+    async def close(self) -> None:
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> "PolymarketDataClient":
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.close()
+
+    async def get_wallet_positions(self, proxy_address: str) -> list[dict[str, Any]]:
+        """Get wallet positions from Data API.
+
+        Args:
+            proxy_address: Wallet proxy address
+
+        Returns:
+            List of position data dicts
+        """
+        client = self._get_client()
+        try:
+            response = await client.get("/positions", params={"user": proxy_address})
+            response.raise_for_status()
+            result: list[dict[str, Any]] = response.json()
+            return result
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            logger.error(
+                "Data API positions error",
+                address=proxy_address,
+                error=str(e),
+            )
+            return []
+
+    async def get_wallet_trades(self, proxy_address: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Get wallet trade history.
+
+        Args:
+            proxy_address: Wallet proxy address
+            limit: Max trades to return
+
+        Returns:
+            List of trade data dicts
+        """
+        client = self._get_client()
+        try:
+            response = await client.get(
+                "/trades",
+                params={"user": proxy_address, "limit": limit},
+            )
+            response.raise_for_status()
+            result: list[dict[str, Any]] = response.json()
+            return result
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            logger.error(
+                "Data API trades error",
+                address=proxy_address,
+                error=str(e),
+            )
+            return []
+
+    async def get_top_holders(self, condition_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Get top holders for a market.
+
+        Args:
+            condition_id: Polymarket condition ID
+            limit: Max holders to return
+
+        Returns:
+            List of holder data dicts
+        """
+        client = self._get_client()
+        try:
+            response = await client.get(
+                "/holders",
+                params={"market": condition_id, "limit": limit},
+            )
+            response.raise_for_status()
+            result: list[dict[str, Any]] = response.json()
+            return result
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            logger.error(
+                "Data API holders error",
+                condition_id=condition_id,
+                error=str(e),
+            )
+            return []
+
+    async def get_open_interest(self, condition_id: str) -> float | None:
+        """Get open interest for a market.
+
+        Args:
+            condition_id: Polymarket condition ID
+
+        Returns:
+            Open interest value or None
+        """
+        client = self._get_client()
+        try:
+            response = await client.get("/oi", params={"market": condition_id})
+            response.raise_for_status()
+            data = response.json()
+            return float(data) if data else None
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as e:
+            logger.error(
+                "Data API open interest error",
+                condition_id=condition_id,
+                error=str(e),
+            )
+            return None
+
 
 async def find_market_opportunities(
     keywords: list[str],

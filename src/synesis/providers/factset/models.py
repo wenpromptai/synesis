@@ -109,7 +109,10 @@ class FactSetSharesOutstanding(BaseModel):
     fsym_security_id: str | None = Field(None, description="Security-level ID")
     report_date: date = Field(..., description="Report date for shares data")
     shares_outstanding: float = Field(
-        ..., description="Adjusted shares outstanding (actual count, not millions)"
+        ...,
+        description="Split-adjusted shares outstanding (actual count, not millions). "
+        "Retroactively adjusted for all subsequent splits — reflects current equivalent "
+        "share count, not the historical actual count.",
     )
     shares_outstanding_raw: float | None = Field(
         None, description="Raw shares in millions as stored in database"
