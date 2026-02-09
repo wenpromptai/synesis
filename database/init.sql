@@ -172,9 +172,17 @@ CREATE TABLE IF NOT EXISTS synesis.markets (
     platform TEXT NOT NULL,             -- 'polymarket', 'kalshi'
     external_id TEXT NOT NULL,          -- Platform's market ID
     condition_id TEXT,                  -- Polymarket condition_id
+    ticker TEXT,                        -- Kalshi ticker
     question TEXT NOT NULL,
     description TEXT,
     category TEXT,
+    -- Live price/volume (updated by WebSocket + REST)
+    yes_price DECIMAL(6,4),             -- Current YES price
+    no_price DECIMAL(6,4),              -- Current NO price
+    volume_24h DECIMAL(20,6),           -- 24h volume
+    open_interest DECIMAL(20,6),        -- Open interest
+    liquidity DECIMAL(20,6),            -- Liquidity
+    -- Dates
     end_date TIMESTAMPTZ,
     resolved_at TIMESTAMPTZ,
     winning_outcome TEXT,               -- 'yes', 'no', or specific outcome
@@ -262,6 +270,66 @@ CREATE TABLE IF NOT EXISTS synesis.wallet_metrics (
 CREATE INDEX IF NOT EXISTS idx_wallet_metrics_profitable
     ON synesis.wallet_metrics (win_rate DESC, insider_score DESC)
     WHERE total_trades >= 10;
+
+-- =============================================================================
+-- FLOW 3: MARKET INTELLIGENCE - SNAPSHOTS
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Market Snapshots (TimescaleDB Hypertable)
+-- Volume/price history for analysis
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.market_snapshots (
+    time TIMESTAMPTZ NOT NULL,
+    platform TEXT NOT NULL,
+    market_external_id TEXT NOT NULL,
+    category TEXT,                      -- Market category
+    yes_price DECIMAL(6,4),
+    no_price DECIMAL(6,4),
+    volume_1h DECIMAL(20,6),            -- Real WS-accumulated hourly volume (NULL if no WS)
+    volume_24h DECIMAL(20,6),           -- 24h volume from REST API
+    volume_total DECIMAL(20,6),         -- All-time total volume
+    trade_count_1h INTEGER,             -- Trade count in last hour
+    open_interest DECIMAL(20,6),
+    PRIMARY KEY (time, platform, market_external_id)
+);
+
+SELECT create_hypertable('synesis.market_snapshots', 'time',
+    chunk_time_interval => INTERVAL '1 day',
+    if_not_exists => TRUE
+);
+
+-- Compression after 7 days
+ALTER TABLE synesis.market_snapshots SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'platform, market_external_id'
+);
+SELECT add_compression_policy('synesis.market_snapshots', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- Retention: 90 days
+SELECT add_retention_policy('synesis.market_snapshots', INTERVAL '90 days', if_not_exists => TRUE);
+
+-- Continuous aggregate: hourly volume rollups
+CREATE MATERIALIZED VIEW IF NOT EXISTS synesis.market_volume_hourly
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    platform,
+    market_external_id,
+    AVG(yes_price) AS avg_yes_price,
+    SUM(volume_1h) AS total_volume,
+    SUM(trade_count_1h) AS total_trades
+FROM synesis.market_snapshots
+GROUP BY bucket, platform, market_external_id
+WITH NO DATA;
+
+-- Refresh policy for market volume aggregate
+SELECT add_continuous_aggregate_policy('synesis.market_volume_hourly',
+    start_offset => INTERVAL '3 hours',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour',
+    if_not_exists => TRUE
+);
 
 -- =============================================================================
 -- FLOW 2: SENTIMENT

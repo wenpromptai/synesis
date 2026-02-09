@@ -10,12 +10,17 @@ Configuration (set in .env):
     - REDDIT_SUBREDDITS: For Reddit RSS (default: wallstreetbets,stocks,options)
 """
 
+from __future__ import annotations
+
 import asyncio
 import sys
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from synesis.processing.mkt_intel.processor import MarketIntelProcessor
 
 from redis.asyncio import Redis
 
@@ -26,7 +31,11 @@ from synesis.providers.factset.client import get_factset_client
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.ingestion.twitterapi import Tweet, TwitterStreamClient
-from synesis.notifications.telegram import format_sentiment_signal, send_long_telegram
+from synesis.notifications.telegram import (
+    format_mkt_intel_signal,
+    format_sentiment_signal,
+    send_long_telegram,
+)
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.sentiment import SentimentProcessor
 from synesis.processing.news import SourcePlatform, SourceType, UnifiedMessage
@@ -255,6 +264,68 @@ async def run_watchlist_cleanup_loop(
             # Continue running, don't crash the loop
 
 
+async def run_mkt_intel_loop(
+    processor: "MarketIntelProcessor",
+    redis: Redis,
+    interval_seconds: int,
+    shutdown_event: asyncio.Event,
+    startup_delay: int = 30,
+) -> None:
+    """Run the market intelligence signal generation loop.
+
+    Scans markets every interval, generates signals, sends Telegram notifications.
+    Also publishes signals to Redis pub/sub.
+    """
+    from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX
+
+    signal_channel = "synesis:mkt_intel:signals"
+    trigger_key = f"{MARKET_INTEL_REDIS_PREFIX}:trigger_scan"
+    first_run = True
+
+    while not shutdown_event.is_set():
+        try:
+            wait_time = startup_delay if first_run else interval_seconds
+
+            # Wait for interval, shutdown, or manual trigger
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=wait_time)
+                break
+            except TimeoutError:
+                pass
+
+            # Check for manual trigger
+            triggered = await redis.get(trigger_key)
+            if triggered:
+                await redis.delete(trigger_key)
+                logger.info("Manual mkt_intel scan triggered")
+
+            first_run = False
+            logger.info("Running mkt_intel scan")
+            signal = await processor.run_scan()
+
+            # Publish to Redis
+            signal_json = signal.model_dump_json()
+            await redis.publish(signal_channel, signal_json)
+
+            # Send Telegram
+            telegram_message = format_mkt_intel_signal(signal)
+            sent = await send_long_telegram(telegram_message)
+            if not sent:
+                logger.error(
+                    "Failed to send mkt_intel signal to Telegram",
+                    opportunities=len(signal.opportunities),
+                )
+
+            logger.info(
+                "Mkt_intel signal generated and published",
+                markets_scanned=signal.total_markets_scanned,
+                opportunities=len(signal.opportunities),
+            )
+
+        except Exception as e:
+            logger.exception("Mkt_intel signal generation failed", error=str(e))
+
+
 @asynccontextmanager
 async def agent_lifespan(
     settings: Settings,
@@ -277,6 +348,11 @@ async def agent_lifespan(
     agent_task: asyncio.Task[None] | None = None
     sentiment_signal_task: asyncio.Task[None] | None = None
     watchlist_cleanup_task: asyncio.Task[None] | None = None
+    mkt_intel_task: asyncio.Task[None] | None = None
+    mkt_intel_ws_manager = None
+    mkt_intel_kalshi_client = None
+    mkt_intel_poly_client = None
+    mkt_intel_data_client = None
 
     try:
         # 1. Connect to Redis
@@ -416,6 +492,82 @@ async def agent_lifespan(
         else:
             logger.info("No Reddit subreddits configured, sentiment disabled")
 
+        # 5c. Start Market Intelligence (Flow 3) if enabled
+        if settings.mkt_intel_enabled:
+            from synesis.markets.kalshi import KalshiClient
+            from synesis.markets.polymarket import (
+                PolymarketClient as PolyClient,
+                PolymarketDataClient,
+            )
+            from synesis.processing.mkt_intel.processor import MarketIntelProcessor as MktIntelProc
+            from synesis.processing.mkt_intel.scanner import MarketScanner
+            from synesis.processing.mkt_intel.wallets import WalletTracker
+
+            # Create REST clients
+            kalshi_client = KalshiClient()
+            poly_client = PolyClient()
+            poly_data_client = PolymarketDataClient()
+            mkt_intel_kalshi_client = kalshi_client
+            mkt_intel_poly_client = poly_client
+            mkt_intel_data_client = poly_data_client
+
+            # Create WebSocket clients (if enabled)
+            ws_manager = None
+            if settings.mkt_intel_ws_enabled and redis:
+                from synesis.markets.kalshi_ws import KalshiWSClient
+                from synesis.markets.polymarket_ws import PolymarketWSClient
+                from synesis.markets.ws_manager import MarketWSManager
+
+                poly_ws = PolymarketWSClient(redis)
+                kalshi_ws = KalshiWSClient(redis)
+                ws_manager = MarketWSManager(poly_ws, kalshi_ws, redis)
+                mkt_intel_ws_manager = ws_manager
+                await ws_manager.start()
+                logger.info("Market intelligence WebSocket clients started")
+
+            # Create scanner
+            scanner = MarketScanner(
+                polymarket=poly_client,
+                kalshi=kalshi_client,
+                ws_manager=ws_manager,
+                db=db,
+                expiring_hours=settings.mkt_intel_expiring_hours,
+            )
+
+            # Create wallet tracker
+            wallet_tracker = WalletTracker(
+                redis=redis,
+                db=db,
+                data_client=poly_data_client,
+                insider_score_min=settings.mkt_intel_insider_score_min,
+            )
+
+            # Create processor
+            mkt_intel_processor = MktIntelProc(
+                settings=settings,
+                scanner=scanner,
+                wallet_tracker=wallet_tracker,
+                ws_manager=ws_manager,
+                db=db,
+            )
+
+            # Start 15-min aggregation loop
+            mkt_intel_task = asyncio.create_task(
+                run_mkt_intel_loop(
+                    mkt_intel_processor,
+                    redis,
+                    settings.mkt_intel_interval,
+                    shutdown_event,
+                )
+            )
+            logger.info(
+                "Market intelligence started",
+                interval=settings.mkt_intel_interval,
+                ws_enabled=settings.mkt_intel_ws_enabled,
+            )
+        else:
+            logger.info("Market intelligence disabled (mkt_intel_enabled=False)")
+
         # Warn if Telegram notification config is incomplete
         if not settings.telegram_bot_token or not settings.telegram_chat_id:
             logger.warning(
@@ -480,6 +632,7 @@ async def agent_lifespan(
             telegram_enabled=telegram_listener is not None,
             reddit_enabled=reddit_client is not None,
             sentiment_enabled=sentiment_processor is not None,
+            mkt_intel_enabled=mkt_intel_task is not None,
             watchlist_cleanup_enabled=watchlist_cleanup_task is not None,
             db_enabled=db_initialized,
             queue=INCOMING_QUEUE,
@@ -491,6 +644,8 @@ async def agent_lifespan(
             background_tasks.append(sentiment_signal_task)
         if watchlist_cleanup_task:
             background_tasks.append(watchlist_cleanup_task)
+        if mkt_intel_task:
+            background_tasks.append(mkt_intel_task)
 
         yield AgentState(
             redis=redis,
@@ -531,6 +686,32 @@ async def agent_lifespan(
             except asyncio.CancelledError:
                 pass
             logger.info("Watchlist cleanup loop stopped")
+
+        if mkt_intel_task:
+            mkt_intel_task.cancel()
+            try:
+                await mkt_intel_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Mkt_intel signal loop stopped")
+
+        if mkt_intel_ws_manager:
+            try:
+                await mkt_intel_ws_manager.stop()
+            except Exception as e:
+                logger.error("Failed to stop WS manager", error=str(e))
+            logger.info("Market intelligence WebSocket clients stopped")
+
+        for client, name in [
+            (mkt_intel_kalshi_client, "Kalshi"),
+            (mkt_intel_poly_client, "Polymarket"),
+            (mkt_intel_data_client, "Polymarket Data"),
+        ]:
+            if client:
+                try:
+                    await client.close()
+                except Exception as e:
+                    logger.error(f"Failed to close {name} client", error=str(e))
 
         if twitter_client:
             await twitter_client.stop()

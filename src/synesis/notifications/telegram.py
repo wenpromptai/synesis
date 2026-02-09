@@ -4,7 +4,10 @@ Provides simple async function to send messages to a Telegram chat.
 Used to notify about investment signals and prediction opportunities.
 """
 
+from __future__ import annotations
+
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import httpx
@@ -14,6 +17,7 @@ from synesis.core.constants import TELEGRAM_MAX_MESSAGE_LENGTH
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
+    from synesis.processing.mkt_intel.models import MarketIntelSignal
     from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
     from synesis.processing.sentiment import SentimentSignal
 
@@ -732,5 +736,82 @@ Sources: {subs_str}"""
     # Footer
     msg += f"""
 {SECTION_SEPARATOR}"""
+
+    return msg
+
+
+def format_mkt_intel_signal(signal: "MarketIntelSignal") -> str:
+    """Format market intelligence signal for Telegram.
+
+    Args:
+        signal: MarketIntelSignal with scan results
+
+    Returns:
+        HTML-formatted message for Telegram
+    """
+    # Header
+    ws_status = "🟢 LIVE" if signal.ws_connected else "🔴 REST-only"
+    msg = f"""🎯 <b>MARKET INTEL ({signal.signal_period})</b> {ws_status}
+Markets scanned: {signal.total_markets_scanned}"""
+
+    # Opportunities (top 5)
+    if signal.opportunities:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+💰 <b>Opportunities</b>"""
+        for i, opp in enumerate(signal.opportunities[:5], 1):
+            direction = "✅ YES" if opp.suggested_direction == "yes" else "❌ NO"
+            triggers = ", ".join(opp.triggers)
+            msg += f"""
+{i}. {_escape_html(opp.market.question)}
+   {direction} @ ${opp.market.yes_price:.2f} | Conf: {opp.confidence:.0%}
+   Triggers: {triggers}"""
+            if opp.reasoning:
+                msg += f"""
+   ↳ {_escape_html(opp.reasoning[:150])}"""
+
+    # Odds movements
+    if signal.odds_movements:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+📊 <b>Odds Movements</b>"""
+        for om in signal.odds_movements[:5]:
+            arrow = "⬆️" if om.direction == "up" else "⬇️"
+            msg += f"""
+{arrow} {_escape_html(om.market.question)}
+   {om.price_change_1h:+.2f} (1h)"""
+            if om.price_change_6h is not None:
+                msg += f" | {om.price_change_6h:+.2f} (6h)"
+
+    # Insider activity
+    if signal.insider_activity:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+🕵️ <b>Insider Activity</b>"""
+        for ia in signal.insider_activity[:5]:
+            msg += f"""
+👤 {ia.wallet_address[:8]}... on {_escape_html(ia.market.question)}
+   Score: {ia.insider_score:.2f} | {ia.trade_direction} ${ia.trade_size:.0f}"""
+
+    # Expiring markets (only show markets that haven't expired yet)
+    if signal.expiring_soon:
+        expiring_lines: list[str] = []
+        for m in signal.expiring_soon[:10]:
+            if m.end_date:
+                hours_left = (m.end_date - datetime.now(UTC)).total_seconds() / 3600
+                if hours_left > 0:
+                    expiring_lines.append(
+                        f"\n{_escape_html(m.question)} @ ${m.yes_price:.2f} ({hours_left:.1f}h left)"
+                    )
+        if expiring_lines:
+            msg += f"""
+
+{SECTION_SEPARATOR}
+⏰ <b>Expiring Soon</b>"""
+            for line in expiring_lines[:5]:
+                msg += line
 
     return msg

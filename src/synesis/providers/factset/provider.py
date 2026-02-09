@@ -37,6 +37,7 @@ from synesis.providers.factset.queries import (
     PRICE_HISTORY,
     SEARCH_SECURITIES,
     SECURITY_BY_TICKER,
+    SHARES_OUTSTANDING_AS_OF_DATE,
     SHARES_OUTSTANDING_CURRENT,
     SPLITS,
 )
@@ -575,6 +576,82 @@ class FactSetProvider:
                 result[row["effective_date"]] = factor
         return result
 
+    async def _get_split_period_factors(
+        self, fsym_id: str
+    ) -> tuple[list[tuple[date, float]], float]:
+        """Get cumulative split adjustment factors organized by period.
+
+        Queries all adjustment factors up to today and builds a list of
+        (split_date, cumulative_factor) pairs. For each period between splits,
+        the factor represents the product of all splits AFTER that period.
+
+        Args:
+            fsym_id: FactSet security ID
+
+        Returns:
+            Tuple of (period_factors, earliest_factor) where:
+            - period_factors: list of (split_date, factor) sorted ascending by date.
+              Factor is the cumulative product of splits on or after that date.
+            - earliest_factor: factor for dates before the earliest split
+              (product of ALL split ratios).
+        """
+        rows = await self._client.execute_query(
+            ADJUSTMENT_FACTORS_FOR_HISTORY,
+            {"fsym_id": fsym_id, "end_date": date.today()},
+        )
+
+        # Collect split events (only adj_factor_combined entries)
+        split_events: list[tuple[date, float]] = []
+        for row in rows:
+            combined = row["adj_factor_combined"]
+            if combined is not None:
+                split_events.append((row["effective_date"], combined))
+
+        # Sort by date descending (most recent first)
+        split_events.sort(reverse=True)
+
+        # Build cumulative factors going backwards from today
+        # For each period, calculate product of all splits AFTER that period
+        cumulative = 1.0
+        period_factors: list[tuple[date, float]] = []
+        for split_date, split_ratio in split_events:
+            # Prices ON or AFTER split_date use the current cumulative
+            # Prices BEFORE split_date need this split applied
+            period_factors.append((split_date, cumulative))
+            cumulative *= split_ratio
+
+        # The cumulative now contains product of ALL splits (for pre-earliest-split prices)
+        earliest_factor = cumulative
+
+        # Sort by date ascending for lookup
+        period_factors.sort()
+
+        return period_factors, earliest_factor
+
+    @staticmethod
+    def _adjustment_factor_for_date(
+        period_factors: list[tuple[date, float]], earliest_factor: float, target_date: date
+    ) -> float:
+        """Get the split adjustment factor for a specific date.
+
+        Given precomputed period factors (from _get_split_period_factors),
+        returns the cumulative factor that should be applied to an unadjusted
+        price on target_date to get the split-adjusted price.
+
+        Args:
+            period_factors: list of (split_date, factor) sorted ascending by date
+            earliest_factor: factor for dates before all splits
+            target_date: the date to get the factor for
+
+        Returns:
+            Adjustment factor to multiply with unadjusted price.
+        """
+        factor = earliest_factor  # Default for prices before all splits
+        for split_date, period_factor in period_factors:
+            if target_date >= split_date:
+                factor = period_factor
+        return factor
+
     async def get_adjusted_price_history(
         self, ticker: str, start_date: date, end_date: date | None = None
     ) -> list[FactSetPrice]:
@@ -607,48 +684,14 @@ class FactSetProvider:
         if not raw_prices:
             return []
 
-        # Get ALL adjustment factors up to today (not just up to price date)
-        # We need to know about all splits that happened AFTER historical prices
-        # to properly adjust them backwards
-        rows = await self._client.execute_query(
-            ADJUSTMENT_FACTORS_FOR_HISTORY,
-            {"fsym_id": fsym_id, "end_date": date.today()},
-        )
-
-        # Collect split events (only adj_factor_combined entries)
-        split_events: list[tuple[date, float]] = []
-        for row in rows:
-            combined = row["adj_factor_combined"]
-            if combined is not None:
-                split_events.append((row["effective_date"], combined))
-
-        # Sort by date descending (most recent first)
-        split_events.sort(reverse=True)
-
-        # Build cumulative factors going backwards from today
-        # For each period, calculate product of all splits AFTER that period
-        cumulative = 1.0
-        period_factors: list[tuple[date, float]] = []
-        for split_date, split_ratio in split_events:
-            # Prices ON or AFTER split_date use the current cumulative
-            # Prices BEFORE split_date need this split applied
-            period_factors.append((split_date, cumulative))
-            cumulative *= split_ratio
-
-        # The cumulative now contains product of ALL splits (for pre-earliest-split prices)
-        earliest_factor = cumulative
-
-        # Sort by date ascending for lookup
-        period_factors.sort()
+        period_factors, earliest_factor = await self._get_split_period_factors(fsym_id)
 
         # Apply factors to prices
         adjusted_prices: list[FactSetPrice] = []
         for price in raw_prices:
-            # Find applicable factor
-            factor = earliest_factor  # Default for prices before all splits
-            for split_date, period_factor in period_factors:
-                if price.price_date >= split_date:
-                    factor = period_factor
+            factor = self._adjustment_factor_for_date(
+                period_factors, earliest_factor, price.price_date
+            )
 
             adjusted_prices.append(
                 FactSetPrice(
@@ -683,7 +726,12 @@ class FactSetProvider:
     # =========================================================================
 
     async def get_shares_outstanding(self, ticker: str) -> FactSetSharesOutstanding | None:
-        """Get current shares outstanding (adjusted).
+        """Get current shares outstanding (split-adjusted).
+
+        Note: adj_shares_outstanding is retroactively adjusted for ALL subsequent
+        stock splits. The returned value reflects the current split-adjusted count,
+        not the actual share count at any historical point. For historical market
+        cap, use get_market_cap() with a price_date parameter instead.
 
         Args:
             ticker: Ticker symbol
@@ -728,24 +776,68 @@ class FactSetProvider:
             has_adr=row.get("hasadr_flag") == "Y",
         )
 
-    async def get_market_cap(self, ticker: str) -> float | None:
-        """Calculate market cap = shares * latest price.
+    async def _get_shares_as_of(self, fsym_security_id: str, target_date: date) -> float | None:
+        """Get adj_shares_outstanding (in millions) for most recent report on or before target_date."""
+        rows = await self._client.execute_query(
+            SHARES_OUTSTANDING_AS_OF_DATE,
+            {"fsym_security_id": fsym_security_id, "target_date": target_date},
+        )
+        if not rows:
+            return None
+        value: float = rows[0]["adj_shares_outstanding"]
+        return value
+
+    async def get_market_cap(self, ticker: str, price_date: date | None = None) -> float | None:
+        """Calculate market capitalization.
+
+        For the current date (price_date=None): uses unadjusted price × current
+        adj_shares_outstanding. This is correct because current adj_shares equals
+        the actual share count (no future splits to inflate it).
+
+        For historical dates: uses adjusted_price × adj_shares_outstanding. The
+        split factors cancel out — adj_shares is inflated by 1/F for each
+        subsequent split, while adjusted_price is deflated by F, so
+        (price × F) × (shares / F) = price × shares = true market cap.
 
         Args:
             ticker: Ticker symbol
+            price_date: Date for historical market cap (None = current)
 
         Returns:
             Market cap in dollars, or None if data unavailable
         """
-        shares = await self.get_shares_outstanding(ticker)
-        if not shares:
+        if price_date is None:
+            # Current market cap: unadjusted price × current adj_shares (correct
+            # because no future splits exist to inflate adj_shares)
+            shares = await self.get_shares_outstanding(ticker)
+            if not shares:
+                return None
+
+            price = await self.get_price(ticker)
+            if not price:
+                return None
+
+            return shares.shares_outstanding * price.close
+
+        # Historical market cap: adjusted_price × adj_shares
+        # Split factors cancel: (price × F) × (shares / F) = price × shares
+        security = await self.resolve_ticker(ticker)
+        if not security or not security.fsym_security_id:
             return None
 
-        price = await self.get_price(ticker)
-        if not price:
+        unadj_price = await self.get_price(ticker, price_date)
+        if not unadj_price:
             return None
 
-        return shares.shares_outstanding * price.close
+        period_factors, earliest_factor = await self._get_split_period_factors(security.fsym_id)
+        adj_factor = self._adjustment_factor_for_date(period_factors, earliest_factor, price_date)
+        adjusted_price = unadj_price.close * adj_factor
+
+        adj_shares_millions = await self._get_shares_as_of(security.fsym_security_id, price_date)
+        if adj_shares_millions is None:
+            return None
+
+        return adjusted_price * adj_shares_millions * 1_000_000
 
     # =========================================================================
     # CLEANUP

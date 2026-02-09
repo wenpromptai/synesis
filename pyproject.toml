@@ -40,6 +40,8 @@ dependencies = [
     "fastembed>=0.4.0",
     # RSS parsing (Reddit Flow 2)
     "feedparser>=6.0",
+    # Kalshi RSA-PSS authentication
+    "cryptography>=44.0.0",
     # Stock price data (Finnhub)
     "finnhub-python>=2.4.0",
     "pymssql>=2.3.11",

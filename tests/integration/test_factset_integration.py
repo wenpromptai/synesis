@@ -226,6 +226,126 @@ class TestProviderMarketCap:
         # AAPL market cap > $1 trillion
         assert mcap > 1_000_000_000_000
 
+    # -- AAPL: current (no date) -----------------------------------------
+
+    async def test_aapl_current_market_cap(self, factset_provider: FactSetProvider):
+        """Current AAPL market cap should be $2.5T–$5T."""
+        mcap = await factset_provider.get_market_cap("AAPL")
+        assert mcap is not None
+        assert 2_500_000_000_000 <= mcap <= 5_000_000_000_000, (
+            f"AAPL current mcap {mcap / 1e12:.2f}T outside $2.5T–$5T"
+        )
+
+    # -- AAPL: historical across two splits ------------------------------
+
+    async def test_aapl_pre_4_1_split(self, factset_provider: FactSetProvider):
+        """2020-08-28 (day before 4:1 split): ~$1.8T–$2.3T, not ~$8T."""
+        mcap = await factset_provider.get_market_cap("AAPL", date(2020, 8, 28))
+        assert mcap is not None
+        assert 1_800_000_000_000 <= mcap <= 2_300_000_000_000, (
+            f"AAPL 2020-08-28 mcap {mcap / 1e12:.2f}T outside $1.8T–$2.3T (4x inflated?)"
+        )
+
+    async def test_aapl_between_splits(self, factset_provider: FactSetProvider):
+        """2018-01-02 (between 7:1 and 4:1 splits): ~$800B–$950B."""
+        mcap = await factset_provider.get_market_cap("AAPL", date(2018, 1, 2))
+        assert mcap is not None
+        assert 800_000_000_000 <= mcap <= 950_000_000_000, (
+            f"AAPL 2018-01-02 mcap {mcap / 1e12:.2f}T outside $800B–$950B (4x inflated?)"
+        )
+
+    async def test_aapl_pre_both_splits(self, factset_provider: FactSetProvider):
+        """2014-06-05 (before both splits): ~$500B–$650B, not ~$14T–$18T."""
+        mcap = await factset_provider.get_market_cap("AAPL", date(2014, 6, 5))
+        assert mcap is not None
+        assert 500_000_000_000 <= mcap <= 650_000_000_000, (
+            f"AAPL 2014-06-05 mcap {mcap / 1e12:.2f}T outside $500B–$650B (28x inflated?)"
+        )
+
+    # -- TSLA: two different split ratios --------------------------------
+
+    async def test_tsla_pre_3_1_split(self, factset_provider: FactSetProvider):
+        """2022-08-24 (day before 3:1 split): ~$850B–$1T."""
+        mcap = await factset_provider.get_market_cap("TSLA", date(2022, 8, 24))
+        assert mcap is not None
+        assert 850_000_000_000 <= mcap <= 1_000_000_000_000, (
+            f"TSLA 2022-08-24 mcap {mcap / 1e12:.2f}T outside $850B–$1T (3x inflated?)"
+        )
+
+    async def test_tsla_pre_both_splits(self, factset_provider: FactSetProvider):
+        """2020-08-27 (before both splits): ~$350B–$450B."""
+        mcap = await factset_provider.get_market_cap("TSLA", date(2020, 8, 27))
+        assert mcap is not None
+        assert 350_000_000_000 <= mcap <= 450_000_000_000, (
+            f"TSLA 2020-08-27 mcap {mcap / 1e12:.2f}T outside $350B–$450B (15x inflated?)"
+        )
+
+    # -- NVDA: large 10:1 split ------------------------------------------
+
+    async def test_nvda_pre_10_1_split(self, factset_provider: FactSetProvider):
+        """2024-06-07 (day before 10:1 split): ~$2.5T–$3.5T."""
+        mcap = await factset_provider.get_market_cap("NVDA", date(2024, 6, 7))
+        assert mcap is not None
+        assert 2_500_000_000_000 <= mcap <= 3_500_000_000_000, (
+            f"NVDA 2024-06-07 mcap {mcap / 1e12:.2f}T outside $2.5T–$3.5T (10x inflated?)"
+        )
+
+    # -- GE: reverse split (1:8) -----------------------------------------
+
+    async def test_ge_pre_reverse_split(self, factset_provider: FactSetProvider):
+        """2021-07-30 (before 1:8 reverse split): ~$100B–$140B."""
+        mcap = await factset_provider.get_market_cap("GE", date(2021, 7, 30))
+        assert mcap is not None
+        assert 100_000_000_000 <= mcap <= 140_000_000_000, (
+            f"GE 2021-07-30 mcap {mcap / 1e9:.1f}B outside $100B–$140B (reverse split deflated?)"
+        )
+
+    async def test_ge_post_reverse_split(self, factset_provider: FactSetProvider):
+        """2022-01-03 (after 1:8 reverse split): ~$90B–$120B."""
+        mcap = await factset_provider.get_market_cap("GE", date(2022, 1, 3))
+        assert mcap is not None
+        assert 90_000_000_000 <= mcap <= 120_000_000_000, (
+            f"GE 2022-01-03 mcap {mcap / 1e9:.1f}B outside $90B–$120B"
+        )
+
+    # -- Sanity check: manual reconstruction -----------------------------
+
+    async def test_market_cap_internal_consistency(self, factset_provider: FactSetProvider):
+        """Verify get_market_cap matches adj_price × adj_shares manually."""
+        target = date(2020, 8, 28)
+
+        # 1. Unadjusted price
+        unadj = await factset_provider.get_price("AAPL", target)
+        assert unadj is not None
+
+        # 2. Adjusted price via get_adjusted_price_history
+        adj_prices = await factset_provider.get_adjusted_price_history("AAPL", target, target)
+        assert len(adj_prices) == 1
+        adj_price = adj_prices[0]
+
+        # 3. Market cap from get_market_cap
+        mcap = await factset_provider.get_market_cap("AAPL", target)
+        assert mcap is not None
+
+        # 4. The adjusted price should be ~1/4 of unadjusted (4:1 split on 2020-08-31)
+        ratio = unadj.close / adj_price.close
+        assert 3.8 <= ratio <= 4.2, (
+            f"Unadj/adj price ratio {ratio:.2f} not ~4.0 (expected from 4:1 split)"
+        )
+
+        # 5. Reconstruct market cap: adj_price × adj_shares_outstanding
+        #    get_market_cap uses the same math, so result should match exactly
+        security = await factset_provider.resolve_ticker("AAPL")
+        assert security is not None and security.fsym_security_id is not None
+        adj_shares_m = await factset_provider._get_shares_as_of(security.fsym_security_id, target)
+        assert adj_shares_m is not None
+        reconstructed = adj_price.close * adj_shares_m * 1_000_000
+
+        # Should match within 0.01% (floating point tolerance)
+        assert abs(reconstructed - mcap) / mcap < 0.0001, (
+            f"Reconstructed {reconstructed / 1e12:.4f}T vs get_market_cap {mcap / 1e12:.4f}T"
+        )
+
 
 class TestProviderAdjustedPrices:
     async def test_get_adjusted_price_history(self, factset_provider: FactSetProvider):
@@ -378,6 +498,24 @@ class TestApiMarketCap:
         assert r.status_code == 200
         body = r.json()
         assert body["market_cap"] > 0
+
+    async def test_api_current_market_cap_no_date_key(self, client: httpx.AsyncClient):
+        """Current market cap response should NOT include a 'date' key."""
+        r = await client.get(f"{PREFIX}/securities/{TICKER}/market-cap")
+        assert r.status_code == 200
+        body = r.json()
+        assert "date" not in body
+
+    async def test_api_historical_market_cap(self, client: httpx.AsyncClient):
+        """Historical market cap via API: AAPL on 2020-08-28 → $1.8T–$2.3T."""
+        r = await client.get(f"{PREFIX}/securities/AAPL/market-cap", params={"date": "2020-08-28"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["date"] == "2020-08-28"
+        mcap = body["market_cap"]
+        assert 1_800_000_000_000 <= mcap <= 2_300_000_000_000, (
+            f"API AAPL 2020-08-28 mcap {mcap / 1e12:.2f}T outside $1.8T–$2.3T"
+        )
 
 
 class TestApiAdjustmentFactors:

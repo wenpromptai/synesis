@@ -1,0 +1,307 @@
+"""Market scanner for Flow 3: Prediction Market Intelligence.
+
+Scans Polymarket + Kalshi for trending markets, expiring markets,
+volume spikes, and odds movements. Uses REST for discovery and
+Redis for real-time data from WebSocket streams.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+from synesis.core.logging import get_logger
+from synesis.markets.models import (
+    OddsMovement,
+    ScanResult,
+    UnifiedMarket,
+)
+
+if TYPE_CHECKING:
+    from synesis.markets.kalshi import KalshiClient, KalshiMarket
+    from synesis.markets.polymarket import PolymarketClient, SimpleMarket
+    from synesis.markets.ws_manager import MarketWSManager
+    from synesis.storage.database import Database
+
+logger = get_logger(__name__)
+
+
+def _poly_to_unified(m: SimpleMarket) -> UnifiedMarket:
+    """Convert a Polymarket SimpleMarket to UnifiedMarket."""
+    return UnifiedMarket(
+        platform="polymarket",
+        external_id=m.id,
+        condition_id=m.condition_id,
+        question=m.question,
+        yes_price=m.yes_price,
+        no_price=m.no_price,
+        volume_24h=m.volume_24h,
+        volume_total=m.volume_total,
+        end_date=m.end_date,
+        is_active=m.is_active,
+        url=m.url,
+        category=m.category,
+        description=m.description,
+    )
+
+
+def _kalshi_to_unified(m: KalshiMarket) -> UnifiedMarket:
+    """Convert a Kalshi market to UnifiedMarket."""
+    return UnifiedMarket(
+        platform="kalshi",
+        external_id=m.ticker,
+        ticker=m.ticker,
+        question=m.title,
+        yes_price=m.yes_price,
+        no_price=m.no_price,
+        volume_24h=float(m.volume_24h),
+        volume_total=float(m.volume),
+        open_interest=float(m.open_interest),
+        end_date=m.close_time,
+        is_active=m.is_active,
+        url=m.url,
+        category=m.category,
+    )
+
+
+class MarketScanner:
+    """Scans Polymarket + Kalshi. Uses REST for discovery + Redis for real-time data."""
+
+    def __init__(
+        self,
+        polymarket: PolymarketClient,
+        kalshi: KalshiClient,
+        ws_manager: MarketWSManager | None,
+        db: Database | None,
+        expiring_hours: int = 24,
+    ) -> None:
+        self._polymarket = polymarket
+        self._kalshi = kalshi
+        self._ws_manager = ws_manager
+        self._db = db
+        self._expiring_hours = expiring_hours
+
+    async def scan(self) -> ScanResult:
+        """Run a full scan cycle.
+
+        1. REST: Fetch trending + expiring from both platforms (parallel)
+        2. Merge with real-time Redis data (WebSocket prices/volumes)
+        3. Detect odds movements (current vs previous snapshot)
+        4. Update WebSocket subscriptions for next cycle
+        5. Store snapshot to market_snapshots hypertable
+        """
+        now = datetime.now(UTC)
+        log = logger.bind(scan_time=now.isoformat())
+        log.info("Market scan started")
+
+        # 1. Fetch from both platforms in parallel
+        (
+            poly_trending,
+            poly_expiring,
+            kalshi_trending,
+            kalshi_expiring,
+        ) = await asyncio.gather(
+            self._fetch_polymarket_trending(),
+            self._fetch_polymarket_expiring(),
+            self._fetch_kalshi_trending(),
+            self._fetch_kalshi_expiring(),
+        )
+
+        # Merge into unified lists
+        all_trending = poly_trending + kalshi_trending
+        all_expiring = poly_expiring + kalshi_expiring
+        all_markets = {m.external_id: m for m in all_trending + all_expiring}
+
+        # 2. Merge with real-time Redis data
+        if self._ws_manager:
+            for market in all_markets.values():
+                market_key = market.condition_id or market.ticker or market.external_id
+                rt_price = await self._ws_manager.get_realtime_price(market.platform, market_key)
+                if rt_price:
+                    market.yes_price = rt_price[0]
+                    market.no_price = rt_price[1]
+
+                rt_vol = await self._ws_manager.get_realtime_volume(market.platform, market_key)
+                if rt_vol is not None and rt_vol > 0:
+                    # Use real-time volume if available
+                    market.volume_24h = max(market.volume_24h, rt_vol)
+
+        total_scanned = len(all_markets)
+
+        # 3. Detect odds movements
+        odds_movements = await self._detect_odds_movements(list(all_markets.values()))
+
+        # 4. Update WebSocket subscriptions
+        if self._ws_manager:
+            await self._ws_manager.update_subscriptions(list(all_markets.values()))
+
+        # 5. Store snapshots
+        await self._store_snapshots(list(all_markets.values()))
+
+        log.info(
+            "Market scan complete",
+            total_scanned=total_scanned,
+            trending=len(all_trending),
+            expiring=len(all_expiring),
+            odds_movements=len(odds_movements),
+        )
+
+        return ScanResult(
+            timestamp=now,
+            trending_markets=all_trending,
+            expiring_markets=all_expiring,
+            odds_movements=odds_movements,
+            total_markets_scanned=total_scanned,
+        )
+
+    # ─────────────────────────────────────────────────────────────
+    # Platform Fetchers
+    # ─────────────────────────────────────────────────────────────
+
+    async def _fetch_polymarket_trending(self) -> list[UnifiedMarket]:
+        """Fetch trending Polymarket markets."""
+        try:
+            markets = await self._polymarket.get_trending_markets(limit=30)
+            return [_poly_to_unified(m) for m in markets]
+        except Exception as e:
+            logger.error("Polymarket trending fetch failed", error=str(e))
+            return []
+
+    async def _fetch_polymarket_expiring(self) -> list[UnifiedMarket]:
+        """Fetch expiring Polymarket markets."""
+        try:
+            markets = await self._polymarket.get_expiring_markets(hours=self._expiring_hours)
+            return [_poly_to_unified(m) for m in markets]
+        except Exception as e:
+            logger.error("Polymarket expiring fetch failed", error=str(e))
+            return []
+
+    async def _fetch_kalshi_trending(self) -> list[UnifiedMarket]:
+        """Fetch trending Kalshi markets (by volume)."""
+        try:
+            markets = await self._kalshi.get_markets(status="open", limit=30)
+            markets.sort(key=lambda m: m.volume_24h, reverse=True)
+            return [_kalshi_to_unified(m) for m in markets[:30]]
+        except Exception as e:
+            logger.error("Kalshi trending fetch failed", error=str(e))
+            return []
+
+    async def _fetch_kalshi_expiring(self) -> list[UnifiedMarket]:
+        """Fetch expiring Kalshi markets."""
+        try:
+            markets = await self._kalshi.get_expiring_markets(hours=self._expiring_hours)
+            return [_kalshi_to_unified(m) for m in markets]
+        except Exception as e:
+            logger.error("Kalshi expiring fetch failed", error=str(e))
+            return []
+
+    # ─────────────────────────────────────────────────────────────
+    # Detection Algorithms
+    # ─────────────────────────────────────────────────────────────
+
+    async def _detect_odds_movements(self, markets: list[UnifiedMarket]) -> list[OddsMovement]:
+        """Compare current prices vs previous snapshot (~50 min ago) from market_snapshots."""
+        if not self._db:
+            return []
+
+        movements: list[OddsMovement] = []
+        for market in markets:
+            try:
+                row = await self._db.fetchrow(
+                    """
+                    SELECT yes_price
+                    FROM market_snapshots
+                    WHERE market_external_id = $1 AND platform = $2
+                      AND time < NOW() - INTERVAL '50 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                    """,
+                    market.external_id,
+                    market.platform,
+                )
+                if row and row["yes_price"] is not None:
+                    prev_price = float(row["yes_price"])
+                    change_1h = market.yes_price - prev_price
+
+                    # Significant movement: >5 cents
+                    if abs(change_1h) >= 0.05:
+                        # Try 6h change
+                        change_6h = None
+                        row_6h = await self._db.fetchrow(
+                            """
+                            SELECT yes_price
+                            FROM market_snapshots
+                            WHERE market_external_id = $1 AND platform = $2
+                              AND time < NOW() - INTERVAL '5 hours 50 minutes'
+                            ORDER BY time DESC
+                            LIMIT 1
+                            """,
+                            market.external_id,
+                            market.platform,
+                        )
+                        if row_6h and row_6h["yes_price"] is not None:
+                            change_6h = market.yes_price - float(row_6h["yes_price"])
+
+                        movements.append(
+                            OddsMovement(
+                                market=market,
+                                price_change_1h=change_1h,
+                                price_change_6h=change_6h,
+                                direction="up" if change_1h > 0 else "down",
+                            )
+                        )
+            except Exception as e:
+                logger.warning(
+                    "Odds movement detection failed",
+                    market_id=market.external_id,
+                    error=str(e),
+                )
+
+        # Sort by absolute change descending
+        movements.sort(key=lambda m: abs(m.price_change_1h), reverse=True)
+        return movements
+
+    # ─────────────────────────────────────────────────────────────
+    # Storage
+    # ─────────────────────────────────────────────────────────────
+
+    async def _store_snapshots(self, markets: list[UnifiedMarket]) -> None:
+        """Write current state to market_snapshots for historical analysis.
+
+        Stores volume data (24h and total) along with price info for each market.
+        volume_1h only stored if real WebSocket data is available.
+        """
+        if not self._db:
+            return
+
+        now = datetime.now(UTC)
+        for market in markets:
+            try:
+                # Get real WS volume (if connected) - don't store fake estimates
+                ws_volume: float | None = None
+                if self._ws_manager:
+                    market_key = market.condition_id or market.ticker or market.external_id
+                    rt_vol = await self._ws_manager.get_realtime_volume(market.platform, market_key)
+                    if rt_vol is not None and rt_vol > 0:
+                        ws_volume = rt_vol
+
+                await self._db.insert_market_snapshot(
+                    time=now,
+                    platform=market.platform,
+                    market_external_id=market.external_id,
+                    category=market.category,
+                    yes_price=market.yes_price,
+                    no_price=market.no_price,
+                    volume_1h=ws_volume,  # Real WS volume only (None if no WS)
+                    volume_24h=market.volume_24h if market.volume_24h > 0 else None,
+                    volume_total=market.volume_total if market.volume_total > 0 else None,
+                    trade_count_1h=None,
+                    open_interest=market.open_interest,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Snapshot storage failed",
+                    market_id=market.external_id,
+                    error=str(e),
+                )

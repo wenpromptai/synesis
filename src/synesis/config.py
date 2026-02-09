@@ -11,6 +11,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from synesis.core.constants import (
     DEFAULT_FINNHUB_API_URL,
     DEFAULT_FINNHUB_WS_URL,
+    DEFAULT_KALSHI_API_URL,
+    DEFAULT_KALSHI_WS_URL,
+    DEFAULT_POLYMARKET_CLOB_WS_URL,
+    DEFAULT_POLYMARKET_DATA_API_URL,
     DEFAULT_POLYMARKET_GAMMA_API_URL,
     DEFAULT_SIGNALS_OUTPUT_DIR,
 )
@@ -285,6 +289,57 @@ class Settings(BaseSettings):
             else:
                 v = [s.strip() for s in v.split(",") if s.strip()]
         return [s.removeprefix("/r/").removeprefix("r/") for s in v]
+
+    # Kalshi
+    kalshi_api_key: SecretStr | None = Field(default=None)
+    kalshi_private_key_path: str | None = Field(default=None)
+    kalshi_api_url: str = Field(
+        default=DEFAULT_KALSHI_API_URL,
+        description="Kalshi REST API base URL",
+    )
+    kalshi_ws_url: str = Field(
+        default=DEFAULT_KALSHI_WS_URL,
+        description="Kalshi WebSocket URL",
+    )
+
+    # Polymarket Data API + WebSocket
+    polymarket_data_api_url: str = Field(
+        default=DEFAULT_POLYMARKET_DATA_API_URL,
+        description="Polymarket Data API base URL",
+    )
+    polymarket_clob_ws_url: str = Field(
+        default=DEFAULT_POLYMARKET_CLOB_WS_URL,
+        description="Polymarket CLOB WebSocket URL",
+    )
+
+    # Market Intelligence (Flow 3: mkt_intel)
+    mkt_intel_enabled: bool = Field(default=True)
+    mkt_intel_interval: int = Field(
+        default=900,
+        gt=0,
+        description="Market intelligence scan interval in seconds (15 min)",
+    )
+    mkt_intel_insider_score_min: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum insider score to flag wallet activity",
+    )
+    mkt_intel_expiring_hours: int = Field(
+        default=24,
+        gt=0,
+        description="Hours before expiration to flag markets",
+    )
+    mkt_intel_ws_enabled: bool = Field(
+        default=True,
+        description="Enable real-time WebSocket streams for market data",
+    )
+    mkt_intel_auto_watch_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Insider score threshold for auto-watching discovered wallets",
+    )
 
     # Trading
     trading_enabled: bool = Field(default=False)
