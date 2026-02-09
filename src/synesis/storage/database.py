@@ -495,61 +495,6 @@ class Database:
             open_interest,
         )
 
-    async def upsert_market(
-        self,
-        platform: str,
-        external_id: str,
-        question: str,
-        condition_id: str | None = None,
-        ticker: str | None = None,
-        description: str | None = None,
-        category: str | None = None,
-        yes_price: float | None = None,
-        no_price: float | None = None,
-        volume_24h: float | None = None,
-        open_interest: float | None = None,
-        liquidity: float | None = None,
-        end_date: "datetime | None" = None,
-    ) -> None:
-        """Insert or update a market in the markets table."""
-        query = """
-            INSERT INTO markets (
-                platform, external_id, condition_id, ticker, question,
-                description, category, yes_price, no_price,
-                volume_24h, open_interest, liquidity, end_date
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (platform, external_id) DO UPDATE SET
-                question = EXCLUDED.question,
-                condition_id = COALESCE(EXCLUDED.condition_id, markets.condition_id),
-                ticker = COALESCE(EXCLUDED.ticker, markets.ticker),
-                description = COALESCE(EXCLUDED.description, markets.description),
-                category = COALESCE(EXCLUDED.category, markets.category),
-                yes_price = COALESCE(EXCLUDED.yes_price, markets.yes_price),
-                no_price = COALESCE(EXCLUDED.no_price, markets.no_price),
-                volume_24h = COALESCE(EXCLUDED.volume_24h, markets.volume_24h),
-                open_interest = COALESCE(EXCLUDED.open_interest, markets.open_interest),
-                liquidity = COALESCE(EXCLUDED.liquidity, markets.liquidity),
-                end_date = COALESCE(EXCLUDED.end_date, markets.end_date),
-                updated_at = NOW()
-        """
-        await self.execute(
-            query,
-            platform,
-            external_id,
-            condition_id,
-            ticker,
-            question,
-            description,
-            category,
-            yes_price,
-            no_price,
-            volume_24h,
-            open_interest,
-            liquidity,
-            end_date,
-        )
-
     async def upsert_wallet(self, address: str, platform: str) -> None:
         """Insert or update a wallet."""
         query = """
@@ -559,43 +504,6 @@ class Database:
                 last_active_at = NOW()
         """
         await self.execute(query, platform, address)
-
-    async def insert_wallet_trade(
-        self,
-        wallet_address: str,
-        platform: str,
-        market_external_id: str,
-        direction: str,
-        price: float,
-        size: float,
-        side: str,
-        traded_at: "datetime",
-        external_trade_id: str | None = None,
-    ) -> None:
-        """Insert a wallet trade."""
-        query = """
-            INSERT INTO wallet_trades (
-                wallet_id, market_id, external_trade_id,
-                direction, price, size, side, traded_at
-            )
-            VALUES (
-                (SELECT id FROM wallets WHERE platform = $1 AND address = $2),
-                (SELECT id FROM markets WHERE platform = $1 AND external_id = $3),
-                $4, $5, $6, $7, $8, $9
-            )
-        """
-        await self.execute(
-            query,
-            platform,
-            wallet_address,
-            market_external_id,
-            external_trade_id,
-            direction,
-            price,
-            size,
-            side,
-            traded_at,
-        )
 
     async def get_watched_wallets(self, platform: str) -> list[asyncpg.Record]:
         """Get watched wallets with metrics.
