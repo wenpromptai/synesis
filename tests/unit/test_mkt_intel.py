@@ -949,8 +949,13 @@ class TestMarketScanner:
 
         mock_db = AsyncMock()
         mock_db.insert_market_snapshot = AsyncMock()
-        # Return a previous price that differs significantly
-        mock_db.fetchrow = AsyncMock(return_value={"yes_price": 0.50})
+
+        async def mock_fetch(query: str, *args: Any) -> list[dict[str, Any]]:
+            # Return previous price of 0.50 for all requested market IDs
+            ids = args[0] if args else []
+            return [{"market_external_id": mid, "yes_price": 0.50} for mid in ids]
+
+        mock_db.fetch = mock_fetch
 
         scanner = MarketScanner(
             polymarket=mock_poly_client,
@@ -1705,27 +1710,32 @@ class TestOddsMovementFormulas:
         def _create(
             prev_price_1h: float | None = 0.50,
             prev_price_6h: float | None = None,
+            market_id: str = "market_1",
         ) -> MarketScanner:
             mock_db = AsyncMock()
             mock_db.insert_market_snapshot = AsyncMock()
 
-            call_count = 0
-
-            async def mock_fetchrow(query: str, *args: Any) -> dict[str, Any] | None:
-                nonlocal call_count
-                call_count += 1
-                # First call is 1h lookup, second is 6h lookup
+            async def mock_fetch(query: str, *args: Any) -> list[dict[str, Any]]:
                 if "50 minutes" in query and "5 hours" not in query:
                     if prev_price_1h is not None:
-                        return {"yes_price": prev_price_1h}
-                    return None
+                        # Return rows for all market_ids passed in
+                        ids = args[0] if args else [market_id]
+                        return [
+                            {"market_external_id": mid, "yes_price": prev_price_1h}
+                            for mid in ids
+                        ]
+                    return []
                 elif "5 hours" in query:
                     if prev_price_6h is not None:
-                        return {"yes_price": prev_price_6h}
-                    return None
-                return None
+                        ids = args[0] if args else [market_id]
+                        return [
+                            {"market_external_id": mid, "yes_price": prev_price_6h}
+                            for mid in ids
+                        ]
+                    return []
+                return []
 
-            mock_db.fetchrow = mock_fetchrow
+            mock_db.fetch = mock_fetch
 
             return MarketScanner(
                 polymarket=AsyncMock(
@@ -1785,7 +1795,9 @@ class TestOddsMovementFormulas:
 
         mock_db = AsyncMock()
         mock_db.insert_market_snapshot = AsyncMock()
-        mock_db.fetchrow = AsyncMock(return_value={"yes_price": None})
+        mock_db.fetch = AsyncMock(
+            return_value=[{"market_external_id": "market_1", "yes_price": None}]
+        )
 
         scanner = MarketScanner(
             polymarket=AsyncMock(
@@ -1830,25 +1842,7 @@ class TestOddsMovementFormulas:
 
     @pytest.mark.asyncio
     async def test_odds_sorted_by_abs_change(self, scanner_for_odds: Any) -> None:
-        from synesis.processing.mkt_intel.scanner import MarketScanner
-
-        mock_db = AsyncMock()
-        mock_db.insert_market_snapshot = AsyncMock()
-        # All markets had previous price of 0.50
-        mock_db.fetchrow = AsyncMock(return_value={"yes_price": 0.50})
-
-        scanner = MarketScanner(
-            polymarket=AsyncMock(
-                get_trending_markets=AsyncMock(return_value=[]),
-                get_expiring_markets=AsyncMock(return_value=[]),
-            ),
-            kalshi=AsyncMock(
-                get_markets=AsyncMock(return_value=[]),
-                get_expiring_markets=AsyncMock(return_value=[]),
-            ),
-            ws_manager=None,
-            db=mock_db,
-        )
+        scanner = scanner_for_odds(prev_price_1h=0.50)
 
         markets = [
             _make_market(external_id="m_small", yes_price=0.55),  # +0.05
@@ -1866,17 +1860,7 @@ class TestOddsMovementFormulas:
 
         mock_db = AsyncMock()
         mock_db.insert_market_snapshot = AsyncMock()
-
-        call_count = 0
-
-        async def fetchrow_with_error(query: str, *args: Any) -> dict[str, Any] | None:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RuntimeError("DB error")
-            return {"yes_price": 0.50}
-
-        mock_db.fetchrow = fetchrow_with_error
+        mock_db.fetch = AsyncMock(side_effect=RuntimeError("DB error"))
 
         scanner = MarketScanner(
             polymarket=AsyncMock(
@@ -1896,9 +1880,8 @@ class TestOddsMovementFormulas:
             _make_market(external_id="m_ok", yes_price=0.70),
         ]
         movements = await scanner._detect_odds_movements(markets)
-        # First fails, second succeeds (0.70-0.50=0.20)
-        assert len(movements) == 1
-        assert movements[0].market.external_id == "m_ok"
+        # Batch query fails → returns empty gracefully
+        assert len(movements) == 0
 
 
 # ───────────────────────────────────────────────────────────────

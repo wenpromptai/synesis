@@ -178,11 +178,18 @@ def mock_poly_data_client() -> AsyncMock:
     return client
 
 
+def _mock_fetch_snapshots(query: str, *args: Any) -> list[dict[str, Any]]:
+    """Return snapshot rows for all requested market IDs with price 0.50."""
+    ids = args[0] if args else []
+    return [{"market_external_id": mid, "yes_price": 0.50} for mid in ids]
+
+
 @pytest.fixture
 def mock_db() -> AsyncMock:
     db = AsyncMock()
     db.insert_market_snapshot = AsyncMock()
     db.insert_mkt_intel_signal = AsyncMock()
+    db.fetch = AsyncMock(side_effect=_mock_fetch_snapshots)
     db.fetchrow = AsyncMock(return_value={"yes_price": 0.50})
     db.get_watched_wallets = AsyncMock(
         return_value=[
@@ -498,6 +505,7 @@ class TestMktIntelE2EWithMocks:
         mock_db = AsyncMock()
         mock_db.insert_market_snapshot = AsyncMock()
         mock_db.insert_mkt_intel_signal = AsyncMock()
+        mock_db.fetch = AsyncMock(side_effect=_mock_fetch_snapshots)
         mock_db.fetchrow = AsyncMock(return_value={"yes_price": 0.50})
         mock_db.get_watched_wallets = AsyncMock(
             return_value=[
@@ -787,6 +795,7 @@ class TestProcessorBackgroundTaskIntegration:
         mock_db = AsyncMock()
         mock_db.insert_market_snapshot = AsyncMock()
         mock_db.insert_mkt_intel_signal = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[])
         mock_db.fetchrow = AsyncMock(return_value=None)
         mock_db.get_watched_wallets = AsyncMock(return_value=[])
 

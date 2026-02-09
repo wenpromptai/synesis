@@ -202,63 +202,78 @@ class MarketScanner:
 
     async def _detect_odds_movements(self, markets: list[UnifiedMarket]) -> list[OddsMovement]:
         """Compare current prices vs previous snapshot (~50 min ago) from market_snapshots."""
-        if not self._db:
+        if not self._db or not markets:
             return []
 
-        movements: list[OddsMovement] = []
-        for market in markets:
+        market_ids = [m.external_id for m in markets]
+        market_by_id: dict[str, UnifiedMarket] = {m.external_id: m for m in markets}
+
+        # Batch fetch: latest snapshot older than 50 min per market
+        try:
+            rows_1h = await self._db.fetch(
+                """
+                SELECT DISTINCT ON (market_external_id)
+                    market_external_id, yes_price
+                FROM market_snapshots
+                WHERE market_external_id = ANY($1)
+                  AND time < NOW() - INTERVAL '50 minutes'
+                ORDER BY market_external_id, time DESC
+                """,
+                market_ids,
+            )
+        except Exception as e:
+            logger.warning("Batch 1h snapshot fetch failed", error=str(e))
+            return []
+
+        prices_1h: dict[str, float] = {}
+        for row in rows_1h:
+            if row["yes_price"] is not None:
+                prices_1h[row["market_external_id"]] = float(row["yes_price"])
+
+        # Find markets with significant movement (>5 cents)
+        significant_ids: list[str] = []
+        for mid, prev_price in prices_1h.items():
+            if abs(market_by_id[mid].yes_price - prev_price) >= 0.05:
+                significant_ids.append(mid)
+
+        # Batch fetch 6h snapshots only for significant movers
+        prices_6h: dict[str, float] = {}
+        if significant_ids:
             try:
-                row = await self._db.fetchrow(
+                rows_6h = await self._db.fetch(
                     """
-                    SELECT yes_price
+                    SELECT DISTINCT ON (market_external_id)
+                        market_external_id, yes_price
                     FROM market_snapshots
-                    WHERE market_external_id = $1 AND platform = $2
-                      AND time < NOW() - INTERVAL '50 minutes'
-                    ORDER BY time DESC
-                    LIMIT 1
+                    WHERE market_external_id = ANY($1)
+                      AND time < NOW() - INTERVAL '5 hours 50 minutes'
+                    ORDER BY market_external_id, time DESC
                     """,
-                    market.external_id,
-                    market.platform,
+                    significant_ids,
                 )
-                if row and row["yes_price"] is not None:
-                    prev_price = float(row["yes_price"])
-                    change_1h = market.yes_price - prev_price
-
-                    # Significant movement: >5 cents
-                    if abs(change_1h) >= 0.05:
-                        # Try 6h change
-                        change_6h = None
-                        row_6h = await self._db.fetchrow(
-                            """
-                            SELECT yes_price
-                            FROM market_snapshots
-                            WHERE market_external_id = $1 AND platform = $2
-                              AND time < NOW() - INTERVAL '5 hours 50 minutes'
-                            ORDER BY time DESC
-                            LIMIT 1
-                            """,
-                            market.external_id,
-                            market.platform,
-                        )
-                        if row_6h and row_6h["yes_price"] is not None:
-                            change_6h = market.yes_price - float(row_6h["yes_price"])
-
-                        movements.append(
-                            OddsMovement(
-                                market=market,
-                                price_change_1h=change_1h,
-                                price_change_6h=change_6h,
-                                direction="up" if change_1h > 0 else "down",
-                            )
-                        )
+                for row in rows_6h:
+                    if row["yes_price"] is not None:
+                        prices_6h[row["market_external_id"]] = float(row["yes_price"])
             except Exception as e:
-                logger.warning(
-                    "Odds movement detection failed",
-                    market_id=market.external_id,
-                    error=str(e),
-                )
+                logger.warning("Batch 6h snapshot fetch failed", error=str(e))
 
-        # Sort by absolute change descending
+        # Build movements from significant movers
+        movements: list[OddsMovement] = []
+        for mid in significant_ids:
+            market = market_by_id[mid]
+            change_1h = market.yes_price - prices_1h[mid]
+            change_6h = None
+            if mid in prices_6h:
+                change_6h = market.yes_price - prices_6h[mid]
+            movements.append(
+                OddsMovement(
+                    market=market,
+                    price_change_1h=change_1h,
+                    price_change_6h=change_6h,
+                    direction="up" if change_1h > 0 else "down",
+                )
+            )
+
         movements.sort(key=lambda m: abs(m.price_change_1h), reverse=True)
         return movements
 
