@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from synesis.core.logging import get_logger
-from synesis.markets.models import InsiderAlert, ScanResult, UnifiedMarket
+from synesis.markets.models import InsiderAlert, ScanResult, UnifiedMarket, VolumeSpike
 from synesis.processing.mkt_intel.models import (
     MarketIntelOpportunity,
     MarketIntelSignal,
@@ -86,6 +86,7 @@ class MarketIntelProcessor:
             expiring_soon=scan_result.expiring_markets[:20],
             insider_activity=insider_alerts[:10],
             odds_movements=scan_result.odds_movements[:10],
+            volume_spikes=scan_result.volume_spikes[:10],
             opportunities=opportunities[:10],
             market_uncertainty_index=uncertainty,
             informed_activity_level=informed_level,
@@ -151,6 +152,10 @@ class MarketIntelProcessor:
         for ia in insider_alerts:
             insider_by_id.setdefault(ia.market.external_id, []).append(ia.wallet_address)
 
+        spike_by_id: dict[str, VolumeSpike] = {}
+        for vs in scan_result.volume_spikes:
+            spike_by_id[vs.market.external_id] = vs
+
         expiring_ids = {m.external_id for m in scan_result.expiring_markets}
 
         # Score each market (dedup by external_id)
@@ -203,6 +208,13 @@ class MarketIntelProcessor:
                 triggers.append("high_volume")
                 confidence += 0.15
 
+            # Volume spike trigger — hour-over-hour increase
+            spike = spike_by_id.get(mid)
+            if spike is not None:
+                triggers.append("volume_spike")
+                # +0.15 at threshold (100%), up to +0.20 for 200%+
+                confidence += min(0.20, 0.15 + (spike.pct_change - 1.0) * 0.05)
+
             # Extreme odds trigger — near-certain outcomes
             if market.yes_price < 0.05 or market.yes_price > 0.95:
                 triggers.append("extreme_odds")
@@ -227,6 +239,11 @@ class MarketIntelProcessor:
                 reasoning_parts.append(f"Expires in {hours_to_exp:.1f}h")
             if "high_volume" in triggers:
                 reasoning_parts.append(f"High volume (${market.volume_24h:,.0f} 24h)")
+            if spike is not None and "volume_spike" in triggers:
+                reasoning_parts.append(
+                    f"Volume spike +{spike.pct_change:.0%} "
+                    f"({spike.volume_previous:,.0f} → {spike.volume_current:,.0f})"
+                )
             if "extreme_odds" in triggers:
                 reasoning_parts.append(f"Extreme odds ({market.yes_price:.0%} YES)")
 

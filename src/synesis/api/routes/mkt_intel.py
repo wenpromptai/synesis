@@ -96,7 +96,7 @@ async def get_watched_wallets(state: AgentStateDep) -> dict[str, Any]:
 
 @router.get("/ws-status")
 async def get_ws_status(state: AgentStateDep) -> dict[str, Any]:
-    """Get WebSocket connection health status."""
+    """Get WebSocket connection health status and live volume accumulation."""
     poly_connected = False
     kalshi_connected = False
     total_subscribed = 0
@@ -111,10 +111,42 @@ async def get_ws_status(state: AgentStateDep) -> dict[str, Any]:
     except Exception as e:
         logger.error("WS health check failed", error=str(e))
 
+    # Read accumulated volume for subscribed markets (top 20)
+    volume_prefix = f"{MARKET_INTEL_REDIS_PREFIX}:ws:volume_1h"
+    live_volumes: dict[str, float] = {}
+    try:
+        for platform in ("polymarket", "kalshi"):
+            cursor = 0
+            while True:
+                cursor, keys = await state.redis.scan(
+                    cursor=cursor,
+                    match=f"{volume_prefix}:{platform}:*",
+                    count=100,
+                )
+                for key in keys:
+                    key_str = key.decode() if isinstance(key, bytes) else key
+                    val = await state.redis.get(key_str)
+                    if val:
+                        try:
+                            vol = float(val)
+                            if vol > 0:
+                                market_id = key_str.split(":")[-1]
+                                live_volumes[f"{platform}:{market_id}"] = vol
+                        except (ValueError, TypeError):
+                            pass
+                if cursor == 0:
+                    break
+    except Exception as e:
+        logger.error("Failed to read live volumes", error=str(e))
+
+    # Sort by volume descending, take top 20
+    sorted_volumes = dict(sorted(live_volumes.items(), key=lambda x: x[1], reverse=True)[:20])
+
     return {
         "polymarket_ws": poly_connected,
         "kalshi_ws": kalshi_connected,
         "total_subscribed_markets": total_subscribed,
+        "live_volumes": sorted_volumes,
     }
 
 

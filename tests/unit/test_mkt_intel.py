@@ -34,6 +34,7 @@ from synesis.markets.models import (
     OddsMovement,
     ScanResult,
     UnifiedMarket,
+    VolumeSpike,
 )
 from synesis.processing.mkt_intel.models import (
     MarketIntelOpportunity,
@@ -153,6 +154,9 @@ def mock_redis() -> Any:
         _strings[key] = str(new)
         return new
 
+    async def mock_getdel(key: str) -> str | None:
+        return _strings.pop(key, None)
+
     redis.get = mock_get
     redis.set = mock_set
     redis.hset = mock_hset
@@ -160,6 +164,17 @@ def mock_redis() -> Any:
     redis.expire = mock_expire
     redis.delete = mock_delete
     redis.incrbyfloat = mock_incrbyfloat
+
+    async def mock_scan(
+        cursor: int = 0, match: str = "*", count: int = 100
+    ) -> tuple[int, list[str]]:
+        import fnmatch
+
+        matched = [k for k in _strings if fnmatch.fnmatch(k, match)]
+        return (0, matched)
+
+    redis.getdel = mock_getdel
+    redis.scan = mock_scan
     redis.ping = AsyncMock(return_value=True)
     redis.close = AsyncMock()
     redis.publish = AsyncMock(return_value=1)
@@ -286,7 +301,7 @@ class TestMarketIntelSignal:
     def test_create_minimal(self) -> None:
         sig = MarketIntelSignal(timestamp=datetime.now(UTC))
         assert sig.total_markets_scanned == 0
-        assert sig.signal_period == "15min"
+        assert sig.signal_period == "1h"
         assert sig.ws_connected is False
 
     def test_serialization_roundtrip(self) -> None:
@@ -884,6 +899,7 @@ class TestMarketScanner:
         )
         client.get_markets = AsyncMock(return_value=[kalshi_market])
         client.get_expiring_markets = AsyncMock(return_value=[])
+        client.get_event_categories = AsyncMock(return_value={"KE": "econ"})
         return client
 
     @pytest.mark.asyncio
@@ -1535,7 +1551,7 @@ class TestTelegramFormatting:
         signal = _make_signal()
         msg = format_mkt_intel_signal(signal)
         assert "MARKET INTEL" in msg
-        assert "15min" in msg
+        assert "1h" in msg
         assert "REST-only" in msg  # ws_connected=False
 
     def test_format_with_ws_connected(self) -> None:
@@ -1643,10 +1659,11 @@ class TestMktIntelConfig:
             twitterapi_api_key="test",
         )
         assert settings.mkt_intel_enabled is True
-        assert settings.mkt_intel_interval == 900
+        assert settings.mkt_intel_interval == 3600
         assert settings.mkt_intel_insider_score_min == 0.5
         assert settings.mkt_intel_expiring_hours == 24
         assert settings.mkt_intel_ws_enabled is True
+        assert settings.mkt_intel_volume_spike_threshold == 1.0
 
     def test_kalshi_settings_defaults(self) -> None:
         from synesis.config import Settings
@@ -1716,21 +1733,19 @@ class TestOddsMovementFormulas:
             mock_db.insert_market_snapshot = AsyncMock()
 
             async def mock_fetch(query: str, *args: Any) -> list[dict[str, Any]]:
-                if "50 minutes" in query and "5 hours" not in query:
+                if "55 minutes" in query and "5 hours 55" not in query:
                     if prev_price_1h is not None:
                         # Return rows for all market_ids passed in
                         ids = args[0] if args else [market_id]
                         return [
-                            {"market_external_id": mid, "yes_price": prev_price_1h}
-                            for mid in ids
+                            {"market_external_id": mid, "yes_price": prev_price_1h} for mid in ids
                         ]
                     return []
-                elif "5 hours" in query:
+                elif "5 hours 55" in query:
                     if prev_price_6h is not None:
                         ids = args[0] if args else [market_id]
                         return [
-                            {"market_external_id": mid, "yes_price": prev_price_6h}
-                            for mid in ids
+                            {"market_external_id": mid, "yes_price": prev_price_6h} for mid in ids
                         ]
                     return []
                 return []
@@ -2660,7 +2675,7 @@ class TestSnapshotStorage:
             mock_ws = None
             if ws_rt_vol is not None:
                 mock_ws = AsyncMock()
-                mock_ws.get_realtime_volume = AsyncMock(return_value=ws_rt_vol)
+                mock_ws.read_and_reset_volume = AsyncMock(return_value=ws_rt_vol)
 
             scanner = MarketScanner(
                 polymarket=AsyncMock(
@@ -2907,6 +2922,199 @@ class TestTelegramFormattingEdgeCases:
         )
         msg = format_mkt_intel_signal(signal)
         assert len(msg) < 4096
+
+
+# ───────────────────────────────────────────────────────────────
+# Outcome Label Tests
+# ───────────────────────────────────────────────────────────────
+
+
+class TestOutcomeLabelPassthrough:
+    def test_poly_to_unified_passes_outcome_label(self) -> None:
+        """Test that group_item_title flows through _poly_to_unified as outcome_label."""
+        from synesis.markets.polymarket import SimpleMarket
+        from synesis.processing.mkt_intel.scanner import _poly_to_unified
+
+        sm = SimpleMarket(
+            id="multi_1",
+            condition_id="cond_multi",
+            question="What will Hochul say?",
+            slug="hochul-say",
+            description=None,
+            category="politics",
+            yes_price=0.12,
+            no_price=0.88,
+            volume_24h=1000,
+            volume_total=10000,
+            end_date=None,
+            created_at=None,
+            is_active=True,
+            is_closed=False,
+            group_item_title="Venezuela",
+        )
+
+        unified = _poly_to_unified(sm)
+        assert unified.outcome_label == "Venezuela"
+
+    def test_poly_to_unified_none_when_no_group_item_title(self) -> None:
+        """Test outcome_label is None when group_item_title not set."""
+        from synesis.markets.polymarket import SimpleMarket
+        from synesis.processing.mkt_intel.scanner import _poly_to_unified
+
+        sm = SimpleMarket(
+            id="regular_1",
+            condition_id="cond_regular",
+            question="Will it rain?",
+            slug="rain",
+            description=None,
+            category="weather",
+            yes_price=0.60,
+            no_price=0.40,
+            volume_24h=500,
+            volume_total=5000,
+            end_date=None,
+            created_at=None,
+            is_active=True,
+            is_closed=False,
+        )
+
+        unified = _poly_to_unified(sm)
+        assert unified.outcome_label is None
+
+    def test_telegram_formatter_shows_outcome_label_in_opportunities(self) -> None:
+        """Test that outcome_label appears in Opportunities section."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            opportunities=[
+                MarketIntelOpportunity(
+                    market=_make_market(
+                        question="What will Hochul say?",
+                        outcome_label="Venezuela",
+                    ),
+                    suggested_direction="yes",
+                    confidence=0.8,
+                    triggers=["high_volume"],
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "Venezuela" in msg
+        assert "→ Venezuela" in msg
+
+    def test_telegram_formatter_shows_outcome_label_in_odds_movements(self) -> None:
+        """Test that outcome_label appears in Odds Movements section."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            odds_movements=[
+                OddsMovement(
+                    market=_make_market(
+                        question="What will Hochul say?",
+                        outcome_label="AI / Artificial Intelligence",
+                    ),
+                    price_change_1h=0.15,
+                    direction="up",
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "AI / Artificial Intelligence" in msg
+
+    def test_telegram_formatter_no_arrow_without_outcome_label(self) -> None:
+        """Test no arrow when outcome_label is None."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            opportunities=[
+                MarketIntelOpportunity(
+                    market=_make_market(question="Simple market?"),
+                    suggested_direction="yes",
+                    confidence=0.8,
+                    triggers=["high_volume"],
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "Simple market?" in msg
+        assert "→" not in msg.split("Opportunities")[1].split("Triggers")[0]
+
+    def test_telegram_formatter_shows_outcome_label_in_expiring(self) -> None:
+        """Test that outcome_label appears in Expiring Soon section."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            expiring_soon=[
+                _make_market(
+                    question="What will Hochul say?",
+                    outcome_label="1H O/U 114.5",
+                    end_date=datetime.now(UTC) + timedelta(hours=3),
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "1H O/U 114.5" in msg
+
+    def test_telegram_formatter_shows_yes_outcome_in_expiring(self) -> None:
+        """Test that yes_outcome label shows next to price in Expiring Soon."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            expiring_soon=[
+                _make_market(
+                    question="XRP Up or Down - Feb 9",
+                    yes_outcome="Up",
+                    yes_price=0.07,
+                    no_price=0.93,
+                    end_date=datetime.now(UTC) + timedelta(hours=1),
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "Up $0.07" in msg
+
+    def test_telegram_formatter_shows_yes_outcome_in_opportunities(self) -> None:
+        """Test that yes_outcome label shows next to price in Opportunities."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            opportunities=[
+                MarketIntelOpportunity(
+                    market=_make_market(
+                        question="BTC Up or Down",
+                        yes_outcome="Up",
+                        yes_price=0.49,
+                        no_price=0.51,
+                    ),
+                    suggested_direction="yes",
+                    confidence=0.8,
+                    triggers=["high_volume"],
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "Up $0.49" in msg
+
+    def test_telegram_formatter_no_yes_outcome_for_standard_markets(self) -> None:
+        """Test that standard Yes/No markets don't show extra outcome label."""
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            expiring_soon=[
+                _make_market(
+                    question="Will it rain?",
+                    yes_price=0.60,
+                    no_price=0.40,
+                    end_date=datetime.now(UTC) + timedelta(hours=2),
+                ),
+            ],
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "$0.60" in msg
+        # Should not have an outcome label before the price
+        assert "Up $" not in msg
+        assert "Down $" not in msg
+        assert "Over $" not in msg
 
 
 # ───────────────────────────────────────────────────────────────
@@ -3577,3 +3785,449 @@ class TestProcessorWalletDiscoveryIntegration:
         # (We can't directly verify it without more complex async testing,
         # but we can verify the method exists and is callable)
         assert hasattr(processor, "_run_wallet_discovery")
+
+
+# ───────────────────────────────────────────────────────────────
+# Volume Spike Detection
+# ───────────────────────────────────────────────────────────────
+
+
+class TestKalshiCategoryEnrichment:
+    """Tests for Kalshi category enrichment via events endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_kalshi_markets_get_category_from_events(self) -> None:
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        kalshi_market = KalshiMarket(
+            ticker="KTEST-1",
+            event_ticker="KTEST",
+            title="Test Kalshi?",
+            subtitle=None,
+            status="open",
+            yes_bid=0.55,
+            yes_ask=0.60,
+            no_bid=0.40,
+            no_ask=0.45,
+            last_price=0.58,
+            volume=1000,
+            volume_24h=200,
+            open_interest=500,
+            close_time=None,
+            category=None,  # No category on market
+            result=None,
+        )
+
+        mock_kalshi = AsyncMock()
+        mock_kalshi.get_markets = AsyncMock(return_value=[kalshi_market])
+        mock_kalshi.get_expiring_markets = AsyncMock(return_value=[])
+        mock_kalshi.get_event_categories = AsyncMock(return_value={"KTEST": "Sports"})
+
+        mock_poly = AsyncMock()
+        mock_poly.get_trending_markets = AsyncMock(return_value=[])
+        mock_poly.get_expiring_markets = AsyncMock(return_value=[])
+
+        scanner = MarketScanner(
+            polymarket=mock_poly,
+            kalshi=mock_kalshi,
+            ws_manager=None,
+            db=None,
+        )
+        result = await scanner.scan()
+
+        # The Kalshi market should have category enriched from event
+        kalshi_markets = [m for m in result.trending_markets if m.platform == "kalshi"]
+        assert len(kalshi_markets) == 1
+        assert kalshi_markets[0].category == "Sports"
+
+        # Verify get_event_categories was called with the event ticker
+        mock_kalshi.get_event_categories.assert_awaited_once_with(["KTEST"])
+
+
+class TestVolumeSpike:
+    def test_create(self) -> None:
+        vs = VolumeSpike(
+            market=_make_market(),
+            volume_current=20000,
+            volume_previous=8000,
+            pct_change=1.5,
+        )
+        assert vs.pct_change == 1.5
+        assert vs.volume_current == 20000
+        assert vs.volume_previous == 8000
+
+    def test_negative_pct_change_allowed(self) -> None:
+        vs = VolumeSpike(
+            market=_make_market(),
+            volume_current=5000,
+            volume_previous=8000,
+            pct_change=-0.375,
+        )
+        assert vs.pct_change == -0.375
+
+
+class TestReadAndResetVolume:
+    @pytest.mark.asyncio
+    async def test_returns_value_and_clears(self, mock_redis: Any) -> None:
+        from synesis.markets.ws_manager import MarketWSManager
+
+        poly_ws = MagicMock()
+        poly_ws.is_connected = True
+        poly_ws.subscribed_count = 0
+        kalshi_ws = MagicMock()
+        kalshi_ws.is_connected = False
+        kalshi_ws.subscribed_count = 0
+
+        mgr = MarketWSManager(poly_ws, kalshi_ws, mock_redis)
+
+        # Set volume in Redis
+        mock_redis._strings["synesis:mkt_intel:ws:volume_1h:polymarket:cond_1"] = "5000.0"
+
+        # Read and reset
+        vol = await mgr.read_and_reset_volume("polymarket", "cond_1")
+        assert vol == 5000.0
+
+        # Key should be deleted
+        assert "synesis:mkt_intel:ws:volume_1h:polymarket:cond_1" not in mock_redis._strings
+
+        # Second call returns None
+        vol2 = await mgr.read_and_reset_volume("polymarket", "cond_1")
+        assert vol2 is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_missing(self, mock_redis: Any) -> None:
+        from synesis.markets.ws_manager import MarketWSManager
+
+        poly_ws = MagicMock()
+        poly_ws.is_connected = True
+        poly_ws.subscribed_count = 0
+        kalshi_ws = MagicMock()
+        kalshi_ws.is_connected = False
+        kalshi_ws.subscribed_count = 0
+
+        mgr = MarketWSManager(poly_ws, kalshi_ws, mock_redis)
+        vol = await mgr.read_and_reset_volume("polymarket", "nonexistent")
+        assert vol is None
+
+
+class TestDetectVolumeSpikes:
+    @pytest.fixture
+    def scanner_with_ws_and_db(self, mock_redis: Any) -> Any:
+        from synesis.markets.ws_manager import MarketWSManager
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        def _create(
+            ws_volume: float | None = 20000.0,
+            prev_volume: float | None = 8000.0,
+            threshold: float = 1.0,
+        ) -> MarketScanner:
+            poly_ws = MagicMock()
+            poly_ws.is_connected = True
+            poly_ws.subscribed_count = 0
+            poly_ws.start = AsyncMock()
+            poly_ws.stop = AsyncMock()
+            poly_ws.subscribe = AsyncMock()
+            poly_ws.unsubscribe = AsyncMock()
+
+            kalshi_ws = MagicMock()
+            kalshi_ws.is_connected = False
+            kalshi_ws.subscribed_count = 0
+            kalshi_ws.start = AsyncMock()
+            kalshi_ws.stop = AsyncMock()
+            kalshi_ws.subscribe = AsyncMock()
+            kalshi_ws.unsubscribe = AsyncMock()
+
+            ws_mgr = MarketWSManager(poly_ws, kalshi_ws, mock_redis)
+
+            # Set volume in Redis for the market
+            if ws_volume is not None:
+                mock_redis._strings["synesis:mkt_intel:ws:volume_1h:polymarket:cond_1"] = str(
+                    ws_volume
+                )
+
+            mock_db = AsyncMock()
+            mock_db.insert_market_snapshot = AsyncMock()
+
+            mock_db.fetchrow = AsyncMock(return_value=None)
+
+            if prev_volume is not None:
+                # Volume spikes now use batch fetch; odds movements also use fetch
+                def _make_fetch(pv: float) -> AsyncMock:
+                    async def _fetch(query: str, *args: Any) -> list[dict[str, Any]]:
+                        if "volume_1h" in query:
+                            return [{"market_external_id": "market_1", "volume_1h": pv}]
+                        return []
+
+                    return AsyncMock(side_effect=_fetch)
+
+                mock_db.fetch = _make_fetch(prev_volume)
+            else:
+                mock_db.fetch = AsyncMock(return_value=[])
+
+            return MarketScanner(
+                polymarket=AsyncMock(
+                    get_trending_markets=AsyncMock(return_value=[]),
+                    get_expiring_markets=AsyncMock(return_value=[]),
+                ),
+                kalshi=AsyncMock(
+                    get_markets=AsyncMock(return_value=[]),
+                    get_expiring_markets=AsyncMock(return_value=[]),
+                ),
+                ws_manager=ws_mgr,
+                db=mock_db,
+                volume_spike_threshold=threshold,
+            )
+
+        return _create
+
+    @pytest.mark.asyncio
+    async def test_spike_detected(self, scanner_with_ws_and_db: Any) -> None:
+        # 20000 vs 8000 = 150% increase > 100% threshold
+        scanner = scanner_with_ws_and_db(ws_volume=20000.0, prev_volume=8000.0)
+        markets = [_make_market(external_id="market_1")]
+        spikes = await scanner._detect_volume_spikes(markets)
+        assert len(spikes) == 1
+        assert spikes[0].volume_current == 20000.0
+        assert spikes[0].volume_previous == 8000.0
+        assert spikes[0].pct_change == pytest.approx(1.5)
+
+    @pytest.mark.asyncio
+    async def test_below_threshold(self, scanner_with_ws_and_db: Any) -> None:
+        # 12000 vs 8000 = 50% increase < 100% threshold
+        scanner = scanner_with_ws_and_db(ws_volume=12000.0, prev_volume=8000.0)
+        markets = [_make_market(external_id="market_1")]
+        spikes = await scanner._detect_volume_spikes(markets)
+        assert len(spikes) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_previous_data(self, scanner_with_ws_and_db: Any) -> None:
+        scanner = scanner_with_ws_and_db(ws_volume=20000.0, prev_volume=None)
+        markets = [_make_market(external_id="market_1")]
+        spikes = await scanner._detect_volume_spikes(markets)
+        assert len(spikes) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_ws_volume(self, scanner_with_ws_and_db: Any) -> None:
+        scanner = scanner_with_ws_and_db(ws_volume=None, prev_volume=8000.0)
+        markets = [_make_market(external_id="market_1")]
+        spikes = await scanner._detect_volume_spikes(markets)
+        assert len(spikes) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_ws_manager(self) -> None:
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        scanner = MarketScanner(
+            polymarket=AsyncMock(
+                get_trending_markets=AsyncMock(return_value=[]),
+                get_expiring_markets=AsyncMock(return_value=[]),
+            ),
+            kalshi=AsyncMock(
+                get_markets=AsyncMock(return_value=[]),
+                get_expiring_markets=AsyncMock(return_value=[]),
+            ),
+            ws_manager=None,
+            db=AsyncMock(),
+        )
+        markets = [_make_market()]
+        spikes = await scanner._detect_volume_spikes(markets)
+        assert len(spikes) == 0
+
+
+class TestProcessorVolumeSpikeScoring:
+    def test_volume_spike_trigger(self) -> None:
+        from synesis.processing.mkt_intel.processor import MarketIntelProcessor
+
+        proc = MarketIntelProcessor.__new__(MarketIntelProcessor)
+        proc._settings = MagicMock()
+
+        market = _make_market(external_id="m1", volume_24h=0)
+        scan = ScanResult(
+            timestamp=datetime.now(UTC),
+            trending_markets=[market],
+            expiring_markets=[],
+            odds_movements=[],
+            volume_spikes=[
+                VolumeSpike(
+                    market=market,
+                    volume_current=20000,
+                    volume_previous=8000,
+                    pct_change=1.5,
+                )
+            ],
+        )
+
+        opps = proc._score_opportunities(scan, [])
+        assert len(opps) == 1
+        assert "volume_spike" in opps[0].triggers
+        assert opps[0].confidence >= 0.15
+        assert "Volume spike" in opps[0].reasoning
+
+    def test_volume_spike_200pct_higher_score(self) -> None:
+        from synesis.processing.mkt_intel.processor import MarketIntelProcessor
+
+        proc = MarketIntelProcessor.__new__(MarketIntelProcessor)
+        proc._settings = MagicMock()
+
+        market = _make_market(external_id="m1", volume_24h=0)
+        scan = ScanResult(
+            timestamp=datetime.now(UTC),
+            trending_markets=[market],
+            expiring_markets=[],
+            odds_movements=[],
+            volume_spikes=[
+                VolumeSpike(
+                    market=market,
+                    volume_current=30000,
+                    volume_previous=10000,
+                    pct_change=2.0,
+                )
+            ],
+        )
+
+        opps = proc._score_opportunities(scan, [])
+        assert len(opps) == 1
+        assert opps[0].confidence == pytest.approx(0.20)
+
+
+class TestTelegramVolumeSpikes:
+    def test_format_with_volume_spikes(self) -> None:
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(
+            volume_spikes=[
+                VolumeSpike(
+                    market=_make_market(question="Volume spike test"),
+                    volume_current=20000,
+                    volume_previous=8000,
+                    pct_change=1.5,
+                )
+            ]
+        )
+        msg = format_mkt_intel_signal(signal)
+        assert "Volume Spikes" in msg
+        assert "150%" in msg
+        assert "8,000" in msg
+        assert "20,000" in msg
+
+    def test_format_no_volume_spikes(self) -> None:
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        signal = _make_signal(volume_spikes=[])
+        msg = format_mkt_intel_signal(signal)
+        assert "Volume Spikes" not in msg
+
+
+class TestGetdelParseFailure:
+    """Test 7: GETDEL parse failure consumes key and returns None (data loss path)."""
+
+    @pytest.mark.asyncio
+    async def test_corrupt_value_returns_none_key_consumed(self, mock_redis: Any) -> None:
+        from synesis.markets.ws_manager import MarketWSManager
+
+        poly_ws = MagicMock()
+        poly_ws.is_connected = True
+        poly_ws.subscribed_count = 0
+        kalshi_ws = MagicMock()
+        kalshi_ws.is_connected = False
+        kalshi_ws.subscribed_count = 0
+
+        mgr = MarketWSManager(poly_ws, kalshi_ws, mock_redis)
+
+        # Set corrupt (non-numeric) volume in Redis
+        key = "synesis:mkt_intel:ws:volume_1h:polymarket:cond_corrupt"
+        mock_redis._strings[key] = "not-a-number"
+
+        vol = await mgr.read_and_reset_volume("polymarket", "cond_corrupt")
+
+        # Should return None due to parse failure
+        assert vol is None
+        # Key should have been consumed (GETDEL deletes even on parse failure)
+        assert key not in mock_redis._strings
+
+
+class TestKalshiEnrichmentFailureKeepsMarkets:
+    """Test 9: get_event_categories raises but _fetch_kalshi_trending still returns markets."""
+
+    @pytest.mark.asyncio
+    async def test_enrichment_error_returns_markets(self) -> None:
+        from synesis.markets.kalshi import KalshiMarket
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        kalshi_market = KalshiMarket(
+            ticker="KFAIL-1",
+            event_ticker="KFAIL",
+            title="Enrichment failure test?",
+            subtitle=None,
+            status="open",
+            yes_bid=0.50,
+            yes_ask=0.55,
+            no_bid=0.45,
+            no_ask=0.50,
+            last_price=0.52,
+            volume=1000,
+            volume_24h=200,
+            open_interest=500,
+            close_time=None,
+            category=None,
+            result=None,
+        )
+
+        mock_kalshi = AsyncMock()
+        mock_kalshi.get_markets = AsyncMock(return_value=[kalshi_market])
+        mock_kalshi.get_expiring_markets = AsyncMock(return_value=[])
+        mock_kalshi.get_event_categories = AsyncMock(side_effect=RuntimeError("API down"))
+
+        mock_poly = AsyncMock()
+        mock_poly.get_trending_markets = AsyncMock(return_value=[])
+        mock_poly.get_expiring_markets = AsyncMock(return_value=[])
+
+        scanner = MarketScanner(
+            polymarket=mock_poly,
+            kalshi=mock_kalshi,
+            ws_manager=None,
+            db=None,
+        )
+        result = await scanner.scan()
+
+        # Markets should still be returned despite enrichment failure
+        kalshi_markets = [m for m in result.trending_markets if m.platform == "kalshi"]
+        assert len(kalshi_markets) == 1
+        assert kalshi_markets[0].external_id == "KFAIL-1"
+        # Category remains None since enrichment failed
+        assert kalshi_markets[0].category is None
+
+
+class TestVolumeSpikeDbQueryFailure:
+    """Test 10: db.fetch raises inside _detect_volume_spikes → returns []."""
+
+    @pytest.mark.asyncio
+    async def test_db_fetch_raises_returns_empty(self, mock_redis: Any) -> None:
+        from synesis.markets.ws_manager import MarketWSManager
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        poly_ws = MagicMock()
+        poly_ws.is_connected = True
+        poly_ws.subscribed_count = 0
+        kalshi_ws = MagicMock()
+        kalshi_ws.is_connected = False
+        kalshi_ws.subscribed_count = 0
+
+        ws_mgr = MarketWSManager(poly_ws, kalshi_ws, mock_redis)
+
+        # Set volume in Redis so we get past the early return
+        mock_redis._strings["synesis:mkt_intel:ws:volume_1h:polymarket:cond_1"] = "20000.0"
+
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(side_effect=RuntimeError("DB connection lost"))
+
+        scanner = MarketScanner(
+            polymarket=AsyncMock(),
+            kalshi=AsyncMock(),
+            ws_manager=ws_mgr,
+            db=mock_db,
+        )
+
+        markets = [_make_market(external_id="market_1")]
+        spikes = await scanner._detect_volume_spikes(markets)
+        assert spikes == []

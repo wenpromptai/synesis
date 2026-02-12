@@ -155,6 +155,7 @@ def mock_kalshi_client() -> AsyncMock:
         ]
     )
     client.get_expiring_markets = AsyncMock(return_value=[])
+    client.get_event_categories = AsyncMock(return_value={"KE": "Economics"})
     return client
 
 

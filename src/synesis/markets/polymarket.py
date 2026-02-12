@@ -10,6 +10,7 @@ API Base: https://gamma-api.polymarket.com
 Note: This is for market discovery only. Trading uses the CLOB API.
 """
 
+import asyncio
 from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime
 from typing import Any
@@ -21,6 +22,15 @@ from synesis.core.logging import get_logger
 from synesis.processing.news import MarketOpportunity
 
 logger = get_logger(__name__)
+
+# Maps frozenset of lowercased outcome names → the "positive" outcome (maps to yes_price).
+# Used by _match_known_pair() to assign prices semantically instead of positionally.
+_KNOWN_OUTCOME_PAIRS: dict[frozenset[str], str] = {
+    frozenset({"up", "down"}): "up",
+    frozenset({"over", "under"}): "over",
+    frozenset({"higher", "lower"}): "higher",
+    frozenset({"above", "below"}): "above",
+}
 
 
 @dataclass
@@ -49,6 +59,18 @@ class SimpleMarket:
     # Status
     is_active: bool
     is_closed: bool
+
+    # Multi-outcome event support
+    group_item_title: str | None = None
+
+    # Non-Yes/No outcome label for yes_price (e.g. "Up", "Over", "Pistons")
+    yes_outcome: str | None = None
+
+    # Price parsing metadata
+    prices_are_default: bool = False
+
+    # Event linkage (for category enrichment)
+    event_id: str | None = None
 
     @property
     def url(self) -> str:
@@ -89,12 +111,32 @@ class PolymarketClient:
         """Async context manager exit."""
         await self.close()
 
-    def _parse_market(self, data: dict[str, Any]) -> SimpleMarket:
+    @staticmethod
+    def _match_known_pair(
+        outcomes: list[str], prices: list[float]
+    ) -> tuple[float, float, str | None] | None:
+        """Match outcomes against known semantic pairs (Up/Down, Over/Under, etc.).
+
+        Returns (yes_price, no_price, yes_outcome) if matched, else None.
+        """
+        if len(outcomes) != 2 or len(prices) < 2:
+            return None
+        pair_key = frozenset(o.lower() for o in outcomes)
+        positive = _KNOWN_OUTCOME_PAIRS.get(pair_key)
+        if positive is None:
+            return None
+        # Find which index holds the positive outcome
+        if outcomes[0].lower() == positive:
+            return prices[0], prices[1], outcomes[0]
+        return prices[1], prices[0], outcomes[1]
+
+    def _parse_market(self, data: dict[str, Any]) -> SimpleMarket | None:
         """Parse market data from API response."""
         import json
 
         yes_price = 0.5
         no_price = 0.5
+        yes_outcome: str | None = None
 
         # Method 1: Parse outcomePrices JSON string (from search/events endpoint)
         # Format: outcomePrices = "[\"0.9965\", \"0.0035\"]" with outcomes = "[\"Yes\", \"No\"]"
@@ -105,6 +147,17 @@ class PolymarketClient:
             try:
                 prices = json.loads(outcome_prices_str)
                 outcomes = json.loads(outcomes_str)
+
+                # Skip markets with 3+ outcomes — they don't fit the binary model
+                if len(outcomes) > 2:
+                    logger.info(
+                        "Skipping market with 3+ outcomes",
+                        outcome_count=len(outcomes),
+                        outcomes=outcomes[:5],
+                        market_id=data.get("id"),
+                    )
+                    return None
+
                 for i, outcome in enumerate(outcomes):
                     if i < len(prices):
                         price = float(prices[i])
@@ -120,12 +173,42 @@ class PolymarketClient:
                             yes_price = price
                         elif outcome.lower() == "no":
                             no_price = price
+
+                # Semantic matching for non-Yes/No outcomes (e.g. Up/Down, Over/Under)
+                if yes_price == 0.5 and no_price == 0.5 and len(prices) >= 2:
+                    float_prices = [float(prices[0]), float(prices[1])]
+                    if all(0.0 <= p <= 1.0 for p in float_prices):
+                        matched = self._match_known_pair(outcomes, float_prices)
+                        if matched:
+                            yes_price, no_price, yes_outcome = matched
+                        else:
+                            # Positional fallback for unknown pairs (e.g. team names)
+                            yes_price = float_prices[0]
+                            no_price = float_prices[1]
+                            yes_outcome = (
+                                outcomes[0] if outcomes[0].lower() not in ("yes", "no") else None
+                            )
+                            logger.info(
+                                "Unknown outcome pair, using positional fallback",
+                                outcomes=outcomes,
+                                market_id=data.get("id"),
+                            )
             except (json.JSONDecodeError, ValueError, IndexError) as e:
-                logger.debug("Failed to parse outcomePrices", error=str(e))
+                logger.warning("Failed to parse outcomePrices", error=str(e))
 
         # Method 2: Handle tokens array (from direct market endpoint)
         if yes_price == 0.5 and no_price == 0.5:
             tokens = data.get("tokens", [])
+
+            # Skip markets with 3+ token outcomes
+            if len(tokens) > 2:
+                logger.info(
+                    "Skipping market with 3+ token outcomes",
+                    token_count=len(tokens),
+                    market_id=data.get("id"),
+                )
+                return None
+
             for token in tokens:
                 outcome = token.get("outcome", "").lower()
                 price = float(token.get("price", 0.5))
@@ -142,25 +225,93 @@ class PolymarketClient:
                 elif outcome == "no":
                     no_price = price
 
+            # Semantic matching for non-Yes/No token outcomes
+            if yes_price == 0.5 and no_price == 0.5 and len(tokens) >= 2:
+                p0 = float(tokens[0].get("price", 0.5))
+                p1 = float(tokens[1].get("price", 0.5))
+                if (0.0 <= p0 <= 1.0) and (0.0 <= p1 <= 1.0):
+                    token_outcomes = [
+                        tokens[0].get("outcome", ""),
+                        tokens[1].get("outcome", ""),
+                    ]
+                    matched = self._match_known_pair(token_outcomes, [p0, p1])
+                    if matched:
+                        yes_price, no_price, yes_outcome = matched
+                    else:
+                        yes_price = p0
+                        no_price = p1
+                        yes_outcome = (
+                            token_outcomes[0]
+                            if token_outcomes[0].lower() not in ("yes", "no")
+                            else None
+                        )
+                        logger.info(
+                            "Unknown outcome pair, using positional fallback",
+                            outcomes=token_outcomes,
+                            market_id=data.get("id"),
+                        )
+
         # Parse dates
         end_date = None
         if data.get("endDate"):
             try:
                 end_date = datetime.fromisoformat(data["endDate"].replace("Z", "+00:00"))
             except (ValueError, AttributeError):
-                pass
+                logger.warning(
+                    "Failed to parse endDate",
+                    market_id=data.get("id"),
+                    raw_value=data.get("endDate"),
+                )
 
         created_at = None
         if data.get("createdAt"):
             try:
                 created_at = datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00"))
             except (ValueError, AttributeError):
-                pass
+                logger.warning(
+                    "Failed to parse createdAt",
+                    market_id=data.get("id"),
+                    raw_value=data.get("createdAt"),
+                )
+
+        # Sum-to-one validation: prices should sum to ~1.0 (allow 0.85–1.15 for spread)
+        price_sum = yes_price + no_price
+        if not (0.85 <= price_sum <= 1.15) and not (yes_price == 0.5 and no_price == 0.5):
+            logger.warning(
+                "Price sum outside valid range, resetting to defaults",
+                yes_price=yes_price,
+                no_price=no_price,
+                price_sum=price_sum,
+                market_id=data.get("id"),
+            )
+            yes_price = 0.5
+            no_price = 0.5
+            yes_outcome = None
+
+        prices_are_default = yes_price == 0.5 and no_price == 0.5
+        if prices_are_default:
+            logger.warning(
+                "Prices remain at default after all parsing methods",
+                market_id=data.get("id"),
+                question=data.get("question", "")[:80],
+            )
+
+        # Suppress groupItemTitle when it duplicates the question
+        question = data.get("question", "")
+        group_item_title = data.get("groupItemTitle")
+        if group_item_title and group_item_title.strip() == question.strip():
+            group_item_title = None
+
+        # Extract event ID for category enrichment
+        event_id = None
+        events = data.get("events", [])
+        if events and isinstance(events, list):
+            event_id = str(events[0].get("id", "")) or None
 
         return SimpleMarket(
             id=data.get("id", ""),
             condition_id=data.get("conditionId", ""),
-            question=data.get("question", ""),
+            question=question,
             slug=data.get("slug", ""),
             description=data.get("description"),
             category=data.get("category"),
@@ -172,7 +323,64 @@ class PolymarketClient:
             created_at=created_at,
             is_active=data.get("active", False),
             is_closed=data.get("closed", False),
+            group_item_title=group_item_title,
+            yes_outcome=yes_outcome,
+            prices_are_default=prices_are_default,
+            event_id=event_id,
         )
+
+    async def _fetch_event_category(self, event_id: str) -> tuple[str, str | None]:
+        """Fetch category from an event's tags. Returns (event_id, category)."""
+        client = self._get_client()
+        try:
+            response = await client.get(f"/events/{event_id}")
+            response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            logger.warning("Event tag fetch failed", event_id=event_id, error=str(e))
+            return event_id, None
+
+        tags = data.get("tags", [])
+        if not tags:
+            return event_id, None
+
+        # Prefer tags with forceShow=True, then fall back to first tag
+        for tag in tags:
+            if tag.get("forceShow"):
+                return event_id, tag.get("label")
+        return event_id, tags[0].get("label")
+
+    async def _enrich_categories(self, markets: list[SimpleMarket]) -> None:
+        """Batch-fetch event tags to fill missing categories on newer markets."""
+        needs_enrichment = [m for m in markets if not m.category and m.event_id]
+        if not needs_enrichment:
+            return
+
+        # Collect unique event IDs
+        event_ids = list({m.event_id for m in needs_enrichment if m.event_id})
+        if not event_ids:
+            return
+
+        # Fetch event tags in parallel
+        results = await asyncio.gather(
+            *[self._fetch_event_category(eid) for eid in event_ids],
+            return_exceptions=True,
+        )
+
+        # Build event_id → category map
+        event_categories: dict[str, str | None] = {}
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Event category fetch failed", error=str(result))
+            elif isinstance(result, tuple):
+                event_categories[result[0]] = result[1]
+
+        # Apply categories
+        for market in needs_enrichment:
+            if market.event_id and market.event_id in event_categories:
+                cat = event_categories[market.event_id]
+                if cat:
+                    market.category = cat
 
     async def search_markets(
         self,
@@ -222,7 +430,7 @@ class PolymarketClient:
                 try:
                     market = self._parse_market(market_data)
                     # Filter: only include active, non-closed markets with a question
-                    if market.question and market.is_active and not market.is_closed:
+                    if market and market.question and market.is_active and not market.is_closed:
                         markets.append(market)
                 except (KeyError, ValueError) as e:
                     log.warning("Failed to parse market", error=str(e))
@@ -293,12 +501,13 @@ class PolymarketClient:
         for market_data in data:
             try:
                 market = self._parse_market(market_data)
-                if market.question:
+                if market and market.question:
                     markets.append(market)
             except (KeyError, ValueError) as e:
                 logger.warning("Failed to parse market", error=str(e))
                 continue
 
+        await self._enrich_categories(markets)
         return markets
 
     async def get_expiring_markets(self, hours: int = 24) -> list[SimpleMarket]:
@@ -341,10 +550,18 @@ class PolymarketClient:
         for market_data in data:
             try:
                 market = self._parse_market(market_data)
-                if market.question and market.is_active and not market.is_closed:
+                if market and market.question and market.is_active and not market.is_closed:
+                    if market.prices_are_default:
+                        logger.debug(
+                            "Filtering default-priced expiring market",
+                            market_id=market.id,
+                            question=market.question[:80],
+                        )
+                        continue
                     markets.append(market)
             except (KeyError, ValueError) as e:
                 logger.warning("Failed to parse expiring market", error=str(e))
+        await self._enrich_categories(markets)
         return markets
 
 

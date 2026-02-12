@@ -36,7 +36,7 @@ _VOLUME_PREFIX = f"{MARKET_INTEL_REDIS_PREFIX}:ws:volume_1h:kalshi"
 
 # TTLs
 _PRICE_TTL = 300  # 5 min
-_VOLUME_TTL = 3600  # 1 hour
+_VOLUME_TTL = 7200  # 2 hour safety net for unsubscribed markets
 
 # Subscription message ID counter
 _id_counter = itertools.count(1)

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.output import PromptedOutput
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
@@ -82,14 +83,55 @@ You have been given:
 
 Your job is to make ALL informed judgments about this news.
 
-## Before Making Decisions (Chain of Thought)
+## Before Making Decisions (REQUIRED Research Process)
 
-For each analysis, reason through:
+**CRITICAL: You MUST research historical precedent before making predictions.**
+
+### Step 1: Research Historical Context (MANDATORY for high/medium impact)
+
+Use the `web_search` tool to find SIMILAR past events that match the current context:
+
+1. **For MACRO events** (Fed, CPI, NFP, geopolitical):
+   ```
+   web_search("Fed rate cut {magnitude} market reaction {year}")
+   web_search("{event_type} similar events SPY reaction")
+   web_search("{event_type} historical pattern")
+   ```
+
+2. **For EARNINGS events**:
+   ```
+   web_search("{ticker} earnings beat miss historical reaction")
+   web_search("{ticker} earnings surprise stock movement")
+   ```
+
+3. **For CORPORATE events** (M&A, guidance, regulatory):
+   ```
+   web_search("{company} {event} similar historical")
+   web_search("{event_type} market impact precedent")
+   ```
+
+**IMPORTANT**: 
+- Search for SPECIFIC patterns that match the current context (magnitude, surprise level, sector)
+- If no similar events found, state "No relevant historical precedent" - do NOT force irrelevant data
+- Better to have NO historical context than misleading context
+
+### Step 2: Analyze Chain of Thought
+
+After gathering historical context, reason through:
 1. What is the PRIMARY causal relationship? (company X → event Y → impact Z)
-2. What is the expected magnitude? (% revenue impact, % stock move)
-3. What is the time horizon? (immediate, days, weeks)
-4. What is already priced in? (expected vs. surprise)
-5. What could go wrong? (key risks to thesis)
+2. What happened in SIMILAR historical events? (only if relevant matches found)
+3. What is the expected magnitude? (% move, based on precedent if available)
+4. What is the time horizon? (immediate, days, weeks)
+5. What is already priced in? (expected vs. surprise)
+6. What could go wrong? (key risks to thesis)
+
+### Step 3: Ground Predictions in Data
+
+- Cite SPECIFIC historical events with dates (only if they match current context)
+- Quantify expected moves based on precedent
+- If no relevant historical data found, make predictions based on first principles
+- DO NOT make up historical data
+- DO NOT cite irrelevant historical events just to fill space
 
 ## Your Tasks
 
@@ -101,7 +143,7 @@ For each analysis, reason through:
 1. Extract potential ticker from the news text
 2. If likely a US ticker, call `verify_ticker_finnhub(ticker)` to confirm it exists
 3. If VERIFIED: include in analysis with the company name returned
-4. If NOT FOUND or error: use `search_additional("{ticker} stock ticker price")` to verify
+4. If NOT FOUND or error: use `web_search("{ticker} stock ticker price")` to verify
 5. If still unclear: exclude the ticker or note uncertainty
 
 For each potential ticker, apply this relevance test:
@@ -139,7 +181,7 @@ For each potential ticker, apply this relevance test:
   - ✅ Sector-level play on Financials, Real Estate
   - ❌ Individual banks unless specifically named with impact
 
-**When to use search_additional:**
+**When to use web_search:**
 - SEARCH if a company is mentioned but you're unsure of direct impact
 - SKIP search for obvious primary subjects or well-known sector plays
 - Use for non-US tickers after verify_ticker_finnhub returns NOT FOUND
@@ -207,27 +249,33 @@ Information Technology | Communication Services | Real Estate
 
 ### 6. Historical Context & Market Reaction Patterns
 
-Provide structured historical analysis:
+**Use the web_search tool to find RELEVANT historical precedent. If nothing matches, skip this section.**
 
-**a) Precedent Events**
-- Cite 1-3 specific similar historical events with dates
-- Example: "Similar to Fed's emergency 50bp cut in March 2020" or "Last CPI miss of this magnitude was Oct 2023"
+Provide structured historical analysis ONLY if you found relevant similar events:
 
-**b) Quantified Market Reactions**
-- Immediate reaction (first 15-60 min): e.g., "SPY typically moves 0.5-1.5%"
-- Short-term (1-5 days): e.g., "Rate-sensitive sectors outperform by 2-4%"
-- Extended (1-4 weeks): e.g., "Similar events saw sustained rally of 5-8%"
+**a) Precedent Events** (only include if they match current context)
+- Cite events with SIMILAR characteristics (magnitude, surprise level, sector impact)
+- Example: "July 2023: Fed cut 25bps (similar magnitude); SPY +1.2% over 3 days"
+- Do NOT cite events that are tangentially related but fundamentally different
 
-**c) Typical Reaction Pattern**
-- Initial spike/drop magnitude and direction
-- Reversal probability (does market typically fade the initial move?)
-- Sector rotation patterns (which sectors lead/lag)
+**b) Quantified Market Reactions** (extract from relevant precedents)
+- Immediate reaction (first 15-60 min): cite actual % moves
+- Short-term (1-5 days): cite actual sector performance
+- Extended (1-4 weeks): cite sustained moves
+
+**c) Typical Reaction Pattern** (based on relevant precedents)
+- Initial spike/drop magnitude
+- Reversal probability
+- Sector rotation patterns
 
 **d) Key Differences from Precedents**
-- What's different about current macro context vs historical events?
+- What's different about current context?
 - Higher/lower impact expected and why?
 
-Use web research results to inform historical patterns when available.
+**IMPORTANT**:
+- If no relevant historical precedent found, state: "No relevant historical precedent found - analysis based on first principles"
+- DO NOT fabricate or force irrelevant historical data
+- Better to have NO historical section than misleading context
 
 ### 7. Evaluate Prediction Markets
 **CRITICAL: You MUST return a MarketEvaluation object for EVERY market in the table below.**
@@ -327,7 +375,7 @@ class SmartAnalyzer:
         agent: Agent[AnalyzerDeps, SmartAnalysis] = Agent(
             model,
             deps_type=AnalyzerDeps,
-            output_type=SmartAnalysis,
+            output_type=PromptedOutput(SmartAnalysis),
             system_prompt=SMART_ANALYZER_SYSTEM_PROMPT,
         )
 
@@ -418,7 +466,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             """Verify if a US ticker symbol exists using Finnhub.
 
             Use this tool to validate US tickers BEFORE including them in your analysis.
-            For non-US tickers, use search_additional instead.
+            For non-US tickers, use web_search instead.
 
             Args:
                 ticker: The US ticker symbol to verify (e.g., "AAPL", "GME", "TSLA")
@@ -428,34 +476,45 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             """
             return await _verify_ticker(ticker, ctx.deps.finnhub)
 
-        # Tool: Additional web search (hybrid approach for edge cases)
+        # Tool: Web search for additional context
         @agent.tool
-        async def search_additional(
+        async def web_search(
             ctx: RunContext[AnalyzerDeps],
             query: str,
+            recency: str = "week",
         ) -> str:
-            """Search for additional information when pre-fetched context is insufficient.
+            """Search the web for additional information.
 
-            Use this tool ONLY when:
-            - Pre-fetched research doesn't cover a company you're considering
-            - You need to verify a specific causal link that's unclear
-            - Historical precedent data is missing
+            Use this tool to gather context when pre-fetched research is insufficient.
 
-            DO NOT search for:
-            - Companies that are clearly the primary subject (obvious from news)
-            - Well-known sector impacts (Fed rate cuts → financials)
-            - Information already in the pre-fetched research
+            RECENCY GUIDE (default: "week"):
+            - "day": Breaking news, very recent developments (last 24h)
+            - "week": Recent analysis, market commentary (last 7 days) - GOOD DEFAULT
+            - "month": Recent context, analyst reports (last 30 days)
+            - "year": Historical precedent, similar past events (last 12 months)
 
-            Limit to 1-2 searches per analysis to maintain speed.
+            WHEN TO USE:
+            1. Find historical precedent for similar events (recency="year" or "month")
+               - Search for events with SIMILAR characteristics (magnitude, surprise, sector)
+               - "Fed rate cut 25bps market reaction"
+               - "earnings beat 10% stock reaction"
+            2. Verify tickers or companies not in pre-fetch
+            3. Get additional context on unfamiliar situations
+
+            IMPORTANT:
+            - Only include historical data if it MATCHES the current context
+            - If no relevant matches found, it's better to have NO historical context
+            - Don't force irrelevant historical data just to fill space
 
             Args:
-                query: Search query for additional information
+                query: Search query (be specific about what pattern you're looking for)
+                recency: Time range - "day", "week", "month", or "year" (default: "week")
 
             Returns:
-                Formatted search results or error message
+                Formatted search results
             """
             if ctx.deps.http_client is None:
-                return "Additional search not available (no HTTP client configured)."
+                return "Web search not available (no HTTP client configured)."
 
             try:
                 from synesis.processing.common.web_search import (
@@ -463,10 +522,12 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
                     search_market_impact,
                 )
 
-                results = await search_market_impact(query, count=3)
+                # Validate recency parameter
+                valid_recency = recency if recency in ("day", "week", "month", "year") else "week"
+                results = await search_market_impact(query, count=5, recency=valid_recency)
                 return format_search_results(results)
             except Exception as e:
-                logger.warning("Additional search failed", query=query, error=str(e))
+                logger.warning("Web search failed", query=query, error=str(e))
                 return f"Search failed: {e}"
 
         # Tool: Get stock fundamentals

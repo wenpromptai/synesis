@@ -16,6 +16,7 @@ from synesis.markets.models import (
     OddsMovement,
     ScanResult,
     UnifiedMarket,
+    VolumeSpike,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +44,8 @@ def _poly_to_unified(m: SimpleMarket) -> UnifiedMarket:
         url=m.url,
         category=m.category,
         description=m.description,
+        outcome_label=m.group_item_title,
+        yes_outcome=m.yes_outcome,
     )
 
 
@@ -75,12 +78,14 @@ class MarketScanner:
         ws_manager: MarketWSManager | None,
         db: Database | None,
         expiring_hours: int = 24,
+        volume_spike_threshold: float = 1.0,
     ) -> None:
         self._polymarket = polymarket
         self._kalshi = kalshi
         self._ws_manager = ws_manager
         self._db = db
         self._expiring_hours = expiring_hours
+        self._volume_spike_threshold = volume_spike_threshold
 
     async def scan(self) -> ScanResult:
         """Run a full scan cycle.
@@ -88,8 +93,9 @@ class MarketScanner:
         1. REST: Fetch trending + expiring from both platforms (parallel)
         2. Merge with real-time Redis data (WebSocket prices/volumes)
         3. Detect odds movements (current vs previous snapshot)
-        4. Update WebSocket subscriptions for next cycle
-        5. Store snapshot to market_snapshots hypertable
+        4. Detect volume spikes (non-destructive read + DB comparison)
+        5. Update WebSocket subscriptions for next cycle
+        6. Store snapshot to market_snapshots hypertable
         """
         now = datetime.now(UTC)
         log = logger.bind(scan_time=now.isoformat())
@@ -130,13 +136,24 @@ class MarketScanner:
         total_scanned = len(all_markets)
 
         # 3. Detect odds movements
-        odds_movements = await self._detect_odds_movements(list(all_markets.values()))
+        try:
+            odds_movements = await self._detect_odds_movements(list(all_markets.values()))
+        except Exception as e:
+            logger.error("Odds movement detection failed", error=str(e))
+            odds_movements = []
 
-        # 4. Update WebSocket subscriptions
+        # 4. Detect volume spikes (non-destructive read + DB comparison)
+        try:
+            volume_spikes = await self._detect_volume_spikes(list(all_markets.values()))
+        except Exception as e:
+            logger.error("Volume spike detection failed", error=str(e))
+            volume_spikes = []
+
+        # 5. Update WebSocket subscriptions
         if self._ws_manager:
             await self._ws_manager.update_subscriptions(list(all_markets.values()))
 
-        # 5. Store snapshots
+        # 6. Store snapshots + reset volume counters (destructive read)
         await self._store_snapshots(list(all_markets.values()))
 
         log.info(
@@ -145,6 +162,7 @@ class MarketScanner:
             trending=len(all_trending),
             expiring=len(all_expiring),
             odds_movements=len(odds_movements),
+            volume_spikes=len(volume_spikes),
         )
 
         return ScanResult(
@@ -152,6 +170,7 @@ class MarketScanner:
             trending_markets=all_trending,
             expiring_markets=all_expiring,
             odds_movements=odds_movements,
+            volume_spikes=volume_spikes,
             total_markets_scanned=total_scanned,
         )
 
@@ -182,26 +201,58 @@ class MarketScanner:
         try:
             markets = await self._kalshi.get_markets(status="open", limit=30)
             markets.sort(key=lambda m: m.volume_24h, reverse=True)
-            return [_kalshi_to_unified(m) for m in markets[:30]]
+            unified = [_kalshi_to_unified(m) for m in markets[:30]]
         except Exception as e:
             logger.error("Kalshi trending fetch failed", error=str(e))
             return []
+
+        try:
+            await self._enrich_kalshi_categories(markets[:30], unified)
+        except Exception as e:
+            logger.warning("Kalshi trending category enrichment failed", error=str(e))
+        return unified
 
     async def _fetch_kalshi_expiring(self) -> list[UnifiedMarket]:
         """Fetch expiring Kalshi markets."""
         try:
             markets = await self._kalshi.get_expiring_markets(hours=self._expiring_hours)
-            return [_kalshi_to_unified(m) for m in markets]
+            unified = [_kalshi_to_unified(m) for m in markets]
         except Exception as e:
             logger.error("Kalshi expiring fetch failed", error=str(e))
             return []
+
+        try:
+            await self._enrich_kalshi_categories(markets, unified)
+        except Exception as e:
+            logger.warning("Kalshi expiring category enrichment failed", error=str(e))
+        return unified
+
+    async def _enrich_kalshi_categories(
+        self,
+        raw_markets: list[KalshiMarket],
+        unified: list[UnifiedMarket],
+    ) -> None:
+        """Fetch event categories from Kalshi and apply to UnifiedMarket objects."""
+        event_tickers = list({m.event_ticker for m in raw_markets if m.event_ticker})
+        if not event_tickers:
+            return
+
+        categories = await self._kalshi.get_event_categories(event_tickers)
+
+        # Build ticker → category map for raw markets
+        ticker_to_event: dict[str, str] = {m.ticker: m.event_ticker for m in raw_markets}
+        for market in unified:
+            event_ticker = ticker_to_event.get(market.external_id, "")
+            cat = categories.get(event_ticker)
+            if cat and not market.category:
+                market.category = cat
 
     # ─────────────────────────────────────────────────────────────
     # Detection Algorithms
     # ─────────────────────────────────────────────────────────────
 
     async def _detect_odds_movements(self, markets: list[UnifiedMarket]) -> list[OddsMovement]:
-        """Compare current prices vs previous snapshot (~50 min ago) from market_snapshots."""
+        """Compare current prices vs previous snapshot (~55 min ago) from market_snapshots."""
         if not self._db or not markets:
             return []
 
@@ -216,7 +267,7 @@ class MarketScanner:
                     market_external_id, yes_price
                 FROM market_snapshots
                 WHERE market_external_id = ANY($1)
-                  AND time < NOW() - INTERVAL '50 minutes'
+                  AND time < NOW() - INTERVAL '55 minutes'
                 ORDER BY market_external_id, time DESC
                 """,
                 market_ids,
@@ -246,7 +297,7 @@ class MarketScanner:
                         market_external_id, yes_price
                     FROM market_snapshots
                     WHERE market_external_id = ANY($1)
-                      AND time < NOW() - INTERVAL '5 hours 50 minutes'
+                      AND time < NOW() - INTERVAL '5 hours 55 minutes'
                     ORDER BY market_external_id, time DESC
                     """,
                     significant_ids,
@@ -277,15 +328,75 @@ class MarketScanner:
         movements.sort(key=lambda m: abs(m.price_change_1h), reverse=True)
         return movements
 
+    async def _detect_volume_spikes(self, markets: list[UnifiedMarket]) -> list[VolumeSpike]:
+        """Compare current WS volume vs previous snapshot to detect spikes."""
+        if not self._ws_manager or not self._db or not markets:
+            return []
+
+        # Gather current real-time volumes for all markets
+        current_volumes: dict[str, float] = {}
+        for market in markets:
+            market_key = market.condition_id or market.ticker or market.external_id
+            current_vol = await self._ws_manager.get_realtime_volume(market.platform, market_key)
+            if current_vol is not None and current_vol > 0:
+                current_volumes[market.external_id] = current_vol
+
+        if not current_volumes:
+            return []
+
+        # Batch fetch previous snapshot volumes (1 round-trip instead of N)
+        market_ids = list(current_volumes.keys())
+        try:
+            rows = await self._db.fetch(
+                """
+                SELECT DISTINCT ON (market_external_id)
+                    market_external_id, volume_1h
+                FROM market_snapshots
+                WHERE market_external_id = ANY($1)
+                  AND time < NOW() - INTERVAL '55 minutes'
+                  AND volume_1h IS NOT NULL
+                  AND volume_1h > 0
+                ORDER BY market_external_id, time DESC
+                """,
+                market_ids,
+            )
+        except Exception as e:
+            logger.warning("Volume spike batch query failed", error=str(e))
+            return []
+
+        prev_volumes: dict[str, float] = {
+            row["market_external_id"]: float(row["volume_1h"]) for row in rows
+        }
+
+        market_by_id: dict[str, UnifiedMarket] = {m.external_id: m for m in markets}
+        spikes: list[VolumeSpike] = []
+        for mid, current_vol in current_volumes.items():
+            prev_vol = prev_volumes.get(mid)
+            if prev_vol is None or prev_vol <= 0:
+                continue
+            pct_change = (current_vol - prev_vol) / prev_vol
+            if pct_change >= self._volume_spike_threshold:
+                spikes.append(
+                    VolumeSpike(
+                        market=market_by_id[mid],
+                        volume_current=current_vol,
+                        volume_previous=prev_vol,
+                        pct_change=pct_change,
+                    )
+                )
+
+        spikes.sort(key=lambda s: s.pct_change, reverse=True)
+        return spikes
+
     # ─────────────────────────────────────────────────────────────
     # Storage
     # ─────────────────────────────────────────────────────────────
 
     async def _store_snapshots(self, markets: list[UnifiedMarket]) -> None:
-        """Write current state to market_snapshots for historical analysis.
+        """Write current state to market_snapshots and reset volume counters.
 
-        Stores volume data (24h and total) along with price info for each market.
-        volume_1h only stored if real WebSocket data is available.
+        Uses read_and_reset_volume() (GETDEL) to atomically capture the hour's
+        accumulated volume and reset the counter to 0 for the next hour.
         """
         if not self._db:
             return
@@ -293,13 +404,21 @@ class MarketScanner:
         now = datetime.now(UTC)
         for market in markets:
             try:
-                # Get real WS volume (if connected) - don't store fake estimates
+                # Atomic read + delete of WS volume (resets counter for next hour)
                 ws_volume: float | None = None
                 if self._ws_manager:
                     market_key = market.condition_id or market.ticker or market.external_id
-                    rt_vol = await self._ws_manager.get_realtime_volume(market.platform, market_key)
-                    if rt_vol is not None and rt_vol > 0:
-                        ws_volume = rt_vol
+                    ws_volume = await self._ws_manager.read_and_reset_volume(
+                        market.platform, market_key
+                    )
+                    if ws_volume is not None and ws_volume > 0:
+                        logger.debug(
+                            "Volume snapshot stored, key reset",
+                            market_id=market.external_id,
+                            volume_1h=ws_volume,
+                        )
+                    else:
+                        ws_volume = None
 
                 await self._db.insert_market_snapshot(
                     time=now,
@@ -308,7 +427,7 @@ class MarketScanner:
                     category=market.category,
                     yes_price=market.yes_price,
                     no_price=market.no_price,
-                    volume_1h=ws_volume,  # Real WS volume only (None if no WS)
+                    volume_1h=ws_volume,
                     volume_24h=market.volume_24h if market.volume_24h > 0 else None,
                     volume_total=market.volume_total if market.volume_total > 0 else None,
                     trade_count_1h=None,

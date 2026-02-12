@@ -22,6 +22,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.output import PromptedOutput
 
 from synesis.core.logging import get_logger
 from synesis.ingestion.reddit import RedditPost
@@ -218,7 +219,7 @@ class SentimentProcessor:
         agent: Agent[SentimentRefinementDeps, SentimentRefinement] = Agent(
             model,
             deps_type=SentimentRefinementDeps,
-            output_type=SentimentRefinement,
+            output_type=PromptedOutput(SentimentRefinement),
             system_prompt=SENTIMENT_REFINER_SYSTEM_PROMPT,
         )
 
