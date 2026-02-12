@@ -2700,7 +2700,7 @@ class TestSnapshotStorage:
             _make_market(external_id="m1", volume_24h=2400),
             _make_market(external_id="m2", volume_24h=4800),
         ]
-        await scanner._store_snapshots(markets)
+        await scanner._store_snapshots(markets, {})
         assert mock_db.insert_market_snapshot.call_count == 2
 
     @pytest.mark.asyncio
@@ -2713,7 +2713,7 @@ class TestSnapshotStorage:
             volume_24h=2400,
             open_interest=5000.0,
         )
-        await scanner._store_snapshots([market])
+        await scanner._store_snapshots([market], {})
 
         mock_db.insert_market_snapshot.assert_called_once()
         call_kwargs = mock_db.insert_market_snapshot.call_args[1]
@@ -2728,9 +2728,9 @@ class TestSnapshotStorage:
 
     @pytest.mark.asyncio
     async def test_store_snapshots_ws_volume_override(self, scanner_for_snapshots: Any) -> None:
-        scanner, mock_db = scanner_for_snapshots(ws_rt_vol=500.0)
+        scanner, mock_db = scanner_for_snapshots()
         market = _make_market(volume_24h=2400)
-        await scanner._store_snapshots([market])
+        await scanner._store_snapshots([market], {"market_1": 500.0})
 
         call_kwargs = mock_db.insert_market_snapshot.call_args[1]
         assert call_kwargs["volume_1h"] == pytest.approx(500.0)
@@ -2740,9 +2740,9 @@ class TestSnapshotStorage:
         self, scanner_for_snapshots: Any
     ) -> None:
         """WS returns 0 → volume_1h stays None (no fake fallback)."""
-        scanner, mock_db = scanner_for_snapshots(ws_rt_vol=0.0)
+        scanner, mock_db = scanner_for_snapshots()
         market = _make_market(volume_24h=2400)
-        await scanner._store_snapshots([market])
+        await scanner._store_snapshots([market], {})
 
         call_kwargs = mock_db.insert_market_snapshot.call_args[1]
         assert call_kwargs["volume_1h"] is None  # No fake fallback
@@ -2766,7 +2766,7 @@ class TestSnapshotStorage:
             _make_market(external_id="m_fail", volume_24h=2400),
             _make_market(external_id="m_ok", volume_24h=4800),
         ]
-        await scanner._store_snapshots(markets)
+        await scanner._store_snapshots(markets, {})
         # Should not crash; second market still stored
         assert call_count == 2
 
@@ -2787,7 +2787,7 @@ class TestSnapshotStorage:
             db=None,
         )
         # Should early return without error
-        await scanner._store_snapshots([_make_market()])
+        await scanner._store_snapshots([_make_market()], {})
 
 
 # ───────────────────────────────────────────────────────────────
@@ -3985,7 +3985,7 @@ class TestDetectVolumeSpikes:
         # 20000 vs 8000 = 150% increase > 100% threshold
         scanner = scanner_with_ws_and_db(ws_volume=20000.0, prev_volume=8000.0)
         markets = [_make_market(external_id="market_1")]
-        spikes = await scanner._detect_volume_spikes(markets)
+        spikes = await scanner._detect_volume_spikes(markets, {"market_1": 20000.0})
         assert len(spikes) == 1
         assert spikes[0].volume_current == 20000.0
         assert spikes[0].volume_previous == 8000.0
@@ -3996,21 +3996,21 @@ class TestDetectVolumeSpikes:
         # 12000 vs 8000 = 50% increase < 100% threshold
         scanner = scanner_with_ws_and_db(ws_volume=12000.0, prev_volume=8000.0)
         markets = [_make_market(external_id="market_1")]
-        spikes = await scanner._detect_volume_spikes(markets)
+        spikes = await scanner._detect_volume_spikes(markets, {"market_1": 12000.0})
         assert len(spikes) == 0
 
     @pytest.mark.asyncio
     async def test_no_previous_data(self, scanner_with_ws_and_db: Any) -> None:
         scanner = scanner_with_ws_and_db(ws_volume=20000.0, prev_volume=None)
         markets = [_make_market(external_id="market_1")]
-        spikes = await scanner._detect_volume_spikes(markets)
+        spikes = await scanner._detect_volume_spikes(markets, {"market_1": 20000.0})
         assert len(spikes) == 0
 
     @pytest.mark.asyncio
     async def test_no_ws_volume(self, scanner_with_ws_and_db: Any) -> None:
         scanner = scanner_with_ws_and_db(ws_volume=None, prev_volume=8000.0)
         markets = [_make_market(external_id="market_1")]
-        spikes = await scanner._detect_volume_spikes(markets)
+        spikes = await scanner._detect_volume_spikes(markets, {})
         assert len(spikes) == 0
 
     @pytest.mark.asyncio
@@ -4030,7 +4030,7 @@ class TestDetectVolumeSpikes:
             db=AsyncMock(),
         )
         markets = [_make_market()]
-        spikes = await scanner._detect_volume_spikes(markets)
+        spikes = await scanner._detect_volume_spikes(markets, {})
         assert len(spikes) == 0
 
 
@@ -4215,9 +4215,6 @@ class TestVolumeSpikeDbQueryFailure:
 
         ws_mgr = MarketWSManager(poly_ws, kalshi_ws, mock_redis)
 
-        # Set volume in Redis so we get past the early return
-        mock_redis._strings["synesis:mkt_intel:ws:volume_1h:polymarket:cond_1"] = "20000.0"
-
         mock_db = AsyncMock()
         mock_db.fetch = AsyncMock(side_effect=RuntimeError("DB connection lost"))
 
@@ -4229,5 +4226,5 @@ class TestVolumeSpikeDbQueryFailure:
         )
 
         markets = [_make_market(external_id="market_1")]
-        spikes = await scanner._detect_volume_spikes(markets)
+        spikes = await scanner._detect_volume_spikes(markets, {"market_1": 20000.0})
         assert spikes == []

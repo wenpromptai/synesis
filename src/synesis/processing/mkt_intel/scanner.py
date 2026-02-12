@@ -92,10 +92,11 @@ class MarketScanner:
 
         1. REST: Fetch trending + expiring from both platforms (parallel)
         2. Merge with real-time Redis data (WebSocket prices/volumes)
-        3. Detect odds movements (current vs previous snapshot)
-        4. Detect volume spikes (non-destructive read + DB comparison)
-        5. Update WebSocket subscriptions for next cycle
-        6. Store snapshot to market_snapshots hypertable
+        3. Atomically capture + reset WS volume counters
+        4. Detect odds movements (current vs previous snapshot)
+        5. Detect volume spikes (captured volumes vs DB comparison)
+        6. Update WebSocket subscriptions for next cycle
+        7. Store snapshot to market_snapshots hypertable
         """
         now = datetime.now(UTC)
         log = logger.bind(scan_time=now.isoformat())
@@ -135,26 +136,44 @@ class MarketScanner:
 
         total_scanned = len(all_markets)
 
-        # 3. Detect odds movements
+        # 3. Atomically capture + reset WS volume counters
+        captured_volumes: dict[str, float] = {}
+        if self._ws_manager:
+            for market in all_markets.values():
+                market_key = market.condition_id or market.ticker or market.external_id
+                try:
+                    vol = await self._ws_manager.read_and_reset_volume(market.platform, market_key)
+                    if vol is not None and vol > 0:
+                        captured_volumes[market.external_id] = vol
+                except Exception as e:
+                    logger.warning(
+                        "Volume capture failed",
+                        market_id=market.external_id,
+                        error=str(e),
+                    )
+
+        # 4. Detect odds movements
         try:
             odds_movements = await self._detect_odds_movements(list(all_markets.values()))
         except Exception as e:
             logger.error("Odds movement detection failed", error=str(e))
             odds_movements = []
 
-        # 4. Detect volume spikes (non-destructive read + DB comparison)
+        # 5. Detect volume spikes (captured volumes vs DB comparison)
         try:
-            volume_spikes = await self._detect_volume_spikes(list(all_markets.values()))
+            volume_spikes = await self._detect_volume_spikes(
+                list(all_markets.values()), captured_volumes
+            )
         except Exception as e:
             logger.error("Volume spike detection failed", error=str(e))
             volume_spikes = []
 
-        # 5. Update WebSocket subscriptions
+        # 6. Update WebSocket subscriptions
         if self._ws_manager:
             await self._ws_manager.update_subscriptions(list(all_markets.values()))
 
-        # 6. Store snapshots + reset volume counters (destructive read)
-        await self._store_snapshots(list(all_markets.values()))
+        # 7. Store snapshots (volumes already captured in step 3)
+        await self._store_snapshots(list(all_markets.values()), captured_volumes)
 
         log.info(
             "Market scan complete",
@@ -328,24 +347,20 @@ class MarketScanner:
         movements.sort(key=lambda m: abs(m.price_change_1h), reverse=True)
         return movements
 
-    async def _detect_volume_spikes(self, markets: list[UnifiedMarket]) -> list[VolumeSpike]:
-        """Compare current WS volume vs previous snapshot to detect spikes."""
-        if not self._ws_manager or not self._db or not markets:
-            return []
+    async def _detect_volume_spikes(
+        self, markets: list[UnifiedMarket], captured_volumes: dict[str, float]
+    ) -> list[VolumeSpike]:
+        """Compare captured WS volumes vs previous snapshot to detect spikes.
 
-        # Gather current real-time volumes for all markets
-        current_volumes: dict[str, float] = {}
-        for market in markets:
-            market_key = market.condition_id or market.ticker or market.external_id
-            current_vol = await self._ws_manager.get_realtime_volume(market.platform, market_key)
-            if current_vol is not None and current_vol > 0:
-                current_volumes[market.external_id] = current_vol
-
-        if not current_volumes:
+        Args:
+            markets: Current scan markets.
+            captured_volumes: Atomically captured + reset volumes from scan().
+        """
+        if not captured_volumes or not self._db or not markets:
             return []
 
         # Batch fetch previous snapshot volumes (1 round-trip instead of N)
-        market_ids = list(current_volumes.keys())
+        market_ids = list(captured_volumes.keys())
         try:
             rows = await self._db.fetch(
                 """
@@ -370,7 +385,7 @@ class MarketScanner:
 
         market_by_id: dict[str, UnifiedMarket] = {m.external_id: m for m in markets}
         spikes: list[VolumeSpike] = []
-        for mid, current_vol in current_volumes.items():
+        for mid, current_vol in captured_volumes.items():
             prev_vol = prev_volumes.get(mid)
             if prev_vol is None or prev_vol <= 0:
                 continue
@@ -392,11 +407,12 @@ class MarketScanner:
     # Storage
     # ─────────────────────────────────────────────────────────────
 
-    async def _store_snapshots(self, markets: list[UnifiedMarket]) -> None:
-        """Write current state to market_snapshots and reset volume counters.
+    async def _store_snapshots(
+        self, markets: list[UnifiedMarket], captured_volumes: dict[str, float]
+    ) -> None:
+        """Write current state to market_snapshots.
 
-        Uses read_and_reset_volume() (GETDEL) to atomically capture the hour's
-        accumulated volume and reset the counter to 0 for the next hour.
+        Volumes are already atomically captured + reset by scan() in step 3.
         """
         if not self._db:
             return
@@ -404,21 +420,15 @@ class MarketScanner:
         now = datetime.now(UTC)
         for market in markets:
             try:
-                # Atomic read + delete of WS volume (resets counter for next hour)
-                ws_volume: float | None = None
-                if self._ws_manager:
-                    market_key = market.condition_id or market.ticker or market.external_id
-                    ws_volume = await self._ws_manager.read_and_reset_volume(
-                        market.platform, market_key
+                ws_volume = captured_volumes.get(market.external_id)
+                if ws_volume is not None and ws_volume > 0:
+                    logger.debug(
+                        "Volume snapshot stored",
+                        market_id=market.external_id,
+                        volume_1h=ws_volume,
                     )
-                    if ws_volume is not None and ws_volume > 0:
-                        logger.debug(
-                            "Volume snapshot stored, key reset",
-                            market_id=market.external_id,
-                            volume_1h=ws_volume,
-                        )
-                    else:
-                        ws_volume = None
+                else:
+                    ws_volume = None
 
                 await self._db.insert_market_snapshot(
                     time=now,
