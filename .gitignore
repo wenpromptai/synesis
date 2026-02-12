@@ -4,6 +4,9 @@
 .env.*.local
 *.pem
 *.key
+keys/*.pem
+keys/*.key
+!keys/.gitkeep
 
 # Python
 __pycache__/

@@ -127,14 +127,32 @@ class MarketWSManager:
         )
 
     async def get_realtime_volume(self, platform: str, market_id: str) -> float | None:
-        """Read accumulated 1h volume from Redis (written by WebSocket)."""
+        """Read accumulated 1h volume from Redis (non-destructive)."""
         key = f"{_VOLUME_PREFIX}:{platform}:{market_id}"
         val = await self._redis.get(key)
         if val:
             try:
                 return float(val)
             except (ValueError, TypeError):
-                pass
+                logger.warning("Volume parse failed", key=key, raw_value=repr(val))
+        return None
+
+    async def read_and_reset_volume(self, platform: str, market_id: str) -> float | None:
+        """Atomically read and delete accumulated volume from Redis (GETDEL).
+
+        Used at snapshot time to capture the hour's volume and reset the counter.
+        """
+        key = f"{_VOLUME_PREFIX}:{platform}:{market_id}"
+        val = await self._redis.getdel(key)
+        if val:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                logger.error(
+                    "GETDEL volume parse failed (data lost)",
+                    key=key,
+                    raw_value=repr(val),
+                )
         return None
 
     async def get_realtime_price(self, platform: str, market_id: str) -> tuple[float, float] | None:
@@ -150,5 +168,5 @@ class MarketWSManager:
                 no_price = 1.0 - yes_price
                 return (yes_price, no_price)
             except (ValueError, TypeError):
-                pass
+                logger.warning("Price parse failed", key=key, raw_value=repr(data))
         return None

@@ -315,9 +315,14 @@ class Settings(BaseSettings):
     # Market Intelligence (Flow 3: mkt_intel)
     mkt_intel_enabled: bool = Field(default=True)
     mkt_intel_interval: int = Field(
-        default=900,
+        default=3600,
         gt=0,
-        description="Market intelligence scan interval in seconds (15 min)",
+        description="Market intelligence scan interval in seconds (1 hour)",
+    )
+    mkt_intel_volume_spike_threshold: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Volume spike detection threshold (1.0 = 100% increase from previous hour)",
     )
     mkt_intel_insider_score_min: float = Field(
         default=0.5,
@@ -357,8 +362,8 @@ class Settings(BaseSettings):
         description="Max size of internal processing queue",
     )
     web_search_max_queries: int = Field(
-        default=2,
-        description="Max web search queries per message",
+        default=3,
+        description="Max web search queries per message (pre-fetch current context)",
     )
     polymarket_max_keywords: int = Field(
         default=5,

@@ -14,6 +14,7 @@ from synesis.markets.models import (
     InsiderAlert,
     OddsMovement,
     UnifiedMarket,
+    VolumeSpike,
 )
 
 
@@ -30,14 +31,14 @@ class MarketIntelOpportunity(BaseModel):
 
 
 class MarketIntelSignal(BaseModel):
-    """Market intelligence signal emitted every 15 minutes.
+    """Market intelligence signal emitted every hour.
 
     Contains aggregated data from REST scans + WebSocket streams.
     """
 
     # Timing
     timestamp: datetime
-    signal_period: str = "15min"
+    signal_period: str = "1h"
 
     # Scan stats
     total_markets_scanned: int = 0
@@ -49,6 +50,7 @@ class MarketIntelSignal(BaseModel):
     # Alerts
     insider_activity: list[InsiderAlert] = Field(default_factory=list)
     odds_movements: list[OddsMovement] = Field(default_factory=list)
+    volume_spikes: list[VolumeSpike] = Field(default_factory=list)
 
     # Opportunities
     opportunities: list[MarketIntelOpportunity] = Field(default_factory=list)

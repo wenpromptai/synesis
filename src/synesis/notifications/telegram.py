@@ -763,9 +763,15 @@ Markets scanned: {signal.total_markets_scanned}"""
         for i, opp in enumerate(signal.opportunities[:5], 1):
             direction = "✅ YES" if opp.suggested_direction == "yes" else "❌ NO"
             triggers = ", ".join(opp.triggers)
+            question = _escape_html(opp.market.question)
+            if opp.market.outcome_label:
+                question += f" → {_escape_html(opp.market.outcome_label)}"
+            price_str = f"${opp.market.yes_price:.2f}"
+            if opp.market.yes_outcome:
+                price_str = f"{_escape_html(opp.market.yes_outcome)} {price_str}"
             msg += f"""
-{i}. {_escape_html(opp.market.question)}
-   {direction} @ ${opp.market.yes_price:.2f} | Conf: {opp.confidence:.0%}
+{i}. {question}
+   {direction} @ {price_str} | Conf: {opp.confidence:.0%}
    Triggers: {triggers}"""
             if opp.reasoning:
                 msg += f"""
@@ -779,11 +785,28 @@ Markets scanned: {signal.total_markets_scanned}"""
 📊 <b>Odds Movements</b>"""
         for om in signal.odds_movements[:5]:
             arrow = "⬆️" if om.direction == "up" else "⬇️"
+            question = _escape_html(om.market.question)
+            if om.market.outcome_label:
+                question += f" → {_escape_html(om.market.outcome_label)}"
             msg += f"""
-{arrow} {_escape_html(om.market.question)}
+{arrow} {question}
    {om.price_change_1h:+.2f} (1h)"""
             if om.price_change_6h is not None:
                 msg += f" | {om.price_change_6h:+.2f} (6h)"
+
+    # Volume spikes
+    if signal.volume_spikes:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+📈 <b>Volume Spikes</b>"""
+        for vs in signal.volume_spikes[:5]:
+            question = _escape_html(vs.market.question)
+            if vs.market.outcome_label:
+                question += f" → {_escape_html(vs.market.outcome_label)}"
+            msg += f"""
+{question}
+   +{vs.pct_change:.0%} ({vs.volume_previous:,.0f} → {vs.volume_current:,.0f})"""
 
     # Insider activity
     if signal.insider_activity:
@@ -803,9 +826,13 @@ Markets scanned: {signal.total_markets_scanned}"""
             if m.end_date:
                 hours_left = (m.end_date - datetime.now(UTC)).total_seconds() / 3600
                 if hours_left > 0:
-                    expiring_lines.append(
-                        f"\n{_escape_html(m.question)} @ ${m.yes_price:.2f} ({hours_left:.1f}h left)"
-                    )
+                    question = _escape_html(m.question)
+                    if m.outcome_label:
+                        question += f" → {_escape_html(m.outcome_label)}"
+                    price_str = f"${m.yes_price:.2f}"
+                    if m.yes_outcome:
+                        price_str = f"{_escape_html(m.yes_outcome)} {price_str}"
+                    expiring_lines.append(f"\n{question} @ {price_str} ({hours_left:.1f}h left)")
         if expiring_lines:
             msg += f"""
 

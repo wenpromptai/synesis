@@ -532,6 +532,7 @@ async def agent_lifespan(
                 ws_manager=ws_manager,
                 db=db,
                 expiring_hours=settings.mkt_intel_expiring_hours,
+                volume_spike_threshold=settings.mkt_intel_volume_spike_threshold,
             )
 
             # Create wallet tracker

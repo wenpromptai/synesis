@@ -168,7 +168,9 @@ class TestCreateClassifierAgent:
 
             agent = create_classifier_agent()
 
-            assert agent.output_type == LightClassification
+            from pydantic_ai.output import PromptedOutput
+
+            assert isinstance(agent.output_type, PromptedOutput)
 
 
 class TestLightClassificationModel:

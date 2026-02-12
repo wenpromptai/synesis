@@ -13,6 +13,7 @@ Tickers, sectors, direction deferred to Stage 2 Smart Analyzer.
 from functools import lru_cache
 
 from pydantic_ai import Agent
+from pydantic_ai.output import PromptedOutput
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
@@ -39,9 +40,36 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
 
 5. **summary**: One sentence.
 
-6. **search_keywords**: 2-3 web search queries ("{entity} {event} forecast")
+6. **search_keywords**: Generate 3 web search queries for CURRENT context only:
 
-7. **polymarket_keywords**: 3-5 keywords for prediction markets. Use primary entity + topic only.
+   - Query 1: "{primary_entity} {event}"
+     → Core query about what happened
+   - Query 2: "{primary_entity} {event} market reaction" or "{primary_entity} {event} stocks"
+     → Immediate market impact
+   - Query 3: "{primary_entity} {event} forecast" or "{primary_entity} {event} expectations"
+     → Forward-looking analyst views
+
+   IMPORTANT:
+   - Do NOT search for historical data here (Stage 2 will do that with tools)
+   - Focus on CURRENT event and immediate reaction
+   - Always include year (2026) for recency
+
+   Examples:
+   - "Fed cuts rates 25bps" →
+     ["Fed rate cut 25bps 2026", "Fed rate cut market reaction", "Fed rate forecast"]
+   - "Apple Q4 earnings beat" →
+     ["Apple Q4 earnings 2026", "Apple earnings market reaction", "Apple stock forecast"]
+   - "Trump announces China tariffs" →
+     ["Trump China tariff 2026", "China tariff stocks affected", "trade war market reaction"]
+
+7. **polymarket_keywords**: 3-5 keywords for prediction markets:
+
+   Pattern: [primary phrase, 2-3 variations, related terms]
+
+   Examples:
+   - "Fed rate cut" → ["Fed rate cut", "interest rate", "FOMC", "Federal Reserve"]
+   - "Trump China tariff" → ["Trump tariff", "China tariff", "trade war", "US China trade"]
+   - "Apple earnings" → ["Apple earnings", "AAPL earnings", "Apple Q4 results"]
 
 8. **numeric_data** (economic/earnings only):
    Extract metrics: actual (required), estimate ("vs X est"), previous ("prev X"), unit (%, bps, $, B, M), period
@@ -78,7 +106,7 @@ def create_classifier_agent() -> Agent[None, LightClassification]:
 
     agent: Agent[None, LightClassification] = Agent(
         model,
-        output_type=LightClassification,
+        output_type=PromptedOutput(LightClassification),
         system_prompt=CLASSIFIER_SYSTEM_PROMPT,
     )
 

@@ -364,6 +364,38 @@ class KalshiClient:
                 logger.warning("Failed to parse Kalshi event", error=str(e))
         return events
 
+    async def get_event_categories(self, event_tickers: list[str]) -> dict[str, str | None]:
+        """Batch-fetch event categories for a list of event tickers.
+
+        Returns a mapping of event_ticker → category string.
+        """
+        import asyncio
+
+        async def _fetch_one(ticker: str) -> tuple[str, str | None]:
+            client = self._get_client()
+            try:
+                response = await client.get(f"/events/{ticker}")
+                response.raise_for_status()
+                data = response.json()
+                event = data.get("event", data)
+                return ticker, event.get("category")
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                logger.warning("Kalshi event fetch failed", ticker=ticker, error=str(e))
+                return ticker, None
+
+        results = await asyncio.gather(
+            *[_fetch_one(t) for t in event_tickers],
+            return_exceptions=True,
+        )
+
+        categories: dict[str, str | None] = {}
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Kalshi event category fetch failed", error=str(result))
+            elif isinstance(result, tuple):
+                categories[result[0]] = result[1]
+        return categories
+
     async def get_expiring_markets(self, hours: int = 24) -> list[KalshiMarket]:
         """Get markets expiring within the specified hours."""
         import time

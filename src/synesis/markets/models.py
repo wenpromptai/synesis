@@ -32,6 +32,8 @@ class UnifiedMarket(BaseModel):
     url: str = ""
     category: str | None = None
     description: str | None = None
+    outcome_label: str | None = None
+    yes_outcome: str | None = None  # e.g. "Up", "Over" for non-Yes/No markets
 
     @model_validator(mode="after")
     def check_platform_identifier(self) -> UnifiedMarket:
@@ -61,6 +63,15 @@ class InsiderAlert(BaseModel):
     trade_size: float = Field(ge=0.0)
 
 
+class VolumeSpike(BaseModel):
+    """Volume spike detection — current hour vs previous hour."""
+
+    market: UnifiedMarket
+    volume_current: float = Field(ge=0.0)
+    volume_previous: float = Field(ge=0.0)
+    pct_change: float
+
+
 class ScanResult(BaseModel):
     """Result of a single market scan cycle."""
 
@@ -68,4 +79,5 @@ class ScanResult(BaseModel):
     trending_markets: list[UnifiedMarket] = Field(default_factory=list)
     expiring_markets: list[UnifiedMarket] = Field(default_factory=list)
     odds_movements: list[OddsMovement] = Field(default_factory=list)
+    volume_spikes: list[VolumeSpike] = Field(default_factory=list)
     total_markets_scanned: int = 0
