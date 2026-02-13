@@ -36,10 +36,6 @@ CREATE TABLE IF NOT EXISTS synesis.signals (
     markets JSONB,                      -- [{"market_id": "abc", "link": "https://..."}]
     tickers TEXT[],                     -- ['AAPL', 'TSLA']
     entities TEXT[],                    -- All entities mentioned (people, companies, institutions)
-    -- RAG embedding for semantic search on narratives (Phase 1)
-    narrative_embedding vector(384),    -- fastembed bge-small-en-v1.5
-    -- Price at signal time (for outcome analysis)
-    prices_at_signal JSONB,             -- {"AAPL": 150.25, "TSLA": 245.50} at signal time
     PRIMARY KEY (time, flow_id)
 );
 
@@ -73,16 +69,6 @@ CREATE INDEX IF NOT EXISTS idx_signals_entities
 CREATE INDEX IF NOT EXISTS idx_signals_evaluations
     ON synesis.signals USING GIN ((payload->'evaluations') jsonb_path_ops);
 
--- Index for querying research_analysis in classification
--- Supports queries on historical patterns and insights
-CREATE INDEX IF NOT EXISTS idx_signals_research_analysis
-    ON synesis.signals USING GIN ((payload->'classification'->'research_analysis') jsonb_path_ops);
-
--- HNSW index for semantic search on signal narratives (RAG)
--- Partial index to only index rows with embeddings
-CREATE INDEX IF NOT EXISTS idx_signals_narrative_embedding
-    ON synesis.signals USING hnsw (narrative_embedding vector_cosine_ops)
-    WHERE narrative_embedding IS NOT NULL;
 
 -- Enable compression after 7 days
 ALTER TABLE synesis.signals SET (
@@ -145,15 +131,10 @@ CREATE TABLE IF NOT EXISTS synesis.raw_messages (
     source_type TEXT NOT NULL,          -- 'news', 'analysis'
     external_id TEXT NOT NULL,          -- Platform-specific ID
     raw_text TEXT NOT NULL,
-    embedding vector(256),              -- Model2Vec embedding for dedup
     source_timestamp TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (source_platform, external_id)
 );
-
--- HNSW index for fast similarity search
-CREATE INDEX IF NOT EXISTS idx_raw_messages_embedding
-    ON synesis.raw_messages USING hnsw (embedding vector_cosine_ops);
 
 -- Index for finding recent messages by source
 CREATE INDEX IF NOT EXISTS idx_raw_messages_source_time
@@ -174,7 +155,6 @@ CREATE TABLE IF NOT EXISTS synesis.wallets (
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     is_watched BOOLEAN DEFAULT FALSE,
-    notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (platform, address)
 );
@@ -190,14 +170,8 @@ CREATE TABLE IF NOT EXISTS synesis.wallet_metrics (
     wallet_id UUID PRIMARY KEY REFERENCES synesis.wallets(id) ON DELETE CASCADE,
     total_trades INTEGER DEFAULT 0,
     wins INTEGER DEFAULT 0,
-    losses INTEGER DEFAULT 0,
     win_rate DECIMAL(5,4),              -- 0.0000 to 1.0000
     total_pnl DECIMAL(20,6) DEFAULT 0,
-    avg_position_size DECIMAL(20,6),
-    -- Pre-news trading metrics (insider signals)
-    pre_news_trades INTEGER DEFAULT 0,  -- Trades within 1hr before resolution
-    pre_news_wins INTEGER DEFAULT 0,
-    pre_news_accuracy DECIMAL(5,4),
     -- Computed insider score
     insider_score DECIMAL(5,4),         -- 0.0 to 1.0
     -- Metadata
@@ -282,29 +256,13 @@ CREATE TABLE IF NOT EXISTS synesis.sentiment_snapshots (
     -- Sentiment ratios
     bullish_ratio DECIMAL(5,4) NOT NULL,
     bearish_ratio DECIMAL(5,4) NOT NULL,
-    neutral_ratio DECIMAL(5,4) NOT NULL,
-    dominant_emotion TEXT,              -- 'fomo', 'panic', 'euphoria', etc.
     -- Volume metrics
     mention_count INTEGER NOT NULL,
-    -- Change metrics
-    sentiment_delta_6h DECIMAL(5,4),
-    -- Flags
-    is_extreme_bullish BOOLEAN DEFAULT FALSE,
-    is_extreme_bearish BOOLEAN DEFAULT FALSE,
-    -- RAG embedding for sentiment context retrieval (Phase 1)
-    context_embedding vector(384),      -- fastembed bge-small-en-v1.5
-    -- Price at snapshot time (for outcome analysis)
-    price_at_signal DECIMAL(12,4),      -- Price at snapshot time
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_sentiment_ticker_time
     ON synesis.sentiment_snapshots (ticker, snapshot_time DESC);
-
--- HNSW index for semantic search on sentiment context (RAG)
-CREATE INDEX IF NOT EXISTS idx_sentiment_context_embedding
-    ON synesis.sentiment_snapshots USING hnsw (context_embedding vector_cosine_ops)
-    WHERE context_embedding IS NOT NULL;
 
 -- =============================================================================
 -- GRANTS (for application user)

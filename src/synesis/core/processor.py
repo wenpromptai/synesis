@@ -8,7 +8,7 @@ Architecture:
 Stage 1 (Entity Extractor):
 - Fast, tool-free entity extraction
 - Extracts entities and keywords for search
-- NO judgment calls (tickers, sectors, impact, direction)
+- NO judgment calls (tickers, sectors, sentiment)
 
 Stage 2 (Smart Analyzer):
 - Takes message + extraction + web results + markets
@@ -47,7 +47,7 @@ from synesis.processing.common import (
 )
 
 if TYPE_CHECKING:
-    from synesis.providers import FinnhubService
+    from synesis.providers.base import TickerProvider
 
 logger = get_logger(__name__)
 
@@ -137,18 +137,18 @@ class NewsProcessor:
     def __init__(
         self,
         redis: Redis,
-        finnhub: "FinnhubService | None" = None,
+        ticker_provider: "TickerProvider | None" = None,
         watchlist: WatchlistManager | None = None,
     ) -> None:
         """Initialize the processor.
 
         Args:
             redis: Redis client for deduplication storage
-            finnhub: Optional FinnhubService for fundamental data tools
+            ticker_provider: Optional TickerProvider for ticker verification
             watchlist: Optional WatchlistManager for ticker tracking
         """
         self._redis = redis
-        self._finnhub = finnhub
+        self._ticker_provider = ticker_provider
         self._watchlist = watchlist
         self._deduplicator: MessageDeduplicator | None = None
         self._classifier: NewsClassifier | None = None
@@ -322,9 +322,7 @@ class NewsProcessor:
             log.info(
                 "Skipping Stage 2 (filtered by urgency)",
                 urgency=extraction.urgency.value,
-                impact=extraction.predicted_impact.value,
                 urgency_reason=extraction.urgency_reasoning,
-                impact_reason=extraction.impact_reasoning,
                 processing_time_ms=f"{elapsed_ms:.1f}",
             )
             return ProcessingResult(
@@ -360,7 +358,7 @@ class NewsProcessor:
             web_results,
             markets_text,
             http_client=self.polymarket._get_client(),  # Reuse existing client for additional searches
-            finnhub=self._finnhub,
+            ticker_provider=self._ticker_provider,
         )
 
         if analysis is None:
@@ -374,8 +372,8 @@ class NewsProcessor:
                 "Stage 2 complete",
                 tickers=analysis.tickers,
                 sectors=analysis.sectors,
-                impact=analysis.predicted_impact.value,
-                direction=analysis.market_direction.value,
+                sentiment=analysis.sentiment.value,
+                sentiment_score=analysis.sentiment_score,
                 thesis=analysis.primary_thesis[:100] if analysis.primary_thesis else "None",
                 thesis_confidence=f"{analysis.thesis_confidence:.0%}",
                 markets_evaluated=len(analysis.market_evaluations),
@@ -383,7 +381,7 @@ class NewsProcessor:
             )
 
             # Add validated tickers to watchlist for price tracking
-            # Note: Ticker verification is now done by the LLM via verify_ticker_finnhub tool
+            # Note: Ticker verification is now done by the LLM via verify_ticker tool
             if self._watchlist and analysis.tickers:
                 for ticker in analysis.tickers:
                     await self._watchlist.add_ticker(

@@ -1,11 +1,10 @@
 """Integration smoke test for news processing pipeline.
 
-Uses REAL APIs (LLM, Finnhub, Polymarket, Telegram) with mocked storage.
+Uses REAL APIs (LLM, SEC EDGAR, NASDAQ, Polymarket, Telegram) with mocked storage.
 Run with: pytest -m integration
 
 Environment variables required:
 - ANTHROPIC_API_KEY or OPENAI_API_KEY
-- FINNHUB_API_KEY (for ticker validation)
 - TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (for notifications)
 """
 
@@ -44,19 +43,22 @@ class TestNewsE2E:
         self,
         mock_redis: Any,
         mock_db: Any,
-        finnhub_service: Any,
+        ticker_provider: Any,
         breaking_news_message: UnifiedMessage,
     ) -> None:
-        """Smoke test: Full news pipeline with real LLM + Finnhub + Telegram.
+        """Smoke test: Full news pipeline with real LLM + providers + Telegram.
 
         Verifies:
         1. Stage 1 classification works (real LLM)
-        2. Stage 2 analysis works (real LLM + Finnhub + Polymarket)
+        2. Stage 2 analysis works (real LLM + Polymarket)
         3. Telegram notification sends
         4. Mock storage captures data correctly
         """
-        # Create processor with mock Redis and real Finnhub
-        processor = NewsProcessor(mock_redis, finnhub=finnhub_service)
+        # Create processor with mock Redis and ticker provider
+        processor = NewsProcessor(
+            mock_redis,
+            ticker_provider=ticker_provider,
+        )
         await processor.initialize()
 
         # Create watchlist manager with mock Redis/DB
@@ -80,7 +82,9 @@ class TestNewsE2E:
             if result.analysis:
                 print("\nSTAGE 2 (Analysis):")
                 print(f"  Tickers: {result.analysis.tickers}")
-                print(f"  Direction: {result.analysis.market_direction}")
+                print(
+                    f"  Sentiment: {result.analysis.sentiment} ({result.analysis.sentiment_score:+.2f})"
+                )
 
                 # Add tickers to watchlist
                 for ticker in result.analysis.tickers:

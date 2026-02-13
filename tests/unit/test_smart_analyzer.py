@@ -8,7 +8,6 @@ import pytest
 from synesis.processing.news import (
     Direction,
     EventType,
-    ImpactLevel,
     LightClassification,
     NewsCategory,
     SmartAnalysis,
@@ -247,8 +246,8 @@ class TestSmartAnalyzer:
         mock_output = SmartAnalysis(
             tickers=["SPY"],
             sectors=["financials"],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Rate cut bullish for equities",
             thesis_confidence=0.8,
             ticker_analyses=[

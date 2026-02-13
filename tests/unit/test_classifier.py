@@ -37,7 +37,7 @@ def create_mock_classification() -> LightClassification:
     """Create a mock classification result.
 
     Note: LightClassification is Stage 1 entity extraction only.
-    It does NOT contain: predicted_impact, market_direction, tickers, sectors.
+    It does NOT contain: sentiment, tickers, sectors.
     Those fields moved to Stage 2 SmartAnalysis.
     """
     return LightClassification(
@@ -194,18 +194,14 @@ class TestLightClassificationModel:
         """Test that LightClassification does NOT have Stage 2 fields.
 
         These fields moved to SmartAnalysis in the 2-stage architecture.
-        Note: predicted_impact is now in Stage 1 for gating, but refined in Stage 2.
         """
         classification = create_mock_classification()
 
         # Stage 2 fields that should NOT exist on LightClassification
-        # Note: predicted_impact IS on LightClassification (for gating)
-        assert not hasattr(classification, "market_direction")
+        assert not hasattr(classification, "sentiment")
+        assert not hasattr(classification, "sentiment_score")
         assert not hasattr(classification, "tickers")
         assert not hasattr(classification, "sectors")
-
-        # predicted_impact SHOULD exist (for Stage 2 gating)
-        assert hasattr(classification, "predicted_impact")
 
     def test_confidence_bounds(self) -> None:
         """Test that confidence is bounded 0-1."""

@@ -16,6 +16,7 @@ Tests all new components:
 
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -4228,3 +4229,229 @@ class TestVolumeSpikeDbQueryFailure:
         markets = [_make_market(external_id="market_1")]
         spikes = await scanner._detect_volume_spikes(markets, {"market_1": 20000.0})
         assert spikes == []
+
+
+# ───────────────────────────────────────────────────────────────
+# Wallet Demotion & Re-score
+# ───────────────────────────────────────────────────────────────
+
+
+class TestWalletDemotionInDiscovery:
+    """Tests for wallet demotion during discover_and_score_wallets."""
+
+    @pytest.fixture
+    def mock_data_client(self) -> AsyncMock:
+        client = AsyncMock()
+        client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xwatched1", "amount": 50000, "outcome": "yes"}]
+        )
+        return client
+
+    @pytest.mark.asyncio
+    async def test_demotes_watched_wallet_below_threshold(
+        self, mock_redis: Any, mock_data_client: Any
+    ) -> None:
+        """Wallet currently watched but score drops below unwatch_threshold → demoted."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.upsert_wallet = AsyncMock()
+        db.get_wallets_needing_score_update = AsyncMock(return_value=["0xwatched1"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+        # get_watched_wallets returns the wallet as currently watched
+        db.get_watched_wallets = AsyncMock(
+            return_value=[{"address": "0xwatched1", "platform": "polymarket", "insider_score": 0.7}]
+        )
+
+        # Low win rate → low insider score (1 win out of 10)
+        mock_data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"pnl": 10.0}] + [{"pnl": -5.0}] * 9
+        )
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=mock_data_client)
+
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets,
+            top_n_markets=1,
+            auto_watch_threshold=0.6,
+            min_trades_to_watch=3,
+            unwatch_threshold=0.3,
+        )
+
+        # Should have demoted the wallet (set_wallet_watched with False)
+        db.set_wallet_watched.assert_called_once()
+        call_args = db.set_wallet_watched.call_args[0]
+        assert call_args[0] == "0xwatched1"
+        assert call_args[1] == "polymarket"
+        assert call_args[2] is False
+
+    @pytest.mark.asyncio
+    async def test_does_not_demote_unwatched_wallet(
+        self, mock_redis: Any, mock_data_client: Any
+    ) -> None:
+        """Wallet NOT currently watched + low score → no demotion call."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.upsert_wallet = AsyncMock()
+        db.get_wallets_needing_score_update = AsyncMock(return_value=["0xwatched1"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+        db.get_watched_wallets = AsyncMock(return_value=[])  # empty
+
+        mock_data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"pnl": -5.0}] * 5  # all losses
+        )
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=mock_data_client)
+
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets,
+            top_n_markets=1,
+            auto_watch_threshold=0.6,
+            min_trades_to_watch=3,
+            unwatch_threshold=0.3,
+        )
+
+        # Should NOT have called set_wallet_watched at all
+        db.set_wallet_watched.assert_not_called()
+
+
+class TestReScoreWatchedWallets:
+    """Tests for the re_score_watched_wallets method."""
+
+    @pytest.mark.asyncio
+    async def test_rescores_and_demotes(self, mock_redis: Any) -> None:
+        """Stale watched wallet with degraded score gets demoted."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.get_watched_wallets_needing_rescore = AsyncMock(return_value=["0xold1"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+
+        data_client = AsyncMock()
+        # Poor trades → low score
+        data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"pnl": -10.0}] * 8 + [{"pnl": 5.0}] * 2
+        )
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
+
+        demoted = await tracker.re_score_watched_wallets(unwatch_threshold=0.3, stale_hours=24)
+
+        assert demoted == 1
+        db.set_wallet_watched.assert_called_once()
+        call_args = db.set_wallet_watched.call_args[0]
+        assert call_args[0] == "0xold1"
+        assert call_args[2] is False
+
+    @pytest.mark.asyncio
+    async def test_keeps_good_wallets(self, mock_redis: Any) -> None:
+        """Stale watched wallet with good score stays watched."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.get_watched_wallets_needing_rescore = AsyncMock(return_value=["0xgood1"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+
+        data_client = AsyncMock()
+        # Great trades → high score
+        data_client.get_wallet_trades = AsyncMock(return_value=[{"pnl": 100.0}] * 50)
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
+
+        demoted = await tracker.re_score_watched_wallets(unwatch_threshold=0.3, stale_hours=24)
+
+        assert demoted == 0
+        db.set_wallet_watched.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_wallets_to_rescore(self, mock_redis: Any) -> None:
+        """No stale wallets → returns 0 immediately."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.get_watched_wallets_needing_rescore = AsyncMock(return_value=[])
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=AsyncMock())
+
+        demoted = await tracker.re_score_watched_wallets()
+        assert demoted == 0
+
+    @pytest.mark.asyncio
+    async def test_no_db_returns_zero(self, mock_redis: Any) -> None:
+        """No DB configured → returns 0."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        tracker = WalletTracker(redis=mock_redis, db=None, data_client=AsyncMock())
+
+        demoted = await tracker.re_score_watched_wallets()
+        assert demoted == 0
+
+
+class TestDatabaseWatchedWalletsNeedingRescore:
+    """Tests for get_watched_wallets_needing_rescore DB method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_stale_watched_wallets(self) -> None:
+        from synesis.storage.database import Database
+
+        db = Database.__new__(Database)
+        db.fetch = AsyncMock(return_value=[{"address": "0xstale1"}, {"address": "0xstale2"}])
+
+        result = await db.get_watched_wallets_needing_rescore("polymarket", stale_hours=24)
+
+        assert result == ["0xstale1", "0xstale2"]
+        db.fetch.assert_called_once()
+        args = db.fetch.call_args[0]
+        assert "is_watched = TRUE" in args[0]
+        assert "wallet_metrics" in args[0]
+        assert args[1] == "polymarket"
+        assert args[2] == 24
+
+
+class TestProcessorRescoreIntegration:
+    """Tests for processor wiring of wallet re-score task."""
+
+    @pytest.mark.asyncio
+    async def test_run_scan_triggers_rescore_on_first_run(self) -> None:
+        """First run_scan should trigger rescore (last_rescore_time is None)."""
+        from synesis.processing.mkt_intel.processor import MarketIntelProcessor
+
+        mock_settings = MagicMock()
+        mock_settings.mkt_intel_auto_watch_threshold = 0.6
+        mock_settings.mkt_intel_unwatch_threshold = 0.3
+
+        mock_scanner = AsyncMock()
+        mock_scanner.scan = AsyncMock(
+            return_value=ScanResult(
+                timestamp=datetime.now(UTC),
+                trending_markets=[_make_market()],
+            )
+        )
+
+        mock_wallet_tracker = AsyncMock()
+        mock_wallet_tracker.check_wallet_activity = AsyncMock(return_value=[])
+        mock_wallet_tracker.discover_and_score_wallets = AsyncMock(return_value=0)
+        mock_wallet_tracker.re_score_watched_wallets = AsyncMock(return_value=0)
+
+        processor = MarketIntelProcessor(
+            settings=mock_settings,
+            scanner=mock_scanner,
+            wallet_tracker=mock_wallet_tracker,
+            ws_manager=None,
+            db=None,
+        )
+
+        await processor.run_scan()
+
+        # Give the background tasks a chance to start
+        await asyncio.sleep(0.01)
+
+        assert processor._last_rescore_time is not None
+        assert processor._rescore_task is not None

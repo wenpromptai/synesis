@@ -2,7 +2,7 @@
 
 This module provides the unified Stage 2 analysis that:
 - Takes message + extraction + web results + polymarket markets
-- Makes ALL informed judgments: tickers, sectors, impact, direction
+- Makes ALL informed judgments: tickers, sectors, sentiment
 - Generates thesis and ticker analyses
 - Evaluates market opportunities
 - Returns unified SmartAnalysis output
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 from pydantic_ai import Agent, RunContext
@@ -37,7 +37,7 @@ from synesis.processing.news.models import (
 
 if TYPE_CHECKING:
     from synesis.markets.polymarket import PolymarketClient, SimpleMarket
-    from synesis.providers import FinnhubService
+    from synesis.providers.base import TickerProvider
 
 logger = get_logger(__name__)
 
@@ -60,7 +60,7 @@ class AnalyzerDeps:
     web_results: list[str]
     markets_text: str
     http_client: httpx.AsyncClient | None = None  # Optional for additional searches
-    finnhub: "FinnhubService | None" = None  # Optional for fundamental data tools
+    ticker_provider: "TickerProvider | None" = None
 
 
 # =============================================================================
@@ -141,7 +141,7 @@ After gathering historical context, reason through:
 
 **Ticker Verification Workflow:**
 1. Extract potential ticker from the news text
-2. If likely a US ticker, call `verify_ticker_finnhub(ticker)` to confirm it exists
+2. If likely a US ticker, call `verify_ticker(ticker)` to confirm it exists
 3. If VERIFIED: include in analysis with the company name returned
 4. If NOT FOUND or error: use `web_search("{ticker} stock ticker price")` to verify
 5. If still unclear: exclude the ticker or note uncertainty
@@ -184,18 +184,10 @@ For each potential ticker, apply this relevance test:
 **When to use web_search:**
 - SEARCH if a company is mentioned but you're unsure of direct impact
 - SKIP search for obvious primary subjects or well-known sector plays
-- Use for non-US tickers after verify_ticker_finnhub returns NOT FOUND
+- Use for non-US tickers after verify_ticker returns NOT FOUND
 - Limit to 1-2 searches max to maintain analysis speed
 
-### 2. Assess Impact (with research context)
-- **predicted_impact**: high | medium | low
-  - high: Major policy changes, earnings surprises >10%, M&A, market-moving
-  - medium: Notable sector news, guidance changes, regulatory actions
-  - low: Commentary, minor updates, already priced in
-- **market_direction**: bullish | bearish | neutral
-  - Consider overall market effect, not just one stock
-
-### 3. Generate Investment Thesis
+### 2. Generate Investment Thesis
 - **primary_thesis**: ONE clear thesis statement
   - Be specific about expected outcome and timeframe
   - Example: "Fed 25bp cut signals dovish pivot; financials may underperform as NIM compression accelerates"
@@ -213,7 +205,7 @@ For each potential ticker, apply this relevance test:
 
 Note: Lower confidence plays (0.3-0.69) can still be valuable for early trend detection. Flag them appropriately but don't exclude them entirely.
 
-### 4. Ticker-Level Analysis
+### 3. Ticker-Level Analysis
 For each directly affected ticker:
 - Bull thesis: Why positive
 - Bear thesis: Why negative
@@ -221,7 +213,7 @@ For each directly affected ticker:
 - Conviction: 0.0 to 1.0
 - Time horizon: intraday | days | weeks | months
 
-### 5. Sector & Subsector Mapping
+### 4. Sector & Subsector Mapping
 
 **Use GICS sectors as top-level classification:**
 Energy | Materials | Industrials | Utilities | Healthcare |
@@ -247,7 +239,7 @@ Information Technology | Communication Services | Real Estate
 - Consumer Staples: food & beverage, household products, tobacco, retail grocery
 - Utilities: electric, gas, water, renewable energy generators
 
-### 6. Historical Context & Market Reaction Patterns
+### 5. Historical Context & Market Reaction Patterns
 
 **Use the web_search tool to find RELEVANT historical precedent. If nothing matches, skip this section.**
 
@@ -276,6 +268,11 @@ Provide structured historical analysis ONLY if you found relevant similar events
 - If no relevant historical precedent found, state: "No relevant historical precedent found - analysis based on first principles"
 - DO NOT fabricate or force irrelevant historical data
 - Better to have NO historical section than misleading context
+
+### 6. Sentiment (DECLARE based on analysis above)
+- **sentiment**: bullish | bearish | neutral
+- **sentiment_score**: -1.0 (max bearish) to 1.0 (max bullish)
+- State label and score directly. Your reasoning is already in the thesis.
 
 ### 7. Evaluate Prediction Markets
 **CRITICAL: You MUST return a MarketEvaluation object for EVERY market in the table below.**
@@ -457,13 +454,13 @@ To determine relevance:
 
 If indirect or keywords match but topics differ, mark as NOT relevant."""
 
-        # Tool: Verify ticker via Finnhub
+        # Tool: Verify ticker
         @agent.tool
-        async def verify_ticker_finnhub(
+        async def verify_ticker(
             ctx: RunContext[AnalyzerDeps],
             ticker: str,
         ) -> str:
-            """Verify if a US ticker symbol exists using Finnhub.
+            """Verify if a US ticker symbol exists.
 
             Use this tool to validate US tickers BEFORE including them in your analysis.
             For non-US tickers, use web_search instead.
@@ -474,7 +471,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             Returns:
                 Verification result - either VERIFIED with company name, NOT FOUND, or error
             """
-            return await _verify_ticker(ticker, ctx.deps.finnhub)
+            return await _verify_ticker(ticker, ctx.deps.ticker_provider)
 
         # Tool: Web search for additional context
         @agent.tool
@@ -523,223 +520,14 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
                 )
 
                 # Validate recency parameter
-                valid_recency = recency if recency in ("day", "week", "month", "year") else "week"
+                valid_recency: Literal["day", "week", "month", "year"] = (
+                    recency if recency in ("day", "week", "month", "year") else "week"  # type: ignore[assignment]
+                )
                 results = await search_market_impact(query, count=5, recency=valid_recency)
                 return format_search_results(results)
             except Exception as e:
                 logger.warning("Web search failed", query=query, error=str(e))
                 return f"Search failed: {e}"
-
-        # Tool: Get stock fundamentals
-        @agent.tool
-        async def get_stock_fundamentals(
-            ctx: RunContext[AnalyzerDeps],
-            ticker: str,
-        ) -> str:
-            """Get key financial metrics for a stock (P/E ratio, market cap, 52-week range).
-
-            Use this to assess if a stock is overvalued/undervalued relative to the news impact.
-
-            Args:
-                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
-
-            Returns:
-                Formatted string with key financial metrics
-            """
-            if ctx.deps.finnhub is None:
-                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
-
-            data = await ctx.deps.finnhub.get_basic_financials(ticker)
-            if not data:
-                return f"No financial data available for {ticker}"
-
-            # Format key metrics for LLM consumption
-            lines = [f"**{ticker} Fundamentals:**"]
-
-            pe = data.get("peRatio")
-            if pe:
-                lines.append(f"- P/E Ratio: {pe:.1f}")
-
-            mktcap = data.get("marketCap")
-            if mktcap:
-                # Convert from millions to billions
-                lines.append(f"- Market Cap: ${mktcap / 1000:.1f}B")
-
-            high52 = data.get("52WeekHigh")
-            low52 = data.get("52WeekLow")
-            if high52 and low52:
-                lines.append(f"- 52-Week Range: ${low52:.2f} - ${high52:.2f}")
-
-            beta = data.get("beta")
-            if beta:
-                lines.append(f"- Beta: {beta:.2f}")
-
-            rev_growth = data.get("revenueGrowth")
-            if rev_growth:
-                lines.append(f"- Revenue Growth (TTM): {rev_growth:.1f}%")
-
-            roe = data.get("roeTTM")
-            if roe:
-                lines.append(f"- ROE (TTM): {roe:.1f}%")
-
-            return "\n".join(lines)
-
-        # Tool: Get insider activity
-        @agent.tool
-        async def get_insider_activity(
-            ctx: RunContext[AnalyzerDeps],
-            ticker: str,
-        ) -> str:
-            """Get recent insider transactions and sentiment for a stock.
-
-            Use this to see if insiders are buying or selling ahead of news.
-            Insider buying is typically a bullish signal; selling can be bearish
-            (but insiders often sell for non-informational reasons).
-
-            Args:
-                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
-
-            Returns:
-                Summary of recent insider activity and MSPR sentiment score
-            """
-            if ctx.deps.finnhub is None:
-                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
-
-            # Fetch both transactions and sentiment in parallel
-            txns = await ctx.deps.finnhub.get_insider_transactions(ticker, limit=5)
-            sentiment = await ctx.deps.finnhub.get_insider_sentiment(ticker)
-
-            lines = [f"**{ticker} Insider Activity:**"]
-
-            # Add sentiment score if available
-            if sentiment and sentiment.get("mspr") is not None:
-                mspr = sentiment["mspr"]
-                change = sentiment.get("change", 0)
-                if mspr > 0:
-                    signal = "bullish (net buying)"
-                elif mspr < 0:
-                    signal = "bearish (net selling)"
-                else:
-                    signal = "neutral"
-                lines.append(f"- MSPR Score: {mspr:.2f} ({signal})")
-                lines.append(f"- Net Share Change: {change:+,.0f}")
-
-            # Add recent transactions
-            if txns:
-                lines.append("\n**Recent Transactions:**")
-                for txn in txns[:5]:
-                    name = txn.get("name", "Unknown")
-                    code = txn.get("transactionCode", "?")
-                    shares = txn.get("shares", 0)
-                    date = txn.get("filingDate", "")
-                    price = txn.get("transactionPrice")
-
-                    action = "bought" if code == "P" else "sold" if code == "S" else code
-                    price_str = f" @ ${price:.2f}" if price else ""
-                    lines.append(f"- {name}: {action} {shares:,} shares{price_str} ({date})")
-            else:
-                lines.append("- No recent insider transactions found")
-
-            return "\n".join(lines)
-
-        # Tool: Get earnings info
-        @agent.tool
-        async def get_earnings_info(
-            ctx: RunContext[AnalyzerDeps],
-            ticker: str,
-        ) -> str:
-            """Get earnings calendar and recent EPS surprises.
-
-            Use this when news might relate to earnings expectations.
-
-            Args:
-                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
-
-            Returns:
-                Upcoming earnings date and recent EPS surprise history
-            """
-            if ctx.deps.finnhub is None:
-                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
-
-            calendar = await ctx.deps.finnhub.get_earnings_calendar(ticker)
-            surprises = await ctx.deps.finnhub.get_eps_surprises(ticker, limit=4)
-
-            lines = [f"**{ticker} Earnings Info:**"]
-
-            # Upcoming earnings
-            if calendar and calendar.get("date"):
-                date = calendar["date"]
-                hour = calendar.get("hour", "")
-                hour_str = (
-                    " (before market)"
-                    if hour == "bmo"
-                    else " (after market)"
-                    if hour == "amc"
-                    else ""
-                )
-                estimate = calendar.get("epsEstimate")
-                estimate_str = f", EPS estimate: ${estimate:.2f}" if estimate else ""
-                lines.append(f"- Next Earnings: {date}{hour_str}{estimate_str}")
-            else:
-                lines.append("- Next Earnings: Not scheduled")
-
-            # EPS surprise history
-            if surprises:
-                lines.append("\n**Recent EPS Surprises:**")
-                for s in surprises:
-                    period = s.get("period", "")
-                    actual = s.get("actual")
-                    estimate = s.get("estimate")
-                    surprise_pct = s.get("surprisePercent")
-
-                    if actual is not None and estimate is not None:
-                        beat = (
-                            "beat"
-                            if actual > estimate
-                            else "missed"
-                            if actual < estimate
-                            else "met"
-                        )
-                        pct_str = f" ({surprise_pct:+.1f}%)" if surprise_pct else ""
-                        lines.append(
-                            f"- {period}: ${actual:.2f} vs ${estimate:.2f} est ({beat}{pct_str})"
-                        )
-            else:
-                lines.append("- No EPS history available")
-
-            return "\n".join(lines)
-
-        # Tool: Get SEC filings
-        @agent.tool
-        async def get_sec_filings(
-            ctx: RunContext[AnalyzerDeps],
-            ticker: str,
-        ) -> str:
-            """Get recent SEC filings (10-K, 8-K, etc).
-
-            Use this when news references regulatory filings or disclosures.
-
-            Args:
-                ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
-
-            Returns:
-                List of recent SEC filings with dates and form types
-            """
-            if ctx.deps.finnhub is None:
-                return "Finnhub not available - fundamental data tools require FINNHUB_API_KEY."
-
-            filings = await ctx.deps.finnhub.get_sec_filings(ticker, limit=5)
-
-            if not filings:
-                return f"No recent SEC filings found for {ticker}"
-
-            lines = [f"**{ticker} Recent SEC Filings:**"]
-            for filing in filings:
-                form = filing.get("form", "Unknown")
-                date = filing.get("filedDate", "")
-                lines.append(f"- {form} filed {date}")
-
-            return "\n".join(lines)
 
         return agent
 
@@ -814,28 +602,23 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
         web_results: list[str],
         markets_text: str,
         http_client: httpx.AsyncClient | None = None,
-        finnhub: "FinnhubService | None" = None,
+        ticker_provider: "TickerProvider | None" = None,
     ) -> SmartAnalysis | None:
         """Analyze news with full research context.
 
         This is the main Stage 2 entry point. It takes all pre-fetched context
         and produces a unified SmartAnalysis with all informed judgments.
 
-        Follows PydanticAI best practices:
-        - Context passed via typed AnalyzerDeps dataclass
-        - Dynamic system prompt injects research context
-        - Simple user prompt focuses on the task
-
         Args:
             message: Original news message
             extraction: Stage 1 extraction result
             web_results: Pre-fetched web search results
             markets_text: Pre-fetched Polymarket search results
-            http_client: Optional HTTP client for additional searches (hybrid pattern)
-            finnhub: Optional FinnhubService for fundamental data tools
+            http_client: Optional HTTP client for additional searches
+            ticker_provider: Optional TickerProvider for ticker verification
 
         Returns:
-            SmartAnalysis with tickers, sectors, impact, markets, and thesis
+            SmartAnalysis with tickers, sectors, sentiment, markets, and thesis
         """
         log = logger.bind(
             message_id=message.external_id,
@@ -846,27 +629,25 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             "Stage 2 smart analysis starting",
             all_entities=extraction.all_entities,
             web_results_count=len(web_results),
-            finnhub_available=finnhub is not None,
         )
 
-        # Create typed deps (PydanticAI pattern)
         deps = AnalyzerDeps(
             message=message,
             extraction=extraction,
             web_results=web_results,
             markets_text=markets_text,
             http_client=http_client,
-            finnhub=finnhub,
+            ticker_provider=ticker_provider,
         )
 
         # Simple user prompt - context is injected via dynamic system prompt
         user_prompt = """Analyze this news. Determine:
 1. Affected tickers and sectors (use research to validate)
-2. Impact level and market direction (use research for context)
-3. Primary investment thesis with confidence score
-4. Ticker-level analysis with bull/bear thesis for each
-5. Sector implications
-6. Historical precedents from web research
+2. Primary investment thesis with confidence score
+3. Ticker-level analysis with bull/bear thesis for each
+4. Sector implications
+5. Historical precedents from web research
+6. Sentiment and sentiment score (based on your analysis above)
 7. Evaluate EACH prediction market from the table
 
 **CRITICAL for market_evaluations**:
@@ -898,8 +679,8 @@ Focus on DIRECT impacts. Be conservative with confidence scores."""
                 "Stage 2 smart analysis complete",
                 tickers=output.tickers,
                 sectors=output.sectors,
-                impact=output.predicted_impact.value,
-                direction=output.market_direction.value,
+                sentiment=output.sentiment.value,
+                sentiment_score=output.sentiment_score,
                 thesis_confidence=f"{output.thesis_confidence:.0%}",
                 markets_evaluated=len(output.market_evaluations),
                 has_edge=output.has_tradable_edge,
@@ -926,7 +707,7 @@ async def analyze_with_context(
     markets_text: str,
     polymarket_client: "PolymarketClient | None" = None,
     http_client: httpx.AsyncClient | None = None,
-    finnhub: "FinnhubService | None" = None,
+    ticker_provider: "TickerProvider | None" = None,
 ) -> SmartAnalysis | None:
     """Convenience function for Stage 2 smart analysis.
 
@@ -936,8 +717,8 @@ async def analyze_with_context(
         web_results: Pre-fetched web search results
         markets_text: Pre-fetched Polymarket search results
         polymarket_client: Optional Polymarket client
-        http_client: Optional HTTP client for additional searches (hybrid pattern)
-        finnhub: Optional FinnhubService for fundamental data tools
+        http_client: Optional HTTP client for additional searches
+        ticker_provider: Optional TickerProvider for ticker verification
 
     Returns:
         SmartAnalysis with all informed judgments
@@ -950,7 +731,7 @@ async def analyze_with_context(
             web_results,
             markets_text,
             http_client=http_client,
-            finnhub=finnhub,
+            ticker_provider=ticker_provider,
         )
     finally:
         await analyzer.close()

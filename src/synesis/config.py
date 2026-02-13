@@ -173,9 +173,33 @@ class Settings(BaseSettings):
         default="factset",
         description="Ticker validation provider (factset, finnhub)",
     )
-    fundamentals_provider: Literal["finnhub", "none"] = Field(
-        default="finnhub",
-        description="Fundamentals data provider (finnhub, polygon, none)",
+    fundamentals_provider: Literal["finnhub", "sec_edgar", "none"] = Field(
+        default="sec_edgar",
+        description="Fundamentals data provider (sec_edgar, finnhub, none)",
+    )
+
+    # SEC EDGAR (free, no key required)
+    sec_edgar_user_agent: str = Field(
+        default="Synesis synesis@example.com",
+        description="User-Agent header for SEC EDGAR API (required by SEC)",
+    )
+    sec_edgar_cache_ttl_submissions: int = Field(
+        default=3600,
+        description="Cache TTL for SEC EDGAR submissions (seconds)",
+    )
+    sec_edgar_cache_ttl_cik_map: int = Field(
+        default=86400,
+        description="Cache TTL for SEC ticker→CIK mapping (seconds)",
+    )
+
+    # NASDAQ (free, no key required)
+    nasdaq_cache_ttl_earnings: int = Field(
+        default=21600,
+        description="Cache TTL for NASDAQ earnings calendar per date (seconds)",
+    )
+    nasdaq_earnings_lookahead_days: int = Field(
+        default=14,
+        description="Number of days to look ahead for upcoming earnings",
     )
 
     # Crawl4AI (web crawling)
@@ -183,11 +207,6 @@ class Settings(BaseSettings):
         default="http://localhost:11235",
         description="Crawl4AI service URL",
     )
-    crawl4ai_api_token: SecretStr | None = Field(
-        default=None,
-        description="Optional Crawl4AI API token for authentication",
-    )
-
     # FactSet SQL Server
     sqlserver_host: str = Field(
         default="",
@@ -344,6 +363,30 @@ class Settings(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Insider score threshold for auto-watching discovered wallets",
+    )
+    mkt_intel_unwatch_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Insider score below which watched wallets are demoted",
+    )
+
+    # Watchlist Intelligence (Flow 4)
+    watchlist_intel_enabled: bool = Field(default=False)
+    watchlist_intel_interval: int = Field(
+        default=21600,
+        gt=0,
+        description="Watchlist analysis interval in seconds (default 6h)",
+    )
+    watchlist_intel_earnings_alert_days: int = Field(
+        default=7,
+        gt=0,
+        description="Alert if earnings within N days",
+    )
+    watchlist_intel_max_tickers: int = Field(
+        default=30,
+        gt=0,
+        description="Max tickers to analyze per cycle",
     )
 
     # Trading

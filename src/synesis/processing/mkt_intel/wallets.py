@@ -11,7 +11,13 @@ import asyncio
 import math
 from typing import TYPE_CHECKING
 
-from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX
+from synesis.core.constants import (
+    MARKET_INTEL_REDIS_PREFIX,
+    WALLET_ACTIVITY_MAX_MARKETS,
+    WALLET_API_DELAY_SECONDS,
+    WALLET_DISCOVERY_TOP_N_MARKETS,
+    WALLET_TOP_HOLDERS_LIMIT,
+)
 from synesis.core.logging import get_logger
 from synesis.markets.models import InsiderAlert, UnifiedMarket
 
@@ -23,12 +29,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Rate limiting delay between API calls (100ms)
-_API_DELAY_SECONDS = 0.1
-
 _WALLETS_KEY = f"{MARKET_INTEL_REDIS_PREFIX}:wallets:watched"
 _SCORE_PREFIX = f"{MARKET_INTEL_REDIS_PREFIX}:wallets:score"
-_SCORE_TTL = 3600  # 1 hour cache
 
 
 class WalletTracker:
@@ -100,10 +102,10 @@ class WalletTracker:
         # Only check Polymarket markets (Kalshi has no public wallet data)
         poly_markets = [m for m in markets if m.platform == "polymarket" and m.condition_id]
 
-        for market in poly_markets[:20]:  # Limit API calls
+        for market in poly_markets[:WALLET_ACTIVITY_MAX_MARKETS]:
             try:
                 holders = await self._data_client.get_top_holders(
-                    market.condition_id or "", limit=20
+                    market.condition_id or "", limit=WALLET_TOP_HOLDERS_LIMIT
                 )
                 for holder in holders:
                     address = str(holder.get("address", "")).lower()
@@ -157,7 +159,9 @@ class WalletTracker:
 
         discovered: list[str] = []
         try:
-            holders = await self._data_client.get_top_holders(condition_id, limit=20)
+            holders = await self._data_client.get_top_holders(
+                condition_id, limit=WALLET_TOP_HOLDERS_LIMIT
+            )
             for holder in holders:
                 address = holder.get("address", "")
                 if not address:
@@ -247,12 +251,71 @@ class WalletTracker:
             )
             return 0.0, 0
 
+    async def re_score_watched_wallets(
+        self,
+        unwatch_threshold: float = 0.3,
+        stale_hours: int = 24,
+    ) -> int:
+        """Re-score all watched wallets and demote those below threshold.
+
+        Args:
+            unwatch_threshold: Insider score below which wallets are demoted
+            stale_hours: Only re-score wallets not scored within this many hours
+
+        Returns:
+            Number of demoted wallets
+        """
+        if not self._data_client or not self._db:
+            return 0
+
+        log = logger.bind(unwatch_threshold=unwatch_threshold, stale_hours=stale_hours)
+        log.info("Starting watched wallet re-score")
+
+        addresses = await self._db.get_watched_wallets_needing_rescore(
+            "polymarket", stale_hours=stale_hours
+        )
+        if not addresses:
+            log.info("No watched wallets need re-scoring")
+            return 0
+
+        log.info("Watched wallets to re-score", count=len(addresses))
+
+        demoted = 0
+        for address in addresses:
+            try:
+                insider_score, _total_trades = await self.update_wallet_metrics(address)
+
+                if insider_score < unwatch_threshold:
+                    await self._db.set_wallet_watched(address, "polymarket", False)
+                    demoted += 1
+                    log.info(
+                        "Wallet demoted (unwatched)",
+                        address=address[:10] + "...",
+                        insider_score=f"{insider_score:.2f}",
+                    )
+
+                await asyncio.sleep(WALLET_API_DELAY_SECONDS)
+            except Exception as e:
+                log.warning(
+                    "Failed to re-score wallet",
+                    address=address[:10],
+                    error=str(e),
+                )
+
+        log.info(
+            "Watched wallet re-score complete",
+            total_rescored=len(addresses),
+            demoted=demoted,
+        )
+        return demoted
+
     async def discover_and_score_wallets(
         self,
         markets: list[UnifiedMarket],
-        top_n_markets: int = 5,
+        top_n_markets: int = WALLET_DISCOVERY_TOP_N_MARKETS,
         auto_watch_threshold: float = 0.6,
         min_trades_to_watch: int = 20,
+        unwatch_threshold: float = 0.3,
     ) -> int:
         """Discover wallets from top holders and auto-watch high scorers.
 
@@ -296,14 +359,14 @@ class WalletTracker:
         for market in target_markets:
             try:
                 holders = await self._data_client.get_top_holders(
-                    market.condition_id or "", limit=20
+                    market.condition_id or "", limit=WALLET_TOP_HOLDERS_LIMIT
                 )
                 for holder in holders:
                     address = holder.get("address", "")
                     if address:
                         discovered_addresses.add(address.lower())
                 # Rate limit between API calls
-                await asyncio.sleep(_API_DELAY_SECONDS)
+                await asyncio.sleep(WALLET_API_DELAY_SECONDS)
             except Exception as e:
                 log.warning(
                     "Failed to get holders for market",
@@ -337,8 +400,13 @@ class WalletTracker:
             needing_update=len(addresses_needing_update),
         )
 
-        # Step 4: Score wallets and auto-watch high scorers
+        # Step 4: Build set of currently watched addresses for demotion check
+        watched_wallets = await self.get_watched_wallets()
+        watched_addresses = {str(w["address"]).lower() for w in watched_wallets}
+
+        # Step 5: Score wallets, auto-watch high scorers, demote degraded ones
         newly_watched = 0
+        demoted = 0
         scored_count = 0
 
         for address in addresses_needing_update:
@@ -356,9 +424,17 @@ class WalletTracker:
                         insider_score=f"{insider_score:.2f}",
                         total_trades=total_trades,
                     )
+                elif address in watched_addresses and insider_score < unwatch_threshold:
+                    await self._db.set_wallet_watched(address, "polymarket", False)
+                    demoted += 1
+                    log.info(
+                        "Wallet demoted during discovery",
+                        address=address[:10] + "...",
+                        insider_score=f"{insider_score:.2f}",
+                    )
 
                 # Rate limit between API calls
-                await asyncio.sleep(_API_DELAY_SECONDS)
+                await asyncio.sleep(WALLET_API_DELAY_SECONDS)
             except Exception as e:
                 log.warning(
                     "Failed to score wallet",
@@ -371,6 +447,7 @@ class WalletTracker:
             discovered=len(discovered_addresses),
             scored=scored_count,
             newly_watched=newly_watched,
+            demoted=demoted,
         )
 
         return newly_watched

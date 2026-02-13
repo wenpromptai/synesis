@@ -21,10 +21,7 @@ async def init_redis(redis_url: str) -> Redis:
     """Initialize the global Redis instance."""
     global _redis
     _redis = Redis.from_url(redis_url, decode_responses=False)
-    # Test connection
-    pong = _redis.ping()
-    if hasattr(pong, "__await__"):
-        await pong
+    await _redis.ping()  # type: ignore[misc]
     logger.info("Redis connected")
     return _redis
 

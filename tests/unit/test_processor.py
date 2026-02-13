@@ -9,7 +9,6 @@ from synesis.core.processor import NewsProcessor, ProcessingResult
 from synesis.processing.news import (
     Direction,
     EventType,
-    ImpactLevel,
     LightClassification,
     MarketEvaluation,
     NewsCategory,
@@ -40,12 +39,11 @@ def create_test_message(
 
 def create_test_extraction(
     urgency: UrgencyLevel = UrgencyLevel.critical,
-    impact: ImpactLevel = ImpactLevel.high,
 ) -> LightClassification:
     """Create a test Stage 1 extraction.
 
     By default, creates an extraction that will pass to Stage 2
-    (urgency=critical + impact=high).
+    (urgency=critical).
     """
     return LightClassification(
         news_category=NewsCategory.breaking,
@@ -57,7 +55,6 @@ def create_test_extraction(
         polymarket_keywords=["Fed", "rate cut"],
         search_keywords=["Fed rate cut forecast"],
         urgency=urgency,
-        predicted_impact=impact,
     )
 
 
@@ -65,7 +62,7 @@ def create_test_analysis(has_edge: bool = False) -> SmartAnalysis:
     """Create a test Stage 2 smart analysis.
 
     In the 2-stage architecture, SmartAnalysis contains ALL informed judgments:
-    - tickers, sectors, impact, direction (moved from old LightClassification)
+    - tickers, sectors, sentiment (moved from old LightClassification)
     - ticker analyses, sector implications (from old InvestmentAnalysis)
     - market evaluations (from old EvaluatorOutput)
     """
@@ -91,8 +88,8 @@ def create_test_analysis(has_edge: bool = False) -> SmartAnalysis:
         # Informed judgments (made with research context)
         tickers=["SPY", "QQQ"],
         sectors=["financials"],
-        predicted_impact=ImpactLevel.high,
-        market_direction=Direction.bullish,
+        sentiment=Direction.bullish,
+        sentiment_score=0.7,
         # Thesis
         primary_thesis="Dovish Fed pivot supports risk assets",
         thesis_confidence=0.75,

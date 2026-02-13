@@ -1,11 +1,10 @@
 """Integration smoke test for sentiment pipeline (Reddit).
 
-Uses REAL APIs (Reddit RSS, LLM, Finnhub, Telegram) with mocked storage.
+Uses REAL APIs (Reddit RSS, LLM, Telegram) with mocked storage.
 Run with: pytest -m integration
 
 Environment variables required:
 - ANTHROPIC_API_KEY or OPENAI_API_KEY
-- FINNHUB_API_KEY (for ticker validation)
 - TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (for notifications)
 """
 
@@ -32,7 +31,7 @@ class TestSentimentE2E:
         self,
         mock_redis: Any,
         mock_db: Any,
-        finnhub_service: Any,
+        ticker_provider: Any,
         subreddits: list[str],
     ) -> None:
         """Smoke test: Full sentiment pipeline with real Reddit + LLM + Telegram.
@@ -65,7 +64,9 @@ class TestSentimentE2E:
         assert len(all_posts) > 0, "No posts fetched"
 
         # Process through sentiment pipeline
-        processor = SentimentProcessor(settings, mock_redis, db=mock_db, finnhub=finnhub_service)
+        processor = SentimentProcessor(
+            settings, mock_redis, db=mock_db, ticker_provider=ticker_provider
+        )
 
         try:
             print(f"\n{'=' * 60}")

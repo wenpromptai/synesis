@@ -22,7 +22,6 @@ from synesis.processing.news import (
     Direction,
     EventType,
     NewsSignal,
-    ImpactLevel,
     LightClassification,
     MarketEvaluation,
     NewsCategory,
@@ -152,8 +151,8 @@ class TestEmitSignalToDb:
         analysis = SmartAnalysis(
             tickers=["SPY"],
             sectors=[],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Test",
             thesis_confidence=0.8,
         )
@@ -186,8 +185,8 @@ class TestEmitSignalToDb:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.low,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
         )
@@ -301,8 +300,8 @@ class TestEmitCombinedTelegram:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.low,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Low confidence",
             thesis_confidence=0.3,  # Even low confidence is sent now
         )
@@ -335,8 +334,8 @@ class TestEmitCombinedTelegram:
         analysis = SmartAnalysis(
             tickers=["SPY"],
             sectors=[],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Bullish thesis",
             thesis_confidence=0.8,  # Above 0.5 threshold
         )

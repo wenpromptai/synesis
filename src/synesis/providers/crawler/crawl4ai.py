@@ -70,7 +70,7 @@ class Crawl4AICrawlerProvider:
         self._base_url = (
             base_url or getattr(settings, "crawl4ai_url", None) or "http://localhost:11235"
         )
-        self._api_token = api_token or getattr(settings, "crawl4ai_api_token", None)
+        self._api_token = api_token
         self._timeout = timeout
         self._http_client: httpx.AsyncClient | None = None
 

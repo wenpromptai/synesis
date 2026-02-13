@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from synesis.ingestion.reddit import RedditPost
 
@@ -170,15 +169,6 @@ class SentimentRefinement(BaseModel):
     sentiment_confidence: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Confidence in overall sentiment"
     )
-    extreme_bullish_tickers: list[str] = Field(
-        default_factory=list,
-        description="Tickers with >85% bullish sentiment",
-    )
-    extreme_bearish_tickers: list[str] = Field(
-        default_factory=list,
-        description="Tickers with >85% bearish sentiment",
-    )
-
     # Narrative
     narrative_summary: str = Field(
         default="",
@@ -193,16 +183,6 @@ class SentimentRefinement(BaseModel):
 # =============================================================================
 # Flow 2 Signal Output Models
 # =============================================================================
-
-
-class StockEmotion(str, Enum):
-    """Dominant emotion for a stock based on sentiment."""
-
-    euphoric = "euphoric"  # Extreme bullish
-    bullish = "bullish"  # Moderately positive
-    neutral = "neutral"  # Mixed or indifferent
-    fearful = "fearful"  # Moderately negative
-    panic = "panic"  # Extreme bearish
 
 
 class PostSentiment(BaseModel):
@@ -231,27 +211,15 @@ class TickerSentimentSummary(BaseModel):
     bearish_ratio: float = Field(
         default=0.0, ge=0.0, le=1.0, description="Ratio of bearish mentions"
     )
-    neutral_ratio: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="Ratio of neutral mentions"
-    )
     avg_sentiment: float = Field(default=0.0, description="Average sentiment score (-1.0 to 1.0)")
 
     # Derived fields
-    dominant_emotion: StockEmotion = Field(
-        default=StockEmotion.neutral, description="Dominant emotion category"
-    )
-    sentiment_delta_6h: float = Field(
-        default=0.0,
-        description="Change in sentiment vs previous 6h period",
-    )
     volume_zscore: float = Field(
         default=0.0,
         description="Z-score of mention volume vs historical average",
     )
 
     # Flags
-    is_extreme_bullish: bool = Field(default=False, description="True if >85% bullish")
-    is_extreme_bearish: bool = Field(default=False, description="True if >85% bearish")
     is_volume_spike: bool = Field(default=False, description="True if volume z-score > 2")
 
     # Supporting posts
@@ -263,15 +231,6 @@ class TickerSentimentSummary(BaseModel):
         default_factory=list,
         description="Key catalysts identified",
     )
-
-    @model_validator(mode="after")
-    def validate_ratios_sum(self) -> "TickerSentimentSummary":
-        """Validate that sentiment ratios sum to approximately 1.0."""
-        total = self.bullish_ratio + self.bearish_ratio + self.neutral_ratio
-        # Allow small floating point errors and skip validation if all zeros (defaults)
-        if total > 0 and not (0.99 <= total <= 1.01):
-            raise ValueError(f"Sentiment ratios must sum to 1.0, got {total:.4f}")
-        return self
 
 
 class SentimentSignal(BaseModel):
@@ -306,16 +265,6 @@ class SentimentSignal(BaseModel):
     total_posts_analyzed: int = Field(default=0, description="Total posts analyzed")
     high_quality_posts: int = Field(default=0, description="High quality posts count")
     spam_posts: int = Field(default=0, description="Spam posts filtered")
-
-    # Extreme sentiment alerts
-    extreme_sentiments: list[str] = Field(
-        default_factory=list,
-        description="Tickers with extreme sentiment (>85% one direction)",
-    )
-    biggest_movers: list[str] = Field(
-        default_factory=list,
-        description="Tickers with largest sentiment change",
-    )
 
     # Overall narrative
     overall_sentiment: Literal["bullish", "bearish", "neutral", "mixed"] = Field(

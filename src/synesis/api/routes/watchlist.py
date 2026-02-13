@@ -112,3 +112,10 @@ async def remove_ticker(ticker: str, redis: RedisDep, db: DbDep) -> Response:
 @router.post("/cleanup", response_model=list[str])
 async def cleanup_expired(redis: RedisDep, db: DbDep) -> list[str]:
     return await _get_manager(redis, db).cleanup_expired()
+
+
+@router.post("/analyze", status_code=202)
+async def trigger_analysis(redis: RedisDep) -> dict[str, str]:
+    """Trigger a manual watchlist intelligence scan."""
+    await redis.set("synesis:watchlist_intel:trigger", "1")
+    return {"status": "triggered"}
