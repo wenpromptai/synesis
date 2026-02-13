@@ -80,7 +80,7 @@ class TestWatchlistProcessor:
     def mock_factset(self) -> AsyncMock:
         fs = AsyncMock()
         security = MagicMock()
-        security.proper_name = "Apple Inc."
+        security.configure_mock(name="Apple Inc.")
         fs.resolve_ticker = AsyncMock(return_value=security)
         fs.get_market_cap = AsyncMock(return_value=3_000_000_000_000.0)
         fundamentals_obj = MagicMock(

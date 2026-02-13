@@ -189,7 +189,7 @@ class WatchlistProcessor:
             try:
                 security = await self._factset.resolve_ticker(ticker)
                 if security:
-                    intel.company_name = security.proper_name
+                    intel.company_name = security.name
 
                 market_cap = await self._factset.get_market_cap(ticker)
                 intel.market_cap = market_cap
@@ -408,9 +408,9 @@ class WatchlistProcessor:
                     "Analyze the watchlist data above. "
                     "Produce a TickerReport for each ticker and an overall summary."
                 )
-                result = await self.agent.run(user_prompt, deps=deps)
-                ticker_reports = result.output.ticker_reports
-                summary = result.output.summary
+                agent_result = await self.agent.run(user_prompt, deps=deps)
+                ticker_reports = agent_result.output.ticker_reports
+                summary = agent_result.output.summary
             except Exception as e:
                 logger.exception("Watchlist LLM synthesis failed", error=str(e))
                 summary = f"LLM synthesis failed: {e}"

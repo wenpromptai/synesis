@@ -6,7 +6,7 @@ Signal and report models for the watchlist fundamental analysis flow.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,19 +19,19 @@ class TickerIntelligence(BaseModel):
 
     # FactSet
     market_cap: float | None = None
-    fundamentals: dict | None = None
+    fundamentals: dict[str, Any] | None = None
     price_change_1d: float | None = None
     price_change_1w: float | None = None
     price_change_1m: float | None = None
 
     # SEC EDGAR
-    recent_filings: list[dict] = Field(default_factory=list)
-    insider_sentiment: dict | None = None
-    recent_insider_txns: list[dict] = Field(default_factory=list)
-    eps_history: list[dict] = Field(default_factory=list)
+    recent_filings: list[dict[str, Any]] = Field(default_factory=list)
+    insider_sentiment: dict[str, Any] | None = None
+    recent_insider_txns: list[dict[str, Any]] = Field(default_factory=list)
+    eps_history: list[dict[str, Any]] = Field(default_factory=list)
 
     # Nasdaq
-    next_earnings: dict | None = None
+    next_earnings: dict[str, Any] | None = None
 
 
 class CatalystAlert(BaseModel):
@@ -47,7 +47,7 @@ class CatalystAlert(BaseModel):
     ]
     severity: Literal["high", "medium", "low"]
     summary: str
-    data: dict = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class TickerReport(BaseModel):

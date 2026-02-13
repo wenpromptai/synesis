@@ -9,11 +9,15 @@ Free API — no key required, just a User-Agent header.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
+from xml.etree.ElementTree import Element
+
+import defusedxml.ElementTree as ET
+from defusedxml import DefusedXmlException
 
 import httpx
 import orjson
@@ -33,6 +37,30 @@ SEC_BASE_URL = "https://data.sec.gov"
 SEC_WWW_URL = "https://www.sec.gov"
 SEC_EFTS_URL = "https://efts.sec.gov/LATEST"
 CACHE_PREFIX = "synesis:sec_edgar"
+
+
+class _SECRateLimiter:
+    """Token bucket rate limiter for SEC EDGAR (10 req/sec)."""
+
+    def __init__(self, calls_per_second: int = 10) -> None:
+        self._max_calls = calls_per_second
+        self._calls: list[float] = []
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            self._calls = [t for t in self._calls if t > now - 1.0]
+            if len(self._calls) >= self._max_calls:
+                sleep_time = 1.0 - (now - self._calls[0]) + 0.05
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
+                now = asyncio.get_event_loop().time()
+                self._calls = [t for t in self._calls if t > now - 1.0]
+            self._calls.append(now)
+
+
+_sec_rate_limiter = _SECRateLimiter()
 
 
 class SECEdgarClient:
@@ -66,6 +94,12 @@ class SECEdgarClient:
             )
         return self._http_client
 
+    async def _fetch(self, url: str, **kwargs: Any) -> httpx.Response:
+        """Rate-limited HTTP GET."""
+        await _sec_rate_limiter.acquire()
+        client = self._get_http_client()
+        return await client.get(url, **kwargs)
+
     # ─────────────────────────────────────────────────────────────
     # CIK Mapping
     # ─────────────────────────────────────────────────────────────
@@ -82,9 +116,8 @@ class SECEdgarClient:
             return self._cik_map
 
         # Fetch from SEC
-        client = self._get_http_client()
         try:
-            resp = await client.get(f"{SEC_WWW_URL}/files/company_tickers.json")
+            resp = await self._fetch(f"{SEC_WWW_URL}/files/company_tickers.json")
             resp.raise_for_status()
             data: dict[str, Any] = orjson.loads(resp.content)
         except Exception as e:
@@ -158,9 +191,8 @@ class SECEdgarClient:
             logger.debug("No CIK found for ticker", ticker=ticker)
             return []
 
-        client = self._get_http_client()
         try:
-            resp = await client.get(f"{SEC_BASE_URL}/submissions/CIK{cik}.json")
+            resp = await self._fetch(f"{SEC_BASE_URL}/submissions/CIK{cik}.json")
             resp.raise_for_status()
             data: dict[str, Any] = orjson.loads(resp.content)
         except Exception as e:
@@ -257,7 +289,6 @@ class SECEdgarClient:
         if not form4s:
             return []
 
-        client = self._get_http_client()
         transactions: list[InsiderTransaction] = []
 
         for filing in form4s:
@@ -271,7 +302,7 @@ class SECEdgarClient:
                     raw_doc = doc.split("/", 1)[1]
                     fetch_url = filing.url.replace(doc, raw_doc)
 
-                resp = await client.get(fetch_url)
+                resp = await self._fetch(fetch_url)
                 resp.raise_for_status()
                 parsed = self._parse_form4_xml(resp.text, ticker, filing.filed_date, filing.url)
                 transactions.extend(parsed)
@@ -310,7 +341,7 @@ class SECEdgarClient:
 
         try:
             root = ET.fromstring(xml_text)
-        except ET.ParseError as e:
+        except (ET.ParseError, DefusedXmlException) as e:
             logger.warning("Form 4 XML parse failed", ticker=ticker, error=str(e))
             return []
 
@@ -378,7 +409,6 @@ class SECEdgarClient:
         Returns:
             List of search result dicts with: entity, filed, form, url
         """
-        client = self._get_http_client()
         params: dict[str, str] = {"q": query}
         if forms:
             params["forms"] = ",".join(forms)
@@ -390,7 +420,7 @@ class SECEdgarClient:
                 params["enddt"] = date_to
 
         try:
-            resp = await client.get(
+            resp = await self._fetch(
                 f"{SEC_EFTS_URL}/search-index",
                 params=params,
             )
@@ -497,10 +527,9 @@ class SECEdgarClient:
             logger.debug("No CIK for XBRL lookup", ticker=ticker, concept=concept)
             return []
 
-        client = self._get_http_client()
         url = f"{SEC_BASE_URL}/api/xbrl/companyconcept/CIK{cik}/us-gaap/{concept}.json"
         try:
-            resp = await client.get(url)
+            resp = await self._fetch(url)
             resp.raise_for_status()
             data: dict[str, Any] = orjson.loads(resp.content)
         except httpx.HTTPStatusError as exc:
@@ -651,8 +680,7 @@ class SECEdgarClient:
         # Fallback: fetch raw HTML and strip tags
         if content is None:
             try:
-                client = self._get_http_client()
-                resp = await client.get(filing_url)
+                resp = await self._fetch(filing_url)
                 resp.raise_for_status()
                 content = self._html_to_text(resp.text)
             except Exception:
@@ -728,14 +756,14 @@ class SECEdgarClient:
 # ─────────────────────────────────────────────────────────────
 
 
-def _el_text(parent: ET.Element, tag: str) -> str:
+def _el_text(parent: Element, tag: str) -> str:
     """Get text from a child element, or empty string."""
     el = parent.find(tag)
     return el.text.strip() if el is not None and el.text else ""
 
 
 def _parse_transaction_element(
-    txn_el: ET.Element,
+    txn_el: Element,
     ns: str,
     ticker: str,
     owner_name: str,

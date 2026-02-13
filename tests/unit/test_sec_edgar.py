@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
 
-from synesis.providers.sec_edgar.client import SECEdgarClient
+from synesis.providers.sec_edgar.client import SECEdgarClient, _SECRateLimiter
 from synesis.providers.sec_edgar.models import EarningsRelease, InsiderTransaction
 
 
@@ -908,3 +909,55 @@ class TestEarningsReleases:
 
         assert len(releases) == 3
         assert mock_content.await_count == 3
+
+
+# ---------------------------------------------------------------------------
+# defusedxml XXE Defense
+# ---------------------------------------------------------------------------
+
+
+class TestDefusedXML:
+    def test_billion_laughs_returns_empty(self):
+        """Entity expansion (billion laughs) payload is rejected by defusedxml."""
+        billion_laughs = """<?xml version="1.0"?>
+<!DOCTYPE lolz [
+  <!ENTITY lol "lol">
+  <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+  <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+  <!ENTITY lol4 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">
+]>
+<ownershipDocument>&lol4;</ownershipDocument>"""
+        result = SECEdgarClient._parse_form4_xml(
+            billion_laughs,
+            ticker="AAPL",
+            filing_date=date(2026, 1, 1),
+            filing_url="https://example.com",
+        )
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Rate Limiter
+# ---------------------------------------------------------------------------
+
+
+class TestSECRateLimiter:
+    async def test_burst_within_limit(self):
+        """10 rapid calls should complete without delay."""
+        limiter = _SECRateLimiter(calls_per_second=10)
+        start = asyncio.get_event_loop().time()
+        for _ in range(10):
+            await limiter.acquire()
+        elapsed = asyncio.get_event_loop().time() - start
+        # 10 calls within limit should be near-instant
+        assert elapsed < 0.1
+
+    async def test_11th_call_is_throttled(self):
+        """11th call within 1 second should be delayed."""
+        limiter = _SECRateLimiter(calls_per_second=10)
+        start = asyncio.get_event_loop().time()
+        for _ in range(11):
+            await limiter.acquire()
+        elapsed = asyncio.get_event_loop().time() - start
+        # 11th call should wait ~1 second for the window to slide
+        assert elapsed >= 0.5
