@@ -18,7 +18,6 @@ Architecture follows PydanticAI best practices:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent, RunContext
@@ -32,7 +31,6 @@ from synesis.processing.sentiment.models import (
     SentimentSignal,
     SentimentRefinement,
     SentimentRefinementDeps,
-    StockEmotion,
     TickerSentimentSummary,
 )
 from synesis.processing.common.llm import create_model
@@ -42,7 +40,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from synesis.config import Settings
-    from synesis.providers.base import PriceProvider, TickerProvider
+    from synesis.providers.base import TickerProvider
     from synesis.storage.database import Database
 
 logger = get_logger(__name__)
@@ -143,7 +141,6 @@ class SentimentProcessor:
         settings: Settings,
         redis: Redis,
         db: Database | None = None,
-        price_service: "PriceProvider | None" = None,
         ticker_provider: "TickerProvider | None" = None,
         watchlist: "WatchlistManager | None" = None,
     ) -> None:
@@ -153,40 +150,19 @@ class SentimentProcessor:
             settings: Application settings
             redis: Redis client for watchlist storage
             db: Optional PostgreSQL database for persistence
-            price_service: Optional PriceProvider for fetching ticker prices
             ticker_provider: Optional TickerProvider for ticker verification
             watchlist: Optional shared WatchlistManager (created in __main__.py)
         """
         self.settings = settings
         self.redis = redis
         self.db = db
-        self.price_service = price_service
         self._ticker_provider = ticker_provider
 
         # Use provided watchlist or create new one (for standalone use)
         if watchlist is not None:
             self.watchlist = watchlist
         else:
-            # Create with callbacks for dynamic WebSocket subscription management
-            on_ticker_added = None
-            on_ticker_removed = None
-            if price_service:
-
-                async def subscribe_ticker(ticker: str) -> None:
-                    await price_service.subscribe([ticker])
-
-                async def unsubscribe_ticker(ticker: str) -> None:
-                    await price_service.unsubscribe([ticker])
-
-                on_ticker_added = subscribe_ticker
-                on_ticker_removed = unsubscribe_ticker
-
-            self.watchlist = WatchlistManager(
-                redis,
-                db=db,
-                on_ticker_added=on_ticker_added,
-                on_ticker_removed=on_ticker_removed,
-            )
+            self.watchlist = WatchlistManager(redis, db=db)
 
         self.lexicon_analyzer = SentimentAnalyzer()
         self._refiner_agent: Agent[SentimentRefinementDeps, SentimentRefinement] | None = None
@@ -557,14 +533,9 @@ Also:
                     # Dead zone: scores in (-0.1, 0.1) are classified as neutral
                     bullish_count = sum(1 for s in scores if s > 0.1)
                     bearish_count = sum(1 for s in scores if s < -0.1)
-                    neutral_count = len(scores) - bullish_count - bearish_count
                     total = len(scores)
                     bullish = bullish_count / total
                     bearish = bearish_count / total
-                    neutral = neutral_count / total
-
-                    # Determine emotion from sentiment
-                    emotion = self._sentiment_to_emotion(ticker.avg_sentiment)
 
                     ticker_sentiments.append(
                         TickerSentimentSummary(
@@ -573,13 +544,7 @@ Also:
                             mention_count=len(scores),
                             bullish_ratio=bullish,
                             bearish_ratio=bearish,
-                            neutral_ratio=neutral,
                             avg_sentiment=ticker.avg_sentiment,
-                            dominant_emotion=emotion,
-                            is_extreme_bullish=ticker.ticker
-                            in (refinement.extreme_bullish_tickers or []),
-                            is_extreme_bearish=ticker.ticker
-                            in (refinement.extreme_bearish_tickers or []),
                             key_catalysts=ticker.key_catalysts,
                         )
                     )
@@ -602,12 +567,6 @@ Also:
             total_posts_analyzed=len(self._post_buffer),
             high_quality_posts=refinement.high_quality_posts if refinement else 0,
             spam_posts=refinement.spam_posts if refinement else 0,
-            extreme_sentiments=(
-                (refinement.extreme_bullish_tickers or [])
-                + (refinement.extreme_bearish_tickers or [])
-                if refinement
-                else []
-            ),
             overall_sentiment=(refinement.overall_sentiment if refinement else "neutral"),
             narrative_summary=(refinement.narrative_summary if refinement else ""),
             key_themes=refinement.key_themes if refinement else [],
@@ -621,47 +580,19 @@ Also:
                 # 1. Store the full signal
                 await self.db.insert_sentiment_signal(signal)
 
-                # 2. Fetch prices for all tickers (batch fetch for efficiency)
-                ticker_prices: dict[str, Decimal] = {}
-                if self.price_service and signal.ticker_sentiments:
-                    try:
-                        tickers = [ts.ticker for ts in signal.ticker_sentiments]
-                        ticker_prices = await self.price_service.get_prices(
-                            tickers,
-                            fallback_to_rest=True,
-                        )
-                        if ticker_prices:
-                            log.debug(
-                                "Fetched prices for sentiment snapshots",
-                                tickers=list(ticker_prices.keys()),
-                            )
-                    except Exception as e:
-                        log.warning(
-                            "Failed to fetch prices for sentiment snapshots",
-                            error=str(e),
-                        )
-
-                # 3. Store per-ticker sentiment snapshots
+                # 2. Store per-ticker sentiment snapshots
                 for ts in signal.ticker_sentiments:
-                    price_at_signal = ticker_prices.get(ts.ticker.upper())
                     await self.db.insert_sentiment_snapshot(
                         ticker=ts.ticker,
                         snapshot_time=signal.timestamp,
                         bullish_ratio=ts.bullish_ratio,
                         bearish_ratio=ts.bearish_ratio,
-                        neutral_ratio=ts.neutral_ratio,
                         mention_count=ts.mention_count,
-                        dominant_emotion=ts.dominant_emotion.value if ts.dominant_emotion else None,
-                        sentiment_delta_6h=ts.sentiment_delta_6h,
-                        is_extreme_bullish=ts.is_extreme_bullish,
-                        is_extreme_bearish=ts.is_extreme_bearish,
-                        price_at_signal=price_at_signal,
                     )
 
                 log.debug(
                     "Flow 2 signal persisted to PostgreSQL",
                     ticker_snapshots=len(signal.ticker_sentiments),
-                    tickers_with_prices=len(ticker_prices),
                 )
             except Exception as e:
                 log.error(
@@ -686,18 +617,6 @@ Also:
 
         return signal
 
-    def _sentiment_to_emotion(self, sentiment: float) -> StockEmotion:
-        """Convert sentiment score to emotion category."""
-        if sentiment >= 0.6:
-            return StockEmotion.euphoric
-        elif sentiment >= 0.2:
-            return StockEmotion.bullish
-        elif sentiment <= -0.6:
-            return StockEmotion.panic
-        elif sentiment <= -0.2:
-            return StockEmotion.fearful
-        return StockEmotion.neutral
-
     async def close(self) -> None:
         """Clean up resources."""
         # Nothing to clean up currently
@@ -713,7 +632,6 @@ async def create_sentiment_processor(
     settings: Settings,
     redis: Redis,
     db: Database | None = None,
-    price_service: "PriceProvider | None" = None,
     ticker_provider: "TickerProvider | None" = None,
     watchlist: "WatchlistManager | None" = None,
 ) -> SentimentProcessor:
@@ -723,7 +641,6 @@ async def create_sentiment_processor(
         settings: Application settings
         redis: Redis client
         db: Optional PostgreSQL database for persistence
-        price_service: Optional PriceProvider for fetching ticker prices
         ticker_provider: Optional TickerProvider for ticker verification
         watchlist: Optional shared WatchlistManager (created in __main__.py)
 
@@ -734,7 +651,6 @@ async def create_sentiment_processor(
         settings,
         redis,
         db=db,
-        price_service=price_service,
         ticker_provider=ticker_provider,
         watchlist=watchlist,
     )

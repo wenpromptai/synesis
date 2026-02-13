@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -15,8 +14,6 @@ from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
     from datetime import datetime
-
-    import numpy as np
 
     from synesis.processing.mkt_intel.models import MarketIntelSignal
     from synesis.processing.sentiment import SentimentSignal
@@ -94,13 +91,11 @@ class Database:
     async def insert_signal(
         self,
         signal: "NewsSignal",
-        prices_at_signal: dict[str, Decimal] | None = None,
     ) -> None:
         """Insert a NewsSignal into the signals hypertable.
 
         Args:
             signal: The signal to insert
-            prices_at_signal: Optional dict of ticker prices at signal time
         """
         # Serialize signal to JSON for payload
         payload = signal.model_dump(mode="json")
@@ -131,16 +126,9 @@ class Database:
         # Get event type from extraction
         event_type = signal.extraction.event_type.value if signal.extraction else "other"
 
-        # Convert prices to JSON-serializable format
-        prices_json = None
-        if prices_at_signal:
-            prices_json = orjson.dumps({k: float(v) for k, v in prices_at_signal.items()}).decode(
-                "utf-8"
-            )
-
         query = """
-            INSERT INTO signals (time, flow_id, signal_type, payload, markets, tickers, entities, prices_at_signal)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO signals (time, flow_id, signal_type, payload, markets, tickers, entities)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
         """
         await self.execute(
             query,
@@ -151,7 +139,6 @@ class Database:
             orjson.dumps(markets).decode("utf-8") if markets else None,
             tickers,
             entities,
-            prices_json,
         )
         logger.debug(
             "Signal inserted",
@@ -160,35 +147,26 @@ class Database:
             tickers=tickers,
             entities=entities,
             markets_count=len(markets) if markets else 0,
-            has_prices=prices_at_signal is not None,
         )
 
     async def insert_raw_message(
         self,
         message: "UnifiedMessage",
-        embedding: "np.ndarray | None" = None,
     ) -> UUID:
         """Insert a raw message into the raw_messages table.
 
         Args:
             message: The unified message to insert
-            embedding: Optional embedding vector (256-dim)
 
         Returns:
             UUID of the inserted message
         """
-        # Convert embedding to PostgreSQL vector format if provided
-        embedding_str = None
-        if embedding is not None:
-            # Format as PostgreSQL vector literal: [1.0, 2.0, 3.0, ...]
-            embedding_str = "[" + ",".join(str(float(x)) for x in embedding) + "]"
-
         query = """
             INSERT INTO raw_messages (
                 source_platform, source_account, source_type, external_id,
-                raw_text, embedding, source_timestamp
+                raw_text, source_timestamp
             )
-            VALUES ($1, $2, $3, $4, $5, $6::vector, $7)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (source_platform, external_id) DO NOTHING
             RETURNING id
         """
@@ -199,7 +177,6 @@ class Database:
             message.source_type.value,
             message.external_id,
             message.text,
-            embedding_str,
             message.timestamp,
         )
 
@@ -352,13 +329,7 @@ class Database:
         snapshot_time: "datetime",
         bullish_ratio: float,
         bearish_ratio: float,
-        neutral_ratio: float,
         mention_count: int,
-        dominant_emotion: str | None = None,
-        sentiment_delta_6h: float | None = None,
-        is_extreme_bullish: bool = False,
-        is_extreme_bearish: bool = False,
-        price_at_signal: Decimal | float | None = None,
     ) -> None:
         """Insert sentiment snapshot for a ticker.
 
@@ -367,21 +338,14 @@ class Database:
             snapshot_time: Time of the snapshot
             bullish_ratio: Ratio of bullish mentions (0.0 to 1.0)
             bearish_ratio: Ratio of bearish mentions (0.0 to 1.0)
-            neutral_ratio: Ratio of neutral mentions (0.0 to 1.0)
             mention_count: Number of mentions in the period
-            dominant_emotion: Dominant emotion category
-            sentiment_delta_6h: Change from previous 6h period
-            is_extreme_bullish: True if >85% bullish
-            is_extreme_bearish: True if >85% bearish
-            price_at_signal: Stock price at snapshot time
         """
         query = """
             INSERT INTO sentiment_snapshots (
-                ticker, snapshot_time, bullish_ratio, bearish_ratio, neutral_ratio,
-                dominant_emotion, mention_count, sentiment_delta_6h,
-                is_extreme_bullish, is_extreme_bearish, price_at_signal
+                ticker, snapshot_time, bullish_ratio, bearish_ratio,
+                mention_count
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5)
         """
         await self.execute(
             query,
@@ -389,20 +353,13 @@ class Database:
             snapshot_time,
             bullish_ratio,
             bearish_ratio,
-            neutral_ratio,
-            dominant_emotion,
             mention_count,
-            sentiment_delta_6h,
-            is_extreme_bullish,
-            is_extreme_bearish,
-            float(price_at_signal) if price_at_signal is not None else None,
         )
         logger.debug(
             "Sentiment snapshot inserted",
             ticker=ticker,
             snapshot_time=snapshot_time.isoformat(),
             mention_count=mention_count,
-            has_price=price_at_signal is not None,
         )
 
     # -------------------------------------------------------------------------
@@ -574,6 +531,34 @@ class Database:
               )
         """
         rows = await self.fetch(query, platform, addresses, stale_hours)
+        return [row["address"] for row in rows]
+
+    async def get_watched_wallets_needing_rescore(
+        self,
+        platform: str,
+        stale_hours: int = 24,
+    ) -> list[str]:
+        """Return watched wallet addresses whose scores are stale.
+
+        Args:
+            platform: Platform ('polymarket')
+            stale_hours: Hours after which a score is considered stale
+
+        Returns:
+            List of addresses needing re-score
+        """
+        query = """
+            SELECT w.address
+            FROM wallets w
+            LEFT JOIN wallet_metrics wm ON wm.wallet_id = w.id
+            WHERE w.platform = $1
+              AND w.is_watched = TRUE
+              AND (
+                  wm.updated_at IS NULL
+                  OR wm.updated_at < NOW() - make_interval(hours => $2)
+              )
+        """
+        rows = await self.fetch(query, platform, stale_hours)
         return [row["address"] for row in rows]
 
     async def upsert_wallet_metrics(

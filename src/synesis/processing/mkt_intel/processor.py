@@ -1,6 +1,6 @@
 """Flow 3 processor: orchestrates scanner + wallet tracker into signals.
 
-Runs every 15 minutes to generate a MarketIntelSignal.
+Runs every mkt_intel_interval (default 1 hour) to generate a MarketIntelSignal.
 """
 
 from __future__ import annotations
@@ -9,6 +9,10 @@ import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from synesis.core.constants import (
+    WALLET_DISCOVERY_TOP_N_MARKETS,
+    WALLET_RESCORE_INTERVAL_SECONDS,
+)
 from synesis.core.logging import get_logger
 from synesis.markets.models import InsiderAlert, ScanResult, UnifiedMarket, VolumeSpike
 from synesis.processing.mkt_intel.models import (
@@ -43,6 +47,8 @@ class MarketIntelProcessor:
         self._ws_manager = ws_manager
         self._db = db
         self._discovery_task: asyncio.Task[None] | None = None
+        self._rescore_task: asyncio.Task[None] | None = None
+        self._last_rescore_time: datetime | None = None
 
     async def run_scan(self) -> MarketIntelSignal:
         """Run a full scan cycle and generate signal.
@@ -109,6 +115,21 @@ class MarketIntelProcessor:
                 name="wallet_discovery",
             )
 
+        # 8. Re-score watched wallets every 24h (background task)
+        rescore_due = (
+            self._last_rescore_time is None
+            or (now - self._last_rescore_time).total_seconds() >= WALLET_RESCORE_INTERVAL_SECONDS
+        )
+        if rescore_due:
+            if self._rescore_task and not self._rescore_task.done():
+                log.debug("Previous wallet re-score still running, skipping")
+            else:
+                self._last_rescore_time = now
+                self._rescore_task = asyncio.create_task(
+                    self._run_wallet_rescore(),
+                    name="wallet_rescore",
+                )
+
         log.info(
             "Market intel signal generated",
             markets_scanned=signal.total_markets_scanned,
@@ -130,11 +151,22 @@ class MarketIntelProcessor:
         try:
             await self._wallet_tracker.discover_and_score_wallets(
                 trending_markets,
-                top_n_markets=5,
+                top_n_markets=WALLET_DISCOVERY_TOP_N_MARKETS,
                 auto_watch_threshold=self._settings.mkt_intel_auto_watch_threshold,
+                unwatch_threshold=self._settings.mkt_intel_unwatch_threshold,
             )
         except Exception as e:
             logger.error("Wallet discovery background task failed", error=str(e))
+
+    async def _run_wallet_rescore(self) -> None:
+        """Re-score all watched wallets and demote low scorers."""
+        try:
+            demoted = await self._wallet_tracker.re_score_watched_wallets(
+                unwatch_threshold=self._settings.mkt_intel_unwatch_threshold,
+            )
+            logger.info("Wallet re-score complete", demoted=demoted)
+        except Exception as e:
+            logger.error("Wallet re-score background task failed", error=str(e))
 
     def _score_opportunities(
         self,

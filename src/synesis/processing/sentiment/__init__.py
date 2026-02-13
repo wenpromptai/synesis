@@ -15,7 +15,6 @@ from synesis.processing.sentiment.models import (
     SentimentRefinementDeps,
     SentimentResult,
     SentimentSignal,
-    StockEmotion,
     TickerSentimentSummary,
     ValidatedTicker,
 )
@@ -38,7 +37,6 @@ __all__ = [
     "SentimentRefinement",
     "SentimentRefinementDeps",
     "SentimentSignal",
-    "StockEmotion",
     "TickerSentimentSummary",
     "ValidatedTicker",
     # Processor

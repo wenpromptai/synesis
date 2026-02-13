@@ -4,10 +4,10 @@ This module provides fast, tool-free entity extraction that:
 - Extracts primary entity and all mentioned entities
 - Generates search keywords for web and Polymarket research
 - Determines news category and event type
-- Estimates urgency and impact for Stage 2 gating
+- Estimates urgency for Stage 2 gating
 
-Stage 1 makes minimal judgment calls (impact estimate only).
-Tickers, sectors, direction deferred to Stage 2 Smart Analyzer.
+Stage 1 makes minimal judgment calls (urgency only).
+Tickers, sectors, sentiment deferred to Stage 2 Smart Analyzer.
 """
 
 from functools import lru_cache
@@ -25,7 +25,7 @@ from synesis.processing.news.models import (
 logger = get_logger(__name__)
 
 # System prompt for Stage 1: Entity Extraction (minimal judgment calls)
-CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords, numeric data, urgency, impact. NO tickers/sectors/direction.
+CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords, numeric data, urgency. NO tickers/sectors/sentiment.
 
 ## Extract
 
@@ -83,14 +83,8 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
    - low: Opinions, commentary, promotional/spam content
    Mark LOW if: promotional, giveaways, engagement bait, self-promotion, no market relevance
 
-10. **impact** + impact_reasoning (1 sentence):
-    - high: Major policy, earnings surprise >10%, significant M&A, breaking geopolitical
-    - medium: Sector news, guidance, regulatory, expected data
-    - low: Minor updates, commentary, routine, no market relevance
-    Consider: New info or priced in? Major indices or niche? Historical reaction?
-
 ## DO NOT Extract (Stage 2)
-Tickers, sectors, market direction - Stage 2 determines with research."""
+Tickers, sectors, sentiment - Stage 2 determines with research."""
 
 
 def create_classifier_agent() -> Agent[None, LightClassification]:
@@ -120,7 +114,7 @@ class NewsClassifier:
 
     Fast, tool-free extraction that:
     - Extracts entities and keywords (no judgment calls)
-    - All judgment calls (tickers, sectors, impact, direction) happen in Stage 2
+    - All judgment calls (tickers, sectors, sentiment) happen in Stage 2
     """
 
     def __init__(self) -> None:

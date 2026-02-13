@@ -11,7 +11,6 @@ from synesis.processing.news import (
     BeatMissStatus,
     Direction,
     EventType,
-    ImpactLevel,
     LightClassification,
     MarketEvaluation,
     MetricReading,
@@ -88,8 +87,8 @@ def create_sample_analysis() -> SmartAnalysis:
     return SmartAnalysis(
         tickers=["SPY", "TLT", "XLF", "QQQ"],
         sectors=["Financials", "Real Estate", "Technology"],
-        predicted_impact=ImpactLevel.high,
-        market_direction=Direction.bullish,
+        sentiment=Direction.bullish,
+        sentiment_score=0.7,
         primary_thesis="Rate cuts support equity valuations through lower discount rates and reduced borrowing costs, particularly benefiting rate-sensitive sectors like real estate and financials",
         thesis_confidence=0.82,
         ticker_analyses=[

@@ -165,14 +165,6 @@ class UrgencyLevel(str, Enum):
     low = "low"  # Background: opinions, old news, noise
 
 
-class ImpactLevel(str, Enum):
-    """Predicted market impact level."""
-
-    high = "high"
-    medium = "medium"
-    low = "low"
-
-
 class Direction(str, Enum):
     """Market direction prediction."""
 
@@ -199,20 +191,6 @@ class GICSSector(str, Enum):
     information_technology = "Information Technology"
     communication_services = "Communication Services"
     real_estate = "Real Estate"
-
-
-class ResearchAnalysis(BaseModel):
-    """Insights from web research about historical patterns."""
-
-    historical_precedent: str = Field(description="What happened last time similar news occurred")
-    similar_events: list[str] = Field(
-        default_factory=list,
-        description="List of similar historical events",
-    )
-    typical_market_reaction: str = Field(
-        description="How markets typically react to this type of news"
-    )
-    key_insights: str = Field(description="Key takeaways from research relevant to trading")
 
 
 # =============================================================================
@@ -356,8 +334,8 @@ class LightClassification(BaseModel):
     """Stage 1 lightweight entity extractor output.
 
     Fast, tool-free extraction focusing on entities and keywords.
-    Minimal judgment calls (urgency + impact estimate only).
-    Tickers, sectors, direction deferred to Stage 2.
+    Minimal judgment calls (urgency only).
+    Tickers, sectors, sentiment deferred to Stage 2.
     """
 
     # News category (rule-based mostly, LLM fallback)
@@ -402,62 +380,6 @@ class LightClassification(BaseModel):
         description="Message-level urgency for trading prioritization",
     )
     urgency_reasoning: str = Field(default="", description="LLM reasoning for urgency level")
-
-    # Impact (estimated in Stage 1 for gating, refined in Stage 2 with research)
-    predicted_impact: ImpactLevel = Field(
-        default=ImpactLevel.medium,
-        description="Predicted market impact level (high | medium | low)",
-    )
-    impact_reasoning: str = Field(
-        default="",
-        description="Brief reasoning for impact assessment",
-    )
-
-
-class BreakingClassification(BaseModel):
-    """LLM classification output for a news/analysis item.
-
-    The LLM extracts structured information from raw text.
-    NOTE: Urgency is NOT determined by LLM - it comes from source configuration.
-    """
-
-    # News category (breaking / economic_calendar / other)
-    news_category: NewsCategory = Field(
-        default=NewsCategory.other,
-        description="Category: breaking (unexpected), economic_calendar (scheduled), other",
-    )
-
-    # Event classification
-    event_type: EventType
-    summary: str = Field(description="One-sentence summary of the event")
-    confidence: float = Field(ge=0.0, le=1.0, description="Confidence in classification")
-
-    # Impact assessment
-    predicted_impact: ImpactLevel
-    market_direction: Direction
-
-    # Extracted entities (for Flow 2 watchlist)
-    tickers: list[str] = Field(
-        default_factory=list, description="Stock tickers mentioned (e.g., AAPL, TSLA)"
-    )
-    sectors: list[str] = Field(
-        default_factory=list, description="Sectors mentioned (e.g., semiconductors, energy)"
-    )
-
-    # Prediction market search
-    search_keywords: list[str] = Field(
-        default_factory=list, description="Keywords to search Polymarket/Kalshi"
-    )
-    related_markets: list[str] = Field(
-        default_factory=list,
-        description="Specific market topics (e.g., 'Fed rate cut', 'Trump tariffs')",
-    )
-
-    # Research-based analysis from web searches
-    research_analysis: ResearchAnalysis | None = Field(
-        default=None,
-        description="Insights from web research about historical patterns",
-    )
 
 
 # =============================================================================
@@ -614,13 +536,15 @@ class SmartAnalysis(BaseModel):
         default_factory=list,
         description="Sectors affected (informed by research)",
     )
-    predicted_impact: ImpactLevel = Field(
-        default=ImpactLevel.medium,
-        description="Impact level (informed by research)",
-    )
-    market_direction: Direction = Field(
+    sentiment: Direction = Field(
         default=Direction.neutral,
-        description="Market direction (informed by research)",
+        description="Sentiment (informed by research)",
+    )
+    sentiment_score: float = Field(
+        ge=-1.0,
+        le=1.0,
+        default=0.0,
+        description="Sentiment score: -1.0 (max bearish) to 1.0 (max bullish)",
     )
 
     # Primary thesis (from investment analysis)
@@ -743,11 +667,11 @@ class NewsSignal(BaseModel):
     # Stage 2: Smart analysis (all judgment calls happen here with research context)
     analysis: SmartAnalysis | None = Field(
         default=None,
-        description="Stage 2 smart analysis output (tickers, sectors, impact, markets)",
+        description="Stage 2 smart analysis output (tickers, sectors, sentiment, markets)",
     )
 
     # Legacy fields for backwards compatibility
-    classification: BreakingClassification | LightClassification | None = Field(
+    classification: LightClassification | None = Field(
         default=None,
         description="Deprecated: Use extraction instead",
     )

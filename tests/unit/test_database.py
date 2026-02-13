@@ -166,7 +166,6 @@ class TestDatabaseSignalOperations:
             SourcePlatform,
             SourceType,
             Direction,
-            ImpactLevel,
         )
 
         db = Database(dsn="postgresql://localhost/db")
@@ -191,8 +190,8 @@ class TestDatabaseSignalOperations:
         analysis = SmartAnalysis(
             tickers=["SPY"],
             sectors=["financials"],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Bullish",
             thesis_confidence=0.8,
         )
@@ -212,14 +211,11 @@ class TestDatabaseSignalOperations:
         mock_conn.execute.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_insert_signal_with_prices(self) -> None:
-        """Test inserting a NewsSignal with prices_at_signal."""
-        from decimal import Decimal
-
+    async def test_insert_signal_with_analysis(self) -> None:
+        """Test inserting a NewsSignal with analysis data."""
         from synesis.processing.news import (
             Direction,
             EventType,
-            ImpactLevel,
             LightClassification,
             NewsSignal,
             SmartAnalysis,
@@ -248,8 +244,8 @@ class TestDatabaseSignalOperations:
         analysis = SmartAnalysis(
             tickers=["AAPL", "MSFT"],
             sectors=["technology"],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.8,
             primary_thesis="Strong earnings",
             thesis_confidence=0.85,
         )
@@ -264,16 +260,13 @@ class TestDatabaseSignalOperations:
             analysis=analysis,
         )
 
-        prices = {"AAPL": Decimal("175.50"), "MSFT": Decimal("380.25")}
-        await db.insert_signal(signal, prices_at_signal=prices)
+        await db.insert_signal(signal)
 
         mock_conn.execute.assert_called_once()
         call_args = mock_conn.execute.call_args
-        # Verify prices_at_signal is passed as JSON string
-        prices_json = call_args[0][8]
-        assert prices_json is not None
-        assert "175.5" in prices_json
-        assert "380.25" in prices_json
+        # Verify 7 columns (no prices_at_signal)
+        assert "INSERT INTO signals" in call_args[0][0]
+        assert len(call_args[0]) == 8  # query + 7 params
 
     @pytest.mark.anyio
     async def test_insert_raw_message(self) -> None:
@@ -539,8 +532,6 @@ class TestDatabaseSentimentOperations:
     @pytest.mark.anyio
     async def test_insert_sentiment_snapshot_all_params(self) -> None:
         """Test inserting sentiment snapshot with all parameters."""
-        from decimal import Decimal
-
         db = Database(dsn="postgresql://localhost/db")
 
         mock_conn = AsyncMock()
@@ -560,20 +551,14 @@ class TestDatabaseSentimentOperations:
             snapshot_time=now,
             bullish_ratio=0.6,
             bearish_ratio=0.2,
-            neutral_ratio=0.2,
             mention_count=50,
-            dominant_emotion="bullish",
-            sentiment_delta_6h=0.1,
-            is_extreme_bullish=False,
-            is_extreme_bearish=False,
-            price_at_signal=Decimal("175.50"),
         )
 
         mock_conn.execute.assert_called_once()
         call_args = mock_conn.execute.call_args
         assert "INSERT INTO sentiment_snapshots" in call_args[0][0]
-        # Verify price is converted to float
-        assert call_args[0][11] == 175.50
+        # Verify 5 columns: ticker, snapshot_time, bullish_ratio, bearish_ratio, mention_count
+        assert len(call_args[0]) == 6  # query + 5 params
 
     @pytest.mark.anyio
     async def test_insert_sentiment_snapshot_minimal_params(self) -> None:
@@ -597,15 +582,14 @@ class TestDatabaseSentimentOperations:
             snapshot_time=now,
             bullish_ratio=0.33,
             bearish_ratio=0.33,
-            neutral_ratio=0.34,
             mention_count=10,
         )
 
         mock_conn.execute.assert_called_once()
         call_args = mock_conn.execute.call_args
-        # Verify optional params are None
-        assert call_args[0][6] is None  # dominant_emotion
-        assert call_args[0][11] is None  # price_at_signal
+        assert "INSERT INTO sentiment_snapshots" in call_args[0][0]
+        # Verify 5 params (no price_at_signal)
+        assert call_args[0][5] == 10  # mention_count is last param
 
     @pytest.mark.anyio
     async def test_deactivate_expired_watchlist(self) -> None:

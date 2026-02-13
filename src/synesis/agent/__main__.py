@@ -21,12 +21,15 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from synesis.processing.mkt_intel.processor import MarketIntelProcessor
+    from synesis.processing.watchlist.processor import WatchlistProcessor
+    from synesis.providers.finnhub.prices import FinnhubPriceProvider
 
 from redis.asyncio import Redis
 
 from synesis.config import Settings
 from synesis.core.logging import get_logger
-from synesis.providers import FactSetTickerProvider, PriceService
+from synesis.providers import FactSetTickerProvider
+from synesis.providers.finnhub.prices import close_price_service, init_price_service
 from synesis.providers.factset.client import get_factset_client
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
@@ -34,12 +37,14 @@ from synesis.ingestion.twitterapi import Tweet, TwitterStreamClient
 from synesis.notifications.telegram import (
     format_mkt_intel_signal,
     format_sentiment_signal,
+    format_watchlist_signal,
     send_long_telegram,
 )
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.sentiment import SentimentProcessor
 from synesis.processing.news import SourcePlatform, SourceType, UnifiedMessage
 from synesis.storage.database import Database, close_database, init_database
+from synesis.storage.redis import close_redis, init_redis
 
 logger = get_logger(__name__)
 
@@ -326,6 +331,67 @@ async def run_mkt_intel_loop(
             logger.exception("Mkt_intel signal generation failed", error=str(e))
 
 
+async def run_watchlist_intel_loop(
+    processor: "WatchlistProcessor",
+    redis: Redis,
+    interval_seconds: int,
+    shutdown_event: asyncio.Event,
+    startup_delay: int = 120,
+) -> None:
+    """Run the watchlist intelligence analysis loop.
+
+    Periodically sweeps watchlist tickers with fundamental providers.
+    """
+    from synesis.core.constants import WATCHLIST_INTEL_REDIS_PREFIX
+
+    signal_channel = "synesis:watchlist_intel:signals"
+    trigger_key = f"{WATCHLIST_INTEL_REDIS_PREFIX}:trigger"
+    first_run = True
+
+    while not shutdown_event.is_set():
+        try:
+            wait_time = startup_delay if first_run else interval_seconds
+
+            # Wait for interval, shutdown, or manual trigger
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=wait_time)
+                break
+            except TimeoutError:
+                pass
+
+            # Check for manual trigger
+            triggered = await redis.get(trigger_key)
+            if triggered:
+                await redis.delete(trigger_key)
+                logger.info("Manual watchlist intel scan triggered")
+
+            first_run = False
+            logger.info("Running watchlist intel scan")
+            signal = await processor.run_analysis()
+
+            # Publish to Redis
+            signal_json = signal.model_dump_json()
+            await redis.publish(signal_channel, signal_json)
+
+            # Send Telegram
+            telegram_message = format_watchlist_signal(signal)
+            sent = await send_long_telegram(telegram_message)
+            if not sent:
+                logger.error(
+                    "Failed to send watchlist intel signal to Telegram",
+                    tickers=signal.tickers_analyzed,
+                )
+
+            logger.info(
+                "Watchlist intel signal generated and published",
+                tickers_analyzed=signal.tickers_analyzed,
+                alerts=len(signal.alerts),
+            )
+
+        except Exception as e:
+            logger.exception("Watchlist intel generation failed", error=str(e))
+
+
 @asynccontextmanager
 async def agent_lifespan(
     settings: Settings,
@@ -340,7 +406,7 @@ async def agent_lifespan(
     redis: Redis | None = None
     db: Database | None = None
     db_initialized = False
-    price_service: PriceService | None = None
+    price_service: FinnhubPriceProvider | None = None
     twitter_client: TwitterStreamClient | None = None
     telegram_listener: TelegramListener | None = None
     reddit_client: RedditRSSClient | None = None
@@ -353,12 +419,15 @@ async def agent_lifespan(
     mkt_intel_kalshi_client = None
     mkt_intel_poly_client = None
     mkt_intel_data_client = None
+    watchlist_intel_task: asyncio.Task[None] | None = None
+    watchlist_intel_factset = None
+    watchlist_intel_sec_edgar = None
+    watchlist_intel_nasdaq = None
 
     try:
-        # 1. Connect to Redis
+        # 1. Connect to Redis (also sets the module-level global for get_redis())
         logger.info("Connecting to Redis")
-        redis = Redis.from_url(settings.redis_url)
-        await redis.ping()  # type: ignore[misc]
+        redis = await init_redis(settings.redis_url)
         logger.info("Redis connected")
 
         # 2. Connect to PostgreSQL (if configured)
@@ -378,7 +447,9 @@ async def agent_lifespan(
 
         # 2b. Initialize PriceService with WebSocket (if Finnhub configured)
         if settings.finnhub_api_key:
-            price_service = PriceService(settings.finnhub_api_key.get_secret_value(), redis)
+            price_service = await init_price_service(
+                settings.finnhub_api_key.get_secret_value(), redis
+            )
             await price_service.start()
             logger.info("PriceService initialized with WebSocket")
         else:
@@ -461,7 +532,6 @@ async def agent_lifespan(
                 settings,
                 redis,
                 db=db,
-                price_service=price_service,
                 watchlist=watchlist,
                 ticker_provider=ticker_provider,
             )
@@ -569,6 +639,60 @@ async def agent_lifespan(
         else:
             logger.info("Market intelligence disabled (mkt_intel_enabled=False)")
 
+        # 5d. Start Watchlist Intelligence (Flow 4) if enabled
+        if settings.watchlist_intel_enabled and redis:
+            from synesis.processing.watchlist.processor import (
+                WatchlistProcessor as WatchlistProc,
+            )
+
+            # Initialize fundamental providers for watchlist only
+            try:
+                from synesis.providers.factset.client import FactSetClient as FSClient
+                from synesis.providers.factset.provider import (
+                    FactSetProvider as FSProvider,
+                )
+
+                fs_client = FSClient()
+                watchlist_intel_factset = FSProvider(client=fs_client)
+                logger.info("Watchlist intel: FactSet provider initialized")
+            except Exception as e:
+                logger.warning("Watchlist intel: FactSet not available", error=str(e))
+
+            try:
+                from synesis.providers.nasdaq.client import NasdaqClient as NQClient
+                from synesis.providers.sec_edgar.client import (
+                    SECEdgarClient as SECClient,
+                )
+
+                watchlist_intel_sec_edgar = SECClient(redis=redis)
+                watchlist_intel_nasdaq = NQClient(redis=redis)
+                logger.info("Watchlist intel: SEC EDGAR + NASDAQ initialized")
+            except Exception as e:
+                logger.warning("Watchlist intel: SEC EDGAR/NASDAQ not available", error=str(e))
+
+            watchlist_intel_processor = WatchlistProc(
+                watchlist=watchlist,
+                factset=watchlist_intel_factset,
+                sec_edgar=watchlist_intel_sec_edgar,
+                nasdaq=watchlist_intel_nasdaq,
+                db=db,
+            )
+
+            watchlist_intel_task = asyncio.create_task(
+                run_watchlist_intel_loop(
+                    watchlist_intel_processor,
+                    redis,
+                    settings.watchlist_intel_interval,
+                    shutdown_event,
+                )
+            )
+            logger.info(
+                "Watchlist intelligence started",
+                interval=settings.watchlist_intel_interval,
+            )
+        else:
+            logger.info("Watchlist intelligence disabled (watchlist_intel_enabled=False)")
+
         # Warn if Telegram notification config is incomplete
         if not settings.telegram_bot_token or not settings.telegram_chat_id:
             logger.warning(
@@ -607,8 +731,6 @@ async def agent_lifespan(
         logger.info("Starting PydanticAI agent")
         agent_task = asyncio.create_task(
             run_pydantic_agent(
-                price_service=price_service,
-                finnhub_api_key=settings.finnhub_api_key,
                 watchlist=watchlist,
                 redis=redis,
                 db=db,
@@ -634,6 +756,7 @@ async def agent_lifespan(
             reddit_enabled=reddit_client is not None,
             sentiment_enabled=sentiment_processor is not None,
             mkt_intel_enabled=mkt_intel_task is not None,
+            watchlist_intel_enabled=watchlist_intel_task is not None,
             watchlist_cleanup_enabled=watchlist_cleanup_task is not None,
             db_enabled=db_initialized,
             queue=INCOMING_QUEUE,
@@ -647,6 +770,8 @@ async def agent_lifespan(
             background_tasks.append(watchlist_cleanup_task)
         if mkt_intel_task:
             background_tasks.append(mkt_intel_task)
+        if watchlist_intel_task:
+            background_tasks.append(watchlist_intel_task)
 
         yield AgentState(
             redis=redis,
@@ -696,6 +821,25 @@ async def agent_lifespan(
                 pass
             logger.info("Mkt_intel signal loop stopped")
 
+        if watchlist_intel_task:
+            watchlist_intel_task.cancel()
+            try:
+                await watchlist_intel_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Watchlist intel loop stopped")
+
+        for wl_client, wl_name in [
+            (watchlist_intel_factset, "Watchlist FactSet"),
+            (watchlist_intel_sec_edgar, "Watchlist SEC EDGAR"),
+            (watchlist_intel_nasdaq, "Watchlist NASDAQ"),
+        ]:
+            if wl_client:
+                try:
+                    await wl_client.close()
+                except Exception as e:
+                    logger.error(f"Failed to close {wl_name} client", error=str(e))
+
         if mkt_intel_ws_manager:
             try:
                 await mkt_intel_ws_manager.stop()
@@ -731,7 +875,7 @@ async def agent_lifespan(
             logger.info("Sentiment processor closed")
 
         if price_service:
-            await price_service.close()
+            await close_price_service()
             logger.info("PriceService closed")
 
         if db_initialized:
@@ -739,7 +883,7 @@ async def agent_lifespan(
             logger.info("PostgreSQL disconnected")
 
         if redis:
-            await redis.close()
+            await close_redis()
             logger.info("Redis disconnected")
 
         logger.info("Agent shutdown complete")

@@ -20,12 +20,15 @@ TELEGRAM_MAX_MESSAGE_LENGTH = 4096  # Telegram API limit
 # ─────────────────────────────────────────────────────────────
 PRICE_CACHE_TTL_SECONDS = 1800  # 30 minutes
 DEDUP_CACHE_TTL_SECONDS = 3600  # 60 minutes
-FINNHUB_CACHE_TTL_FINANCIALS = 3600  # 1 hour
-FINNHUB_CACHE_TTL_INSIDER = 21600  # 6 hours
-FINNHUB_CACHE_TTL_EARNINGS = 86400  # 24 hours
-FINNHUB_CACHE_TTL_FILINGS = 21600  # 6 hours
 FINNHUB_CACHE_TTL_SYMBOL = 604800  # 7 days
 FINNHUB_CACHE_TTL_US_SYMBOLS = 86400  # 24 hours for bulk US symbol list
+
+# SEC EDGAR cache TTLs
+SEC_EDGAR_CACHE_TTL_SUBMISSIONS = 3600  # 1 hour for company submissions/filings
+SEC_EDGAR_CACHE_TTL_CIK_MAP = 86400  # 24 hours for ticker→CIK mapping
+
+# NASDAQ cache TTLs
+NASDAQ_CACHE_TTL_EARNINGS = 21600  # 6 hours for earnings calendar
 
 # ─────────────────────────────────────────────────────────────
 # Default Thresholds (can be overridden in Settings)
@@ -64,3 +67,17 @@ MARKET_INTEL_SNAPSHOT_INTERVAL = 300  # 5 min snapshots for volume tracking
 MARKET_INTEL_MAX_TRACKED_MARKETS = 100  # Max markets to track via WebSocket
 MARKET_INTEL_REDIS_PREFIX = "synesis:mkt_intel"
 KALSHI_RATE_LIMIT_CALLS_PER_SECOND = 10  # Kalshi public API rate limit
+
+# Wallet Tracker
+WALLET_API_DELAY_SECONDS = 0.1  # Rate limiting delay between wallet API calls
+WALLET_SCORE_CACHE_TTL = 3600  # 1 hour cache for wallet scores in Redis
+WALLET_RESCORE_INTERVAL_SECONDS = 86400  # 24h between full re-score cycles
+WALLET_DISCOVERY_TOP_N_MARKETS = 15  # Top markets by volume to scan for wallets
+WALLET_TOP_HOLDERS_LIMIT = 10  # Top holders to fetch per market
+WALLET_ACTIVITY_MAX_MARKETS = 20  # Max markets to check for wallet activity
+
+# ─────────────────────────────────────────────────────────────
+# Watchlist Intelligence (Flow 4)
+# ─────────────────────────────────────────────────────────────
+WATCHLIST_INTEL_REDIS_PREFIX = "synesis:watchlist_intel"
+WATCHLIST_INTEL_DEFAULT_BATCH_SIZE = 5  # parallel ticker fetches

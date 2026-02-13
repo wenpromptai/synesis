@@ -2,7 +2,7 @@
 
 These fixtures provide stateful mock implementations of Redis and PostgreSQL
 that maintain internal state for verification, while allowing real API calls
-(LLM, Finnhub, Polymarket, Telegram) to proceed.
+(LLM, Polymarket, Telegram) to proceed.
 """
 
 from datetime import datetime, timezone
@@ -159,6 +159,19 @@ def mock_redis() -> Any:
     redis.ping = AsyncMock(return_value=True)
     redis.close = AsyncMock()
 
+    def mock_register_script(script: str) -> Any:
+        """Return a callable that mimics a registered Lua script.
+
+        Always returns 0 (no tickers expired) since mock Redis has no TTL expiry.
+        """
+
+        async def lua_script(keys: list[str] | None = None, args: list[str] | None = None) -> int:
+            return 0
+
+        return lua_script
+
+    redis.register_script = mock_register_script
+
     return redis
 
 
@@ -191,24 +204,19 @@ def mock_db() -> Any:
     db._test_watchlist = _test_watchlist
     db._test_sentiment_snapshots = _test_sentiment_snapshots
 
-    async def mock_insert_raw_message(
-        message: Any,
-        embedding: Any = None,
-    ) -> str:
+    async def mock_insert_raw_message(message: Any) -> str:
         _test_raw_messages.append(
             {
                 "message": message,
-                "embedding": embedding,
                 "inserted_at": datetime.now(timezone.utc),
             }
         )
         return f"test-uuid-{len(_test_raw_messages)}"
 
-    async def mock_insert_signal(signal: Any, prices: dict[str, Any] | None = None) -> None:
+    async def mock_insert_signal(signal: Any) -> None:
         _test_signals.append(
             {
                 "signal": signal,
-                "prices": prices,
                 "inserted_at": datetime.now(timezone.utc),
             }
         )
@@ -284,7 +292,6 @@ def test_settings() -> Any:
     This loads settings from environment variables / .env file,
     which should include real API keys for:
     - ANTHROPIC_API_KEY or OPENAI_API_KEY (LLM)
-    - FINNHUB_API_KEY (ticker validation)
     - TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (notifications)
     """
     from synesis.config import get_settings
@@ -293,19 +300,53 @@ def test_settings() -> Any:
 
 
 @pytest.fixture
-def finnhub_service(mock_redis: Any) -> Any:
-    """Create real Finnhub service for ticker validation.
+def sec_edgar_client(mock_redis: Any) -> Any:
+    """SECEdgarClient for filings/insiders/EPS (no key needed)."""
+    from synesis.providers.sec_edgar.client import SECEdgarClient
 
-    Returns None if FINNHUB_API_KEY is not set.
-    Uses mock_redis for caching (Finnhub API uses Redis caching).
-    """
+    return SECEdgarClient(redis=mock_redis)
+
+
+@pytest.fixture
+def nasdaq_client(mock_redis: Any) -> Any:
+    """NasdaqClient for earnings calendar (no key needed)."""
+    from synesis.providers.nasdaq.client import NasdaqClient
+
+    return NasdaqClient(redis=mock_redis)
+
+
+@pytest.fixture
+def factset_provider() -> Any:
+    """FactSetProvider for fundamentals (requires FactSet SQL Server)."""
+    try:
+        from synesis.providers.factset.client import FactSetClient
+        from synesis.providers.factset.provider import FactSetProvider
+
+        return FactSetProvider(client=FactSetClient())
+    except Exception:
+        return None
+
+
+@pytest.fixture
+def ticker_provider(mock_redis: Any) -> Any:
+    """FactSetTickerProvider (requires FactSet SQL Server)."""
+    try:
+        from synesis.providers.factset.client import FactSetClient
+        from synesis.providers.factset.ticker import FactSetTickerProvider
+
+        return FactSetTickerProvider(client=FactSetClient(), redis=mock_redis)
+    except Exception:
+        return None
+
+
+@pytest.fixture
+async def real_redis() -> Any:
+    """Real Redis connection for integration tests."""
+    import redis.asyncio as aioredis
+
     from synesis.config import get_settings
 
     settings = get_settings()
-    if not settings.finnhub_api_key:
-        return None
-
-    from synesis.providers import FinnhubService
-
-    api_key = settings.finnhub_api_key.get_secret_value()
-    return FinnhubService(api_key=api_key, redis=mock_redis)
+    r = aioredis.from_url(settings.redis_url)
+    yield r
+    await r.aclose()

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from synesis.processing.mkt_intel.models import MarketIntelSignal
     from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
     from synesis.processing.sentiment import SentimentSignal
+    from synesis.processing.watchlist.models import WatchlistSignal
 
 logger = get_logger(__name__)
 
@@ -284,11 +285,9 @@ def format_condensed_signal(
     Returns:
         Formatted HTML message for Telegram (single message, ~1500-2000 chars)
     """
-    direction_emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
-    impact_emoji = {"high": "🔥", "medium": "⚡", "low": "ℹ️"}
+    sentiment_emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
 
-    direction = analysis.market_direction.value
-    impact = analysis.predicted_impact.value
+    sentiment = analysis.sentiment.value
 
     # Truncate original message to ~300 chars
     original_text = message.text
@@ -301,7 +300,7 @@ def format_condensed_signal(
         )
 
     # Build message
-    msg = f"""📢 <b>SIGNAL</b> {direction_emoji.get(direction, "⚪")} {direction.upper()} | {impact_emoji.get(impact, "ℹ️")} {impact.upper()}
+    msg = f"""📢 <b>SIGNAL</b> {sentiment_emoji.get(sentiment, "⚪")} {sentiment.upper()} ({analysis.sentiment_score:+.2f})
 
 <blockquote>{_escape_html(original_text)}</blockquote>
 
@@ -312,7 +311,7 @@ def format_condensed_signal(
     if analysis.ticker_analyses:
         msg += "\n\n📊 <b>Tickers</b>"
         for ta in analysis.ticker_analyses:
-            ticker_dir = direction_emoji.get(ta.net_direction.value, "⚪")
+            ticker_dir = sentiment_emoji.get(ta.net_direction.value, "⚪")
             company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
             msg += f"\n{ticker_dir} <code>${ta.ticker}</code>{company_name} {ta.net_direction.value} ({ta.conviction:.0%})"
             if ta.relevance_reason:
@@ -322,7 +321,7 @@ def format_condensed_signal(
     if analysis.sector_implications:
         msg += "\n\n🏭 <b>Sectors</b>"
         for si in analysis.sector_implications:
-            sec_dir = direction_emoji.get(si.direction.value, "⚪")
+            sec_dir = sentiment_emoji.get(si.direction.value, "⚪")
             msg += f"\n{sec_dir} {_escape_html(si.sector)} {si.direction.value}"
 
     # Historical context (full, no truncation)
@@ -374,15 +373,10 @@ def format_combined_signal(
         Formatted HTML message for Telegram (may be long, use send_long_telegram)
     """
     # Emoji mappings
-    direction_emoji = {
+    sentiment_emoji = {
         "bullish": "🟢",
         "bearish": "🔴",
         "neutral": "⚪",
-    }
-    impact_emoji = {
-        "high": "🔥",
-        "medium": "⚡",
-        "low": "ℹ️",
     }
     urgency_emoji = {
         "critical": "🔥",
@@ -407,8 +401,7 @@ def format_combined_signal(
         "low": "🔴 LOW",
     }
 
-    direction = analysis.market_direction.value
-    impact = analysis.predicted_impact.value
+    sentiment = analysis.sentiment.value
     urgency = extraction.urgency.value
     category = extraction.news_category.value
 
@@ -439,7 +432,7 @@ Urgency: {urgency_emoji.get(urgency, urgency)} {urgency.upper()}"""
 
 💡 <b>THESIS</b>
 {_escape_html(analysis.primary_thesis)} (confidence: {analysis.thesis_confidence:.0%})
-Impact: {impact_emoji.get(impact, impact)} {impact.upper()} | Direction: {direction_emoji.get(direction, direction)} {direction.upper()}"""
+Sentiment: {sentiment_emoji.get(sentiment, sentiment)} {sentiment.upper()} ({analysis.sentiment_score:+.2f})"""
 
     # =========================================================================
     # NUMERIC DATA (for economic/earnings)
@@ -491,7 +484,7 @@ Impact: {impact_emoji.get(impact, impact)} {impact.upper()} | Direction: {direct
 📊 <b>TICKERS</b>"""
 
         for ta in analysis.ticker_analyses:
-            ticker_dir = direction_emoji.get(ta.net_direction.value, "⚪")
+            ticker_dir = sentiment_emoji.get(ta.net_direction.value, "⚪")
             company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
             msg += f"""
 {SUBSECTION_SEPARATOR}
@@ -525,7 +518,7 @@ Impact: {impact_emoji.get(impact, impact)} {impact.upper()} | Direction: {direct
 🏭 <b>SECTORS</b>"""
 
         for si in analysis.sector_implications:
-            sec_dir = direction_emoji.get(si.direction.value, "⚪")
+            sec_dir = sentiment_emoji.get(si.direction.value, "⚪")
             msg += f"""
 {SUBSECTION_SEPARATOR}
 {sec_dir} <b>{_escape_html(si.sector)}</b>: {si.direction.value.upper()}
@@ -684,10 +677,10 @@ def format_sentiment_signal(signal: "SentimentSignal") -> str:
    ↳ Catalysts: {catalysts_str}"""
 
             # Add extreme sentiment badge
-            if ts.is_extreme_bullish:
+            if ts.bullish_ratio >= 0.85:
                 msg += """
    🔥 EXTREME BULLISH"""
-            elif ts.is_extreme_bearish:
+            elif ts.bearish_ratio >= 0.85:
                 msg += """
    🔥 EXTREME BEARISH"""
 
@@ -840,5 +833,72 @@ Markets scanned: {signal.total_markets_scanned}"""
 ⏰ <b>Expiring Soon</b>"""
             for line in expiring_lines[:5]:
                 msg += line
+
+    return msg
+
+
+def format_watchlist_signal(signal: "WatchlistSignal") -> str:
+    """Format watchlist intelligence signal for Telegram.
+
+    Args:
+        signal: WatchlistSignal with fundamental analysis results
+
+    Returns:
+        HTML-formatted message for Telegram
+    """
+    outlook_emoji = {
+        "bullish": "🟢",
+        "bearish": "🔴",
+        "neutral": "⚪",
+    }
+    severity_emoji = {
+        "high": "🔴",
+        "medium": "🟡",
+        "low": "⚪",
+    }
+
+    msg = f"""📋 <b>WATCHLIST INTEL</b>
+Tickers analyzed: {signal.tickers_analyzed}"""
+
+    # Alerts section
+    if signal.alerts:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+⚡ <b>Alerts</b>"""
+        for alert in signal.alerts:
+            sev = severity_emoji.get(alert.severity, "⚪")
+            msg += f"""
+{sev} <code>${alert.ticker}</code> — {alert.alert_type.replace("_", " ")}
+   {_escape_html(alert.summary)}"""
+
+    # Ticker reports section
+    if signal.ticker_reports:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+📊 <b>Ticker Reports</b>"""
+        for report in signal.ticker_reports:
+            emoji = outlook_emoji.get(report.overall_outlook, "⚪")
+            company = f" - {_escape_html(report.company_name)}" if report.company_name else ""
+            msg += f"""
+{SUBSECTION_SEPARATOR}
+{emoji} <code>${report.ticker}</code>{company} ({report.overall_outlook.upper()}, {report.confidence:.0%})
+{_escape_html(report.fundamental_summary)}"""
+            if report.catalyst_flags:
+                cats = ", ".join(_escape_html(c) for c in report.catalyst_flags)
+                msg += f"""
+   ✨ Catalysts: {cats}"""
+            if report.risk_flags:
+                risks = ", ".join(_escape_html(r) for r in report.risk_flags)
+                msg += f"""
+   ⚠️ Risks: {risks}"""
+
+    # Summary
+    if signal.summary:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+💬 <i>{_escape_html(signal.summary)}</i>"""
 
     return msg

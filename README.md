@@ -10,6 +10,7 @@ Real-time financial news analysis and prediction market trading system. Transfor
 - **Database:** PostgreSQL 16 + TimescaleDB + pgvector
 - **Cache/Queue:** Redis
 - **LLM:** PydanticAI (Claude / OpenAI)
+- **Data Providers:** SEC EDGAR, NASDAQ, Finnhub, FactSet
 
 ## Quickstart
 
@@ -37,8 +38,14 @@ src/synesis/
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
 │   ├── sentiment/     # Flow 2: Reddit sentiment (Gate 1 lexicon + Gate 2 LLM)
 │   ├── mkt_intel/     # Flow 3: Prediction market intelligence
+│   ├── watchlist/     # Flow 4: Watchlist fundamental intelligence
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
-├── providers/         # External data (Finnhub, FactSet, Crawl4AI)
+├── providers/         # External data providers
+│   ├── finnhub/       # Real-time prices, fundamentals
+│   ├── factset/       # FactSet fundamentals
+│   ├── nasdaq/        # NASDAQ earnings calendar
+│   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
+│   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram notifications
 ├── storage/           # PostgreSQL + Redis clients

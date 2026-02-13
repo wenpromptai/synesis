@@ -17,6 +17,7 @@ from synesis.core.dependencies import (
     get_agent_state,
     get_db,
     get_factset_provider,
+    get_price_provider,
 )
 from synesis.providers.factset.models import (
     FactSetCorporateAction,
@@ -231,6 +232,7 @@ def app(mock_factset, mock_agent_state, mock_redis_dep, mock_db_dep):
     test_app.dependency_overrides[get_agent_state] = lambda: mock_agent_state
     test_app.dependency_overrides[get_redis] = lambda: mock_redis_dep
     test_app.dependency_overrides[get_db] = lambda: mock_db_dep
+    test_app.dependency_overrides[get_price_provider] = lambda: AsyncMock()
 
     return test_app
 
@@ -548,6 +550,14 @@ class TestSystemStatus:
         assert body["telegram"] is False
         assert body["reddit"] is True
         assert body["agent_running"] is True
+
+
+class TestWatchlistAnalyze:
+    async def test_trigger_analysis(self, client: httpx.AsyncClient, mock_redis_dep):
+        r = await client.post(f"{WL_PREFIX}/analyze")
+        assert r.status_code == 202
+        assert r.json() == {"status": "triggered"}
+        mock_redis_dep.set.assert_called_with("synesis:watchlist_intel:trigger", "1")
 
 
 class TestSystemConfig:

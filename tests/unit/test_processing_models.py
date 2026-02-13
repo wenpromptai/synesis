@@ -4,12 +4,10 @@ from datetime import datetime, timezone
 
 
 from synesis.processing.news import (
-    BreakingClassification,
     Direction,
     EvaluatorOutput,
     EventType,
     NewsSignal,
-    ImpactLevel,
     InvestmentAnalysis,
     LightClassification,
     MarketEvaluation,
@@ -82,53 +80,6 @@ class TestUnifiedMessage:
         assert msg.urgency == "high"
 
 
-class TestBreakingClassification:
-    """Tests for BreakingClassification model."""
-
-    def test_create_classification(self) -> None:
-        classification = BreakingClassification(
-            event_type=EventType.macro,
-            summary="Fed cuts rates by 25bps",
-            confidence=0.95,
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
-            tickers=["SPY", "QQQ"],
-            sectors=["financials"],
-            search_keywords=["Fed", "rate cut"],
-            related_markets=["Fed rate cut March 2025"],
-        )
-
-        assert classification.event_type == EventType.macro
-        assert classification.confidence == 0.95
-        assert "SPY" in classification.tickers
-        assert classification.search_keywords == ["Fed", "rate cut"]
-
-    def test_confidence_validation(self) -> None:
-        # Valid confidence
-        classification = BreakingClassification(
-            event_type=EventType.other,
-            summary="Test",
-            confidence=0.5,
-            predicted_impact=ImpactLevel.low,
-            market_direction=Direction.neutral,
-        )
-        assert classification.confidence == 0.5
-
-    def test_empty_lists_default(self) -> None:
-        classification = BreakingClassification(
-            event_type=EventType.other,
-            summary="Test",
-            confidence=0.5,
-            predicted_impact=ImpactLevel.low,
-            market_direction=Direction.neutral,
-        )
-
-        assert classification.tickers == []
-        assert classification.sectors == []
-        assert classification.search_keywords == []
-        assert classification.related_markets == []
-
-
 class TestMarketOpportunity:
     """Tests for MarketOpportunity model."""
 
@@ -177,8 +128,8 @@ class TestNewsSignal:
         analysis = SmartAnalysis(
             tickers=["SPY"],
             sectors=["financials"],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Fed pivot bullish for equities",
             thesis_confidence=0.8,
         )
@@ -689,8 +640,8 @@ class TestSmartAnalysisEdgeBoundaries:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             market_evaluations=[eval_good],
@@ -716,8 +667,8 @@ class TestSmartAnalysisEdgeBoundaries:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             market_evaluations=[eval_at_boundary],
@@ -744,8 +695,8 @@ class TestSmartAnalysisEdgeBoundaries:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             market_evaluations=[eval_confidence_boundary],
@@ -777,8 +728,8 @@ class TestSmartAnalysisEdgeBoundaries:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             market_evaluations=[eval_overvalued],
@@ -792,8 +743,8 @@ class TestSmartAnalysisEdgeBoundaries:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             market_evaluations=[],
@@ -846,8 +797,8 @@ class TestSmartAnalysisEdgeBoundaries:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             market_evaluations=[eval1, eval2, eval3],

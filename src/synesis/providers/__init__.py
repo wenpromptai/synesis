@@ -1,9 +1,5 @@
 """Financial data provider abstractions.
 
-This module provides abstract protocols and factory functions for financial
-data providers. It allows swapping between providers (Finnhub, Polygon,
-Yahoo Finance, etc.) without changing consumer code.
-
 ## Provider Types
 
 - **PriceProvider**: Real-time and historical price data with WebSocket support
@@ -11,52 +7,12 @@ Yahoo Finance, etc.) without changing consumer code.
 - **FundamentalsProvider**: Company fundamental data (financials, filings, etc.)
 - **CrawlerProvider**: Web crawling and content extraction
 
-## Usage
+## Standalone Providers
 
-### Using Factory Functions (Recommended)
-
-```python
-from synesis.providers import create_price_provider, create_ticker_provider
-
-# Create providers based on settings
-price_provider = await create_price_provider(redis)
-ticker_provider = await create_ticker_provider(redis)
-
-# Use the providers
-price = await price_provider.get_price("AAPL")
-is_valid, company = await ticker_provider.verify_ticker("AAPL")
-```
-
-### Using Direct Imports (For Specific Implementations)
-
-```python
-from synesis.providers.finnhub import FinnhubPriceProvider, FinnhubTickerProvider
-
-provider = FinnhubPriceProvider(api_key="...", redis=redis)
-```
-
-### Backwards Compatibility
-
-Existing code using `FinnhubService` can continue to work:
-
-```python
-from synesis.providers import FinnhubService
-
-service = FinnhubService(api_key="...", redis=redis)
-is_valid, company = await service.verify_ticker("AAPL")
-financials = await service.get_basic_financials("AAPL")
-```
-
-## Configuration
-
-Provider selection is controlled via settings:
-
-```python
-# config.py
-price_provider: Literal["finnhub", "polygon", "yahoo"] = "finnhub"
-ticker_provider: Literal["finnhub", "polygon", "sec"] = "finnhub"
-fundamentals_provider: Literal["finnhub", "polygon", "none"] = "finnhub"
-```
+- **Finnhub**: Real-time prices only (WebSocket + /quote)
+- **FactSet**: Fundamentals (P/E, margins, ratios), market cap, ticker verification
+- **SEC EDGAR**: Filings, insider transactions/sentiment, historical EPS/revenue (XBRL)
+- **NASDAQ**: Earnings calendar, EPS forecasts
 """
 
 # Protocols (abstract interfaces)
@@ -69,18 +25,16 @@ from synesis.providers.base import (
 
 # Factory functions
 from synesis.providers.factory import (
-    FinnhubService,  # Backwards compat combined service
-    create_fundamentals_provider,
     create_price_provider,
     create_ticker_provider,
 )
 
-# Finnhub implementations (for direct use if needed)
+# Finnhub implementations (prices only — fundamentals replaced by standalone providers)
 from synesis.providers.finnhub import (
     FinnhubFundamentalsProvider,
     FinnhubPriceProvider,
     FinnhubTickerProvider,
-    # Price service utilities (backwards compat)
+    # Price service utilities
     PriceService,
     RateLimiter,
     close_price_service,
@@ -92,6 +46,19 @@ from synesis.providers.finnhub import (
 # Crawler implementations
 from synesis.providers.crawler import Crawl4AICrawlerProvider
 from synesis.providers.crawler.crawl4ai import CrawlResult
+
+# SEC EDGAR implementation
+from synesis.providers.sec_edgar import (
+    InsiderTransaction,
+    SECEdgarClient,
+    SECFiling,
+)
+
+# NASDAQ implementation
+from synesis.providers.nasdaq import (
+    EarningsEvent,
+    NasdaqClient,
+)
 
 # FactSet implementation
 from synesis.providers.factset import (
@@ -114,12 +81,17 @@ __all__ = [
     # Factory functions
     "create_price_provider",
     "create_ticker_provider",
-    "create_fundamentals_provider",
-    # Finnhub implementations
+    # Finnhub (prices only)
     "FinnhubPriceProvider",
     "FinnhubTickerProvider",
     "FinnhubFundamentalsProvider",
-    "FinnhubService",
+    # SEC EDGAR
+    "SECEdgarClient",
+    "SECFiling",
+    "InsiderTransaction",
+    # NASDAQ
+    "NasdaqClient",
+    "EarningsEvent",
     # Price service utilities
     "PriceService",
     "RateLimiter",

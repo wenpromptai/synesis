@@ -16,7 +16,6 @@ from synesis.notifications.telegram import (
 from synesis.processing.news import (
     Direction,
     EventType,
-    ImpactLevel,
     LightClassification,
     MarketEvaluation,
     SmartAnalysis,
@@ -259,8 +258,8 @@ class TestFormatCombinedSignal:
         analysis = SmartAnalysis(
             tickers=["AAPL"],
             sectors=["technology"],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Apple earnings beat bullish for tech",
             thesis_confidence=0.8,
         )
@@ -274,8 +273,8 @@ class TestFormatCombinedSignal:
         assert "SIGNAL ALERT" in result
         assert "@DeItaone" in result
         assert "Apple" in result
-        assert "HIGH" in result
         assert "BULLISH" in result
+        assert "+0.70" in result
         assert "80%" in result
 
     def test_signal_with_ticker_analyses(self) -> None:
@@ -285,8 +284,8 @@ class TestFormatCombinedSignal:
         analysis = SmartAnalysis(
             tickers=["AAPL"],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.5,
             primary_thesis="Test thesis",
             thesis_confidence=0.7,
             ticker_analyses=[
@@ -320,8 +319,8 @@ class TestFormatCombinedSignal:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=["financials"],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.bearish,
+            sentiment=Direction.bearish,
+            sentiment_score=-0.5,
             primary_thesis="Rate hike negative for banks",
             thesis_confidence=0.6,
             sector_implications=[
@@ -364,8 +363,8 @@ class TestFormatCombinedSignal:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.high,
-            market_direction=Direction.bullish,
+            sentiment=Direction.bullish,
+            sentiment_score=0.7,
             primary_thesis="Fed pivot",
             thesis_confidence=0.8,
             market_evaluations=[market_eval],
@@ -389,8 +388,8 @@ class TestFormatCombinedSignal:
         analysis = SmartAnalysis(
             tickers=[],
             sectors=[],
-            predicted_impact=ImpactLevel.medium,
-            market_direction=Direction.neutral,
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
             primary_thesis="Test",
             thesis_confidence=0.5,
             historical_context="In 2019, similar Fed action led to a 10% rally",
@@ -469,7 +468,7 @@ class TestFormatSentimentSignal:
                     ticker="BULL",
                     mention_count=20,
                     avg_sentiment=0.9,
-                    is_extreme_bullish=True,
+                    bullish_ratio=0.9,
                 ),
             ],
         )
@@ -485,7 +484,7 @@ class TestFormatSentimentSignal:
                     ticker="BEAR",
                     mention_count=20,
                     avg_sentiment=-0.9,
-                    is_extreme_bearish=True,
+                    bearish_ratio=0.9,
                 ),
             ],
         )
