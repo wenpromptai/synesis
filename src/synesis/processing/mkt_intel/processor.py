@@ -74,7 +74,7 @@ class MarketIntelProcessor:
         """
         now = datetime.now(UTC)
         log = logger.bind(scan_time=now.isoformat())
-        log.info("Market intel scan started")
+        log.debug("Market intel scan started")
 
         # 1. Run market scan (includes cross-platform arb detection)
         scan_result = await self._scanner.scan()

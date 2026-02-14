@@ -81,7 +81,7 @@ class FactSetTickerProvider:
                         raw = None
                     if raw:
                         self._symbols = {k: tuple(v) for k, v in raw.items()}
-                        logger.info(
+                        logger.debug(
                             "Loaded tickers from Redis cache",
                             count=len(self._symbols),
                         )
@@ -90,7 +90,7 @@ class FactSetTickerProvider:
                     logger.warning("Failed to parse ticker cache", error=str(e))
 
             # Fetch from FactSet SQL Server
-            logger.info("Fetching all tickers from FactSet...")
+            logger.debug("Fetching all tickers from FactSet...")
             from synesis.providers.factset.queries import ALL_TICKERS
 
             rows = await self._client.execute_query(ALL_TICKERS)
@@ -125,7 +125,7 @@ class FactSetTickerProvider:
             )
 
             self._symbols = symbols
-            logger.info("Loaded tickers from FactSet", count=len(symbols))
+            logger.debug("Loaded tickers from FactSet", count=len(symbols))
             return symbols
 
     # ─────────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ class FactSetTickerProvider:
         self._symbols = None
         await self._redis.delete(CACHE_KEY)
         await self._load_symbols()
-        logger.info("Ticker cache refreshed")
+        logger.debug("Ticker cache refreshed")
 
     async def close(self) -> None:
         """No resources to clean up (client lifecycle managed externally)."""

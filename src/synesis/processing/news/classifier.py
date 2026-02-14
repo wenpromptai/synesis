@@ -176,7 +176,7 @@ class NewsClassifier:
             extraction.urgency = rule_urgency
             extraction.urgency_reasoning = "rule-based match"
 
-        logger.info(
+        logger.debug(
             "Stage 1 extraction complete",
             message_id=message.external_id,
             news_category=extraction.news_category.value,

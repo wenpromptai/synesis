@@ -231,7 +231,7 @@ class TwitterClient:
     async def _poll_loop(self) -> None:
         """Internal polling loop."""
         log = logger.bind(accounts=self.accounts, interval=self.poll_interval)
-        log.info("polling_started")
+        log.debug("polling_started")
 
         while self._running:
             try:
@@ -254,7 +254,7 @@ class TwitterClient:
 
         self._running = True
         self._poll_task = asyncio.create_task(self._poll_loop())
-        logger.info("twitter_client_started", accounts=self.accounts)
+        logger.debug("twitter_client_started", accounts=self.accounts)
 
     async def stop(self) -> None:
         """Stop the polling loop and cleanup."""
@@ -272,7 +272,7 @@ class TwitterClient:
             await self._client.aclose()
             self._client = None
 
-        logger.info("twitter_client_stopped")
+        logger.debug("twitter_client_stopped")
 
     async def __aenter__(self) -> "TwitterClient":
         """Async context manager entry."""
@@ -334,7 +334,7 @@ class TwitterStreamClient:
         event_type = data.get("event_type")
 
         if event_type == "connected":
-            logger.info("twitter_ws_connected")
+            logger.debug("twitter_ws_connected")
         elif event_type == "ping":
             logger.debug("ws_ping", timestamp=data.get("timestamp"))
         elif event_type == "tweet":
@@ -345,7 +345,7 @@ class TwitterStreamClient:
             for tweet_data in tweets_data:
                 try:
                     tweet = self._parse_tweet(tweet_data)
-                    logger.info(
+                    logger.debug(
                         "tweet_received",
                         tweet_id=tweet.tweet_id,
                         username=tweet.username,
@@ -368,7 +368,7 @@ class TwitterStreamClient:
 
         while self._running:
             try:
-                logger.info("ws_connecting", url=self.ws_url)
+                logger.debug("ws_connecting", url=self.ws_url)
 
                 async with websockets.connect(
                     self.ws_url,
@@ -378,7 +378,7 @@ class TwitterStreamClient:
                 ) as ws:
                     self._ws = ws
                     delay = self.reconnect_delay  # Reset delay on successful connect
-                    logger.info("twitter_ws_connected")
+                    logger.debug("twitter_ws_connected")
 
                     async for message in ws:
                         if not self._running:
@@ -395,7 +395,7 @@ class TwitterStreamClient:
             self._ws = None
 
             if self._running:
-                logger.info("ws_reconnecting", delay=delay)
+                logger.debug("ws_reconnecting", delay=delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self.max_reconnect_delay)
 
@@ -406,7 +406,7 @@ class TwitterStreamClient:
 
         self._running = True
         self._listen_task = asyncio.create_task(self._listen_loop())
-        logger.info("twitter_stream_started")
+        logger.debug("twitter_stream_started")
 
     async def stop(self) -> None:
         """Stop the WebSocket stream."""
@@ -424,7 +424,7 @@ class TwitterStreamClient:
                 pass
             self._listen_task = None
 
-        logger.info("twitter_stream_stopped")
+        logger.debug("twitter_stream_stopped")
 
     async def __aenter__(self) -> "TwitterStreamClient":
         """Async context manager entry."""

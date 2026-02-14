@@ -53,8 +53,12 @@ def setup_logging(settings: "Settings") -> None:
         force=True,
     )
 
-    # Silence noisy third-party loggers (websockets dumps every raw frame at DEBUG)
+    # Silence noisy third-party loggers
     logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("hpack").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

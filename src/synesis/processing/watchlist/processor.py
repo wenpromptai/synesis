@@ -395,7 +395,7 @@ class WatchlistProcessor:
             logger.info("Watchlist empty, nothing to analyze")
             return WatchlistSignal(timestamp=now, summary="Watchlist is empty.")
 
-        logger.info("Watchlist intel starting", ticker_count=len(tickers))
+        logger.debug("Watchlist intel starting", ticker_count=len(tickers))
 
         # 2. Gather intelligence (parallel, batched)
         batch_size = WATCHLIST_INTEL_DEFAULT_BATCH_SIZE

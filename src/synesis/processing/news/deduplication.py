@@ -70,13 +70,13 @@ class MessageDeduplicator:
             RuntimeError: If model fails to load (network, disk, or model error)
         """
         if self._model is None:
-            logger.info("Loading Model2Vec model", model=self.model_name)
+            logger.debug("Loading Model2Vec model", model=self.model_name)
             try:
                 self._model = StaticModel.from_pretrained(self.model_name)
                 # Get embedding dimension from model
                 test_emb = self._model.encode(["test"])
                 self._embedding_dim = test_emb.shape[1]
-                logger.info(
+                logger.debug(
                     "Model loaded",
                     model=self.model_name,
                     embedding_dim=self._embedding_dim,

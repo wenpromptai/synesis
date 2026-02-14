@@ -259,7 +259,7 @@ class FinnhubPriceProvider:
 
         self._running = True
         self._ws_task = asyncio.create_task(self._ws_loop())
-        logger.info("FinnhubPriceProvider WebSocket started")
+        logger.debug("FinnhubPriceProvider WebSocket started")
 
     async def stop_websocket(self) -> None:
         """Stop WebSocket connection."""
@@ -277,7 +277,7 @@ class FinnhubPriceProvider:
                 pass
             self._ws_task = None
 
-        logger.info("FinnhubPriceProvider WebSocket stopped")
+        logger.debug("FinnhubPriceProvider WebSocket stopped")
 
     async def _ws_loop(self) -> None:
         """Main WebSocket loop with reconnection."""
@@ -290,7 +290,7 @@ class FinnhubPriceProvider:
                 logger.error("WebSocket error", error=str(e))
 
             if self._running:
-                logger.info("Reconnecting WebSocket", delay=self._reconnect_delay)
+                logger.debug("Reconnecting WebSocket", delay=self._reconnect_delay)
                 await asyncio.sleep(self._reconnect_delay)
                 self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
 
@@ -304,7 +304,7 @@ class FinnhubPriceProvider:
                 self._ws = ws
                 self._reconnect_delay = 1.0  # Reset on successful connect
 
-                logger.info(
+                logger.debug(
                     "Connected to Finnhub WebSocket",
                     subscribed_tickers=len(self._subscribed_tickers),
                 )
@@ -495,7 +495,7 @@ class FinnhubPriceProvider:
             await self._http_client.aclose()
             self._http_client = None
 
-        logger.info("FinnhubPriceProvider closed")
+        logger.debug("FinnhubPriceProvider closed")
 
 
 # Backwards compatibility aliases

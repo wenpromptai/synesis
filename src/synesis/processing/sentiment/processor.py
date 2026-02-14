@@ -388,7 +388,7 @@ Unverified (provider down): {len(deps.unverified_tickers)}
             return SentimentRefinement()
 
         log = logger.bind(post_count=len(posts))
-        log.info("Flow 2 processing started")
+        log.debug("Flow 2 processing started")
 
         # Gate 1: Lexicon analysis (fast, free)
         lexicon_results: list[tuple[RedditPost, SentimentResult]] = []
@@ -407,7 +407,7 @@ Unverified (provider down): {len(deps.unverified_tickers)}
         # Get unique subreddits
         subreddits = list({post.subreddit for post in posts})
 
-        log.info(
+        log.debug(
             "Gate 1 complete",
             unique_tickers=len(raw_tickers),
             subreddits=subreddits,
@@ -445,7 +445,7 @@ Unverified (provider down): {len(deps.unverified_tickers)}
             t for t in raw_tickers if t not in pre_verified and t not in unverified_tickers
         ]
 
-        log.info(
+        log.debug(
             "Pre-verification complete",
             verified=len(pre_verified),
             not_found=len(not_found_tickers),
@@ -495,7 +495,7 @@ Also:
                         company_name=validated_ticker.company_name or None,
                     )
 
-            log.info(
+            log.debug(
                 "Gate 2 complete",
                 validated_tickers=len(
                     [t for t in refinement.validated_tickers if t.is_valid_ticker]

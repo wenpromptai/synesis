@@ -22,7 +22,7 @@ async def init_redis(redis_url: str) -> Redis:
     global _redis
     _redis = Redis.from_url(redis_url, decode_responses=False)
     await _redis.ping()  # type: ignore[misc]
-    logger.info("Redis connected")
+    logger.debug("Redis connected")
     return _redis
 
 
@@ -31,5 +31,5 @@ async def close_redis() -> None:
     global _redis
     if _redis:
         await _redis.aclose()
-        logger.info("Redis disconnected")
+        logger.debug("Redis disconnected")
         _redis = None

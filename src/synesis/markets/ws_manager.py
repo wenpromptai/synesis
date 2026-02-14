@@ -65,7 +65,7 @@ class MarketWSManager:
     async def start(self) -> None:
         """Start both WebSocket clients."""
         await asyncio.gather(self._poly_ws.start(), self._kalshi_ws.start())
-        logger.info("MarketWSManager started")
+        logger.debug("MarketWSManager started")
 
     async def stop(self) -> None:
         """Stop both WebSocket clients."""
@@ -75,7 +75,7 @@ class MarketWSManager:
         for r in results:
             if isinstance(r, Exception):
                 logger.error("WS client stop failed", error=str(r))
-        logger.info("MarketWSManager stopped")
+        logger.debug("MarketWSManager stopped")
 
     async def update_subscriptions(self, markets: list[UnifiedMarket]) -> None:
         """Update which markets we're tracking based on latest scan.

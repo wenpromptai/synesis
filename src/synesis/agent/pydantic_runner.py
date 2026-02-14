@@ -89,7 +89,7 @@ async def store_signal(signal: NewsSignal, redis: Redis) -> None:
     # Publish to Redis for real-time subscribers
     await redis.publish(SIGNAL_CHANNEL, signal_json)
 
-    logger.info(
+    logger.debug(
         "Signal stored",
         file=str(output_file),
         message_id=signal.external_id,
@@ -344,7 +344,7 @@ async def run_pydantic_agent(
     """
     settings = get_settings()
 
-    logger.info(
+    logger.debug(
         "Starting PydanticAI agent",
         llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
@@ -360,7 +360,7 @@ async def run_pydantic_agent(
     # If not provided (standalone mode), create local instance
     if redis is None:
         redis = Redis.from_url(settings.redis_url)
-        logger.info("Created local Redis connection (standalone mode)")
+        logger.debug("Created local Redis connection (standalone mode)")
 
     # Help mypy narrow the type (redis is guaranteed non-None after above block)
     assert redis is not None
@@ -375,7 +375,7 @@ async def run_pydantic_agent(
 
     try:
         await redis.ping()  # type: ignore[misc]
-        logger.info("Connected to Redis", url=settings.redis_url.split("@")[-1])
+        logger.debug("Connected to Redis", url=settings.redis_url.split("@")[-1])
 
         # Use shared Database (passed from __main__.py)
         # If not provided (standalone mode), create local instance
@@ -383,7 +383,7 @@ async def run_pydantic_agent(
             try:
                 db = Database(settings.database_url)
                 await db.connect()
-                logger.info("Database connected (standalone mode)")
+                logger.debug("Database connected (standalone mode)")
             except Exception as e:
                 logger.warning(
                     "Database not available, WebSocket watchlist will be empty", error=str(e)
@@ -394,7 +394,7 @@ async def run_pydantic_agent(
             from synesis.providers.factory import create_ticker_provider
 
             ticker_provider = await create_ticker_provider(redis)
-            logger.info("Ticker provider initialized", provider=settings.ticker_provider)
+            logger.debug("Ticker provider initialized", provider=settings.ticker_provider)
         except Exception as e:
             logger.warning("Ticker provider not available", error=str(e))
 
@@ -404,7 +404,7 @@ async def run_pydantic_agent(
             watchlist = WatchlistManager(redis, db=db)
             if db:
                 await watchlist.sync_from_db()
-            logger.info("Created local WatchlistManager (standalone mode)")
+            logger.debug("Created local WatchlistManager (standalone mode)")
 
         processor = NewsProcessor(
             redis,

@@ -99,7 +99,7 @@ def create_tweet_to_queue_callback(
         )
 
         await push_to_queue(redis, message)
-        logger.info(
+        logger.debug(
             "Tweet received and queued",
             tweet_id=tweet.tweet_id,
             username=tweet.username,
@@ -129,7 +129,7 @@ def create_telegram_to_queue_callback(
         )
 
         await push_to_queue(redis, message)
-        logger.info(
+        logger.debug(
             "Telegram message received and queued",
             message_id=telegram_msg.message_id,
             channel=telegram_msg.channel_name,
@@ -152,7 +152,7 @@ def create_reddit_to_sentiment_callback(
         # Process through Gate 1 (lexicon analysis) and buffer
         result = await sentiment_processor.process_post(post)
 
-        logger.info(
+        logger.debug(
             "Reddit post processed (sentiment)",
             post_id=post.post_id,
             subreddit=post.subreddit,
@@ -198,7 +198,7 @@ async def run_sentiment_signal_loop(
                 pass
 
             first_run = False
-            logger.info("Generating sentiment signal")
+            logger.debug("Generating sentiment signal")
             signal = await sentiment_processor.generate_signal()
 
             # Publish signal to Redis for subscribers
@@ -306,7 +306,7 @@ async def run_mkt_intel_loop(
                 logger.info("Manual mkt_intel scan triggered")
 
             first_run = False
-            logger.info("Running mkt_intel scan")
+            logger.debug("Running mkt_intel scan")
             signal = await processor.run_scan()
 
             # Publish to Redis
@@ -367,7 +367,7 @@ async def run_watchlist_intel_loop(
                 logger.info("Manual watchlist intel scan triggered")
 
             first_run = False
-            logger.info("Running watchlist intel scan")
+            logger.debug("Running watchlist intel scan")
             signal = await processor.run_analysis()
 
             # Publish to Redis
@@ -415,11 +415,11 @@ async def run_arb_monitor(
     cooldowns: dict[str, float] = {}  # pair_key → last_alert_time
 
     # Cached lookup dicts — rebuilt only when cross_platform_matches changes
-    cached_matches: list[Any] | None = None
+    cached_version: int = -1
     poly_token_to_pair: dict[str, tuple[Any, Any]] = {}
     kalshi_ticker_to_pair: dict[str, tuple[Any, Any]] = {}
 
-    logger.info("Arb monitor started, listening for price updates")
+    logger.debug("Arb monitor started, listening for price updates")
 
     try:
         while not shutdown_event.is_set():
@@ -451,9 +451,9 @@ async def run_arb_monitor(
                 new_price = float(price_str)
 
                 # Rebuild lookup dicts only when matched pairs change
-                matches = scanner.cross_platform_matches
-                if matches is not cached_matches:
-                    cached_matches = matches
+                if scanner.matches_version != cached_version:
+                    cached_version = scanner.matches_version
+                    matches = scanner.cross_platform_matches
                     poly_token_to_pair = {}
                     kalshi_ticker_to_pair = {}
                     for poly_mkt, kalshi_mkt in matches:
@@ -545,7 +545,7 @@ async def run_arb_monitor(
     finally:
         await pubsub.unsubscribe(PRICE_UPDATE_CHANNEL)
         await pubsub.close()
-        logger.info("Arb monitor stopped")
+        logger.debug("Arb monitor stopped")
 
 
 @asynccontextmanager
@@ -584,17 +584,17 @@ async def agent_lifespan(
 
     try:
         # 1. Connect to Redis (also sets the module-level global for get_redis())
-        logger.info("Connecting to Redis")
+        logger.debug("Connecting to Redis")
         redis = await init_redis(settings.redis_url)
-        logger.info("Redis connected")
+        logger.debug("Redis connected")
 
         # 2. Connect to PostgreSQL (if configured)
         if settings.database_url:
             try:
-                logger.info("Connecting to PostgreSQL")
+                logger.debug("Connecting to PostgreSQL")
                 db = await init_database(settings.database_url)
                 db_initialized = True
-                logger.info("PostgreSQL connected")
+                logger.debug("PostgreSQL connected")
             except Exception as e:
                 logger.warning(
                     "PostgreSQL connection failed, continuing without database storage",
@@ -609,7 +609,7 @@ async def agent_lifespan(
                 settings.finnhub_api_key.get_secret_value(), redis
             )
             await price_service.start()
-            logger.info("PriceService initialized with WebSocket")
+            logger.debug("PriceService initialized with WebSocket")
         else:
             logger.info("No FINNHUB_API_KEY configured, price tracking disabled")
 
@@ -729,7 +729,7 @@ async def agent_lifespan(
                 ws_manager = MarketWSManager(poly_ws, kalshi_ws, redis)
                 mkt_intel_ws_manager = ws_manager
                 await ws_manager.start()
-                logger.info("Market intelligence WebSocket clients started")
+                logger.debug("Market intelligence WebSocket clients started")
 
             # Create scanner
             scanner = MarketScanner(
@@ -778,7 +778,7 @@ async def agent_lifespan(
                         shutdown_event=shutdown_event,
                     )
                 )
-                logger.info("Real-time arb monitor started")
+                logger.debug("Real-time arb monitor started")
 
             logger.info(
                 "Market intelligence started",
@@ -803,7 +803,7 @@ async def agent_lifespan(
 
                 fs_client = FSClient()
                 watchlist_intel_factset = FSProvider(client=fs_client)
-                logger.info("Watchlist intel: FactSet provider initialized")
+                logger.debug("Watchlist intel: FactSet provider initialized")
             except Exception as e:
                 logger.warning("Watchlist intel: FactSet not available", error=str(e))
 
@@ -815,7 +815,7 @@ async def agent_lifespan(
 
                 watchlist_intel_sec_edgar = SECClient(redis=redis)
                 watchlist_intel_nasdaq = NQClient(redis=redis)
-                logger.info("Watchlist intel: SEC EDGAR + NASDAQ initialized")
+                logger.debug("Watchlist intel: SEC EDGAR + NASDAQ initialized")
             except Exception as e:
                 logger.warning("Watchlist intel: SEC EDGAR/NASDAQ not available", error=str(e))
 
@@ -865,7 +865,7 @@ async def agent_lifespan(
             watchlist_cleanup_task = asyncio.create_task(
                 run_watchlist_cleanup_loop(db, shutdown_event, watchlist=watchlist)
             )
-            logger.info("Watchlist cleanup loop started")
+            logger.debug("Watchlist cleanup loop started")
 
         # 6. Start agent processing loop
         def agent_exception_handler(task: asyncio.Task[None]) -> None:
@@ -878,7 +878,7 @@ async def agent_lifespan(
 
         from synesis.agent.pydantic_runner import run_pydantic_agent
 
-        logger.info("Starting PydanticAI agent")
+        logger.debug("Starting PydanticAI agent")
         agent_task = asyncio.create_task(
             run_pydantic_agent(
                 watchlist=watchlist,
@@ -955,7 +955,7 @@ async def agent_lifespan(
                 await sentiment_signal_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Sentiment signal loop stopped")
+            logger.debug("Sentiment signal loop stopped")
 
         if watchlist_cleanup_task:
             watchlist_cleanup_task.cancel()
@@ -963,7 +963,7 @@ async def agent_lifespan(
                 await watchlist_cleanup_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Watchlist cleanup loop stopped")
+            logger.debug("Watchlist cleanup loop stopped")
 
         if arb_monitor_task:
             arb_monitor_task.cancel()
@@ -971,7 +971,7 @@ async def agent_lifespan(
                 await arb_monitor_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Arb monitor stopped")
+            logger.debug("Arb monitor stopped")
 
         if mkt_intel_task:
             mkt_intel_task.cancel()
@@ -979,7 +979,7 @@ async def agent_lifespan(
                 await mkt_intel_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Mkt_intel signal loop stopped")
+            logger.debug("Mkt_intel signal loop stopped")
 
         if watchlist_intel_task:
             watchlist_intel_task.cancel()
@@ -987,7 +987,7 @@ async def agent_lifespan(
                 await watchlist_intel_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Watchlist intel loop stopped")
+            logger.debug("Watchlist intel loop stopped")
 
         for wl_client, wl_name in [
             (watchlist_intel_factset, "Watchlist FactSet"),
@@ -1005,7 +1005,7 @@ async def agent_lifespan(
                 await mkt_intel_ws_manager.stop()
             except Exception as e:
                 logger.error("Failed to stop WS manager", error=str(e))
-            logger.info("Market intelligence WebSocket clients stopped")
+            logger.debug("Market intelligence WebSocket clients stopped")
 
         for client, name in [
             (mkt_intel_kalshi_client, "Kalshi"),
@@ -1020,30 +1020,30 @@ async def agent_lifespan(
 
         if twitter_client:
             await twitter_client.stop()
-            logger.info("Twitter stream stopped")
+            logger.debug("Twitter stream stopped")
 
         if telegram_listener:
             await telegram_listener.stop()
-            logger.info("Telegram listener stopped")
+            logger.debug("Telegram listener stopped")
 
         if reddit_client:
             await reddit_client.stop()
-            logger.info("Reddit RSS client stopped")
+            logger.debug("Reddit RSS client stopped")
 
         if sentiment_processor:
             await sentiment_processor.close()
-            logger.info("Sentiment processor closed")
+            logger.debug("Sentiment processor closed")
 
         if price_service:
             await close_price_service()
-            logger.info("PriceService closed")
+            logger.debug("PriceService closed")
 
         if db_initialized:
             await close_database()
-            logger.info("PostgreSQL disconnected")
+            logger.debug("PostgreSQL disconnected")
 
         if redis:
             await close_redis()
-            logger.info("Redis disconnected")
+            logger.debug("Redis disconnected")
 
         logger.info("Agent shutdown complete")

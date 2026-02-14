@@ -100,11 +100,17 @@ class MarketScanner:
         self._model: StaticModel | None = None
         self._model_load_failed = False
         self._cross_platform_matches: list[tuple[UnifiedMarket, UnifiedMarket]] = []
+        self._matches_version: int = 0
 
     @property
     def cross_platform_matches(self) -> list[tuple[UnifiedMarket, UnifiedMarket]]:
         """Matched cross-platform market pairs (Polymarket, Kalshi)."""
         return list(self._cross_platform_matches)
+
+    @property
+    def matches_version(self) -> int:
+        """Increments when cross_platform_matches changes."""
+        return self._matches_version
 
     def _get_model(self) -> StaticModel | None:
         """Lazy-load Model2Vec (same model as deduplication)."""
@@ -131,7 +137,7 @@ class MarketScanner:
         """
         now = datetime.now(UTC)
         log = logger.bind(scan_time=now.isoformat())
-        log.info("Market scan started")
+        log.debug("Market scan started")
 
         # 1. Fetch from both platforms in parallel
         (
@@ -154,9 +160,9 @@ class MarketScanner:
         pre_filter_expiring = poly_expiring + kalshi_expiring
         all_trending = [m for m in pre_filter_trending if _is_tradable(m)]
         all_expiring = [m for m in pre_filter_expiring if _is_tradable(m)]
-        filtered_out = (len(pre_filter_trending) - len(all_trending)) + (len(pre_filter_expiring) - len(all_expiring))
-        if filtered_out:
-            log.debug("Filtered non-tradable markets", removed=filtered_out)
+        filtered_count = (len(pre_filter_trending) - len(all_trending)) + (len(pre_filter_expiring) - len(all_expiring))
+        if filtered_count:
+            log.debug("Filtered non-tradable markets", removed=filtered_count)
         all_markets = {m.external_id: m for m in all_trending + all_expiring}
 
         # 2. Merge with real-time Redis data
@@ -389,9 +395,10 @@ class MarketScanner:
 
         # Store all matched pairs for real-time arb monitor
         self._cross_platform_matches = matched_pairs
+        self._matches_version += 1
 
         arbs.sort(key=lambda a: a.price_gap, reverse=True)
-        logger.info(
+        logger.debug(
             "Cross-platform arb scan",
             matched_pairs=len(matched_pairs),
             arbs_found=len(arbs),

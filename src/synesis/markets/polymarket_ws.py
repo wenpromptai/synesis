@@ -69,7 +69,7 @@ class PolymarketWSClient:
             return
         self._running = True
         self._ws_task = asyncio.create_task(self._ws_loop())
-        logger.info("Polymarket WS started")
+        logger.debug("Polymarket WS started")
 
     async def stop(self) -> None:
         """Stop WebSocket."""
@@ -84,7 +84,7 @@ class PolymarketWSClient:
             except asyncio.CancelledError:
                 pass
             self._ws_task = None
-        logger.info("Polymarket WS stopped")
+        logger.debug("Polymarket WS stopped")
 
     async def subscribe(self, token_ids: list[str]) -> None:
         """Subscribe to market token IDs."""
@@ -129,7 +129,7 @@ class PolymarketWSClient:
                 logger.error("Polymarket WS error", error=str(e))
 
             if self._running:
-                logger.info(
+                logger.debug(
                     "Polymarket WS reconnecting",
                     delay=self._reconnect_delay,
                 )
@@ -145,7 +145,7 @@ class PolymarketWSClient:
             async with websockets.connect(url) as ws:
                 self._ws = ws
                 self._reconnect_delay = 1.0  # Reset on success
-                logger.info(
+                logger.debug(
                     "Polymarket WS connected",
                     subscribed=len(self._subscribed_tokens),
                 )

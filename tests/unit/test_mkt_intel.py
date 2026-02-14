@@ -5086,6 +5086,7 @@ class TestCrossPlatformArbDetection:
         s = MarketScanner.__new__(MarketScanner)
         s._model = mock_model
         s._cross_platform_matches = []
+        s._matches_version = 0
 
         poly = [_make_market(yes_price=0.40, question="Will X happen?")]
         kalshi = [_make_kalshi_market(yes_price=0.50, question="Will X happen?")]
@@ -5111,6 +5112,7 @@ class TestCrossPlatformArbDetection:
         s = MarketScanner.__new__(MarketScanner)
         s._model = mock_model
         s._cross_platform_matches = []
+        s._matches_version = 0
 
         # Same price — no arb
         poly = [_make_market(yes_price=0.50)]
@@ -5137,6 +5139,7 @@ class TestCrossPlatformArbDetection:
         s = MarketScanner.__new__(MarketScanner)
         s._model = mock_model
         s._cross_platform_matches = []
+        s._matches_version = 0
 
         # Kalshi is cheaper for YES
         poly = [_make_market(yes_price=0.60, question="Will Y happen?")]

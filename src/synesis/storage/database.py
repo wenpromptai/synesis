@@ -46,13 +46,13 @@ class Database:
             max_size=self._max_size,
             init=init_connection,
         )
-        logger.info("Database pool created", min_size=self._min_size, max_size=self._max_size)
+        logger.debug("Database pool created", min_size=self._min_size, max_size=self._max_size)
 
     async def disconnect(self) -> None:
         """Close connection pool."""
         if self._pool:
             await self._pool.close()
-            logger.info("Database pool closed")
+            logger.debug("Database pool closed")
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:

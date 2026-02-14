@@ -144,7 +144,7 @@ class FinnhubTickerProvider:
             if cached:
                 try:
                     self._us_symbols = orjson.loads(cached)
-                    logger.info(
+                    logger.debug(
                         "Loaded US symbols from cache",
                         count=len(self._us_symbols) if self._us_symbols else 0,
                     )
@@ -155,7 +155,7 @@ class FinnhubTickerProvider:
                     )
 
             # Fetch from Finnhub API
-            logger.info("Fetching all US symbols from Finnhub...")
+            logger.debug("Fetching all US symbols from Finnhub...")
             data = await self._fetch_finnhub("/stock/symbol", {"exchange": "US"})
 
             if data is None or not isinstance(data, list):
@@ -182,7 +182,7 @@ class FinnhubTickerProvider:
 
             # Cache in memory
             self._us_symbols = symbols
-            logger.info("Loaded US symbols from Finnhub API", count=len(symbols))
+            logger.debug("Loaded US symbols from Finnhub API", count=len(symbols))
 
             return symbols
 

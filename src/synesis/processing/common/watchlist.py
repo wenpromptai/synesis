@@ -147,7 +147,7 @@ class WatchlistManager:
             await self.redis.hset(metadata_key, mapping=metadata.to_dict())  # type: ignore[misc]
             await self.redis.expire(metadata_key, self.ttl_seconds)
 
-            logger.info(
+            logger.debug(
                 "Ticker added to watchlist",
                 ticker=ticker,
                 source=source,
@@ -214,7 +214,7 @@ class WatchlistManager:
             # Remove from set and delete keys
             await self.redis.srem(WATCHLIST_KEY, ticker)  # type: ignore[misc]
             await self.redis.delete(ttl_key, metadata_key)
-            logger.info("Ticker removed from watchlist", ticker=ticker)
+            logger.debug("Ticker removed from watchlist", ticker=ticker)
 
         return bool(existed)
 
@@ -323,7 +323,7 @@ class WatchlistManager:
 
             if result == 1:
                 removed.append(ticker)
-                logger.info("Ticker expired and removed from watchlist", ticker=ticker)
+                logger.debug("Ticker expired and removed from watchlist", ticker=ticker)
 
         # Also cleanup in PostgreSQL if available
         if self.db:

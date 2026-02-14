@@ -69,7 +69,7 @@ class KalshiWSClient:
             return
         self._running = True
         self._ws_task = asyncio.create_task(self._ws_loop())
-        logger.info("Kalshi WS started")
+        logger.debug("Kalshi WS started")
 
     async def stop(self) -> None:
         """Stop WebSocket."""
@@ -84,7 +84,7 @@ class KalshiWSClient:
             except asyncio.CancelledError:
                 pass
             self._ws_task = None
-        logger.info("Kalshi WS stopped")
+        logger.debug("Kalshi WS stopped")
 
     async def subscribe(self, market_tickers: list[str]) -> None:
         """Subscribe to market tickers."""
@@ -120,7 +120,7 @@ class KalshiWSClient:
                 logger.error("Kalshi WS error", error=str(e))
 
             if self._running:
-                logger.info("Kalshi WS reconnecting", delay=self._reconnect_delay)
+                logger.debug("Kalshi WS reconnecting", delay=self._reconnect_delay)
                 await asyncio.sleep(self._reconnect_delay)
                 self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
 
@@ -162,7 +162,7 @@ class KalshiWSClient:
             async with websockets.connect(url, additional_headers=extra_headers) as ws:
                 self._ws = ws
                 self._reconnect_delay = 1.0
-                logger.info(
+                logger.debug(
                     "Kalshi WS connected",
                     subscribed=len(self._subscribed_tickers),
                 )

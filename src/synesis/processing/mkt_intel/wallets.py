@@ -370,7 +370,7 @@ class WalletTracker:
                 discovered.append(address)
 
             if discovered:
-                logger.info(
+                logger.debug(
                     "New wallets discovered",
                     count=len(discovered),
                     condition_id=condition_id,
@@ -414,6 +414,10 @@ class WalletTracker:
                 return None
 
             # --- From POSITIONS: PnL, sizing, concentration ---
+            # NOTE: cashPnl includes both realized and unrealized P&L.
+            # We intentionally score on current portfolio state (conviction)
+            # rather than historical trade outcomes, since the trades API
+            # lacks P&L data.
             wins = 0
             total_pnl = 0.0
             initial_values: list[float] = []
@@ -603,16 +607,16 @@ class WalletTracker:
             return 0
 
         log = logger.bind(unwatch_threshold=unwatch_threshold, stale_hours=stale_hours)
-        log.info("Starting watched wallet re-score")
+        log.debug("Starting watched wallet re-score")
 
         addresses = await self._db.get_watched_wallets_needing_rescore(
             "polymarket", stale_hours=stale_hours
         )
         if not addresses:
-            log.info("No watched wallets need re-scoring")
+            log.debug("No watched wallets need re-scoring")
             return 0
 
-        log.info("Watched wallets to re-score", count=len(addresses))
+        log.debug("Watched wallets to re-score", count=len(addresses))
 
         demoted = 0
         for address in addresses:
@@ -624,7 +628,7 @@ class WalletTracker:
                 elif result.insider_score < unwatch_threshold:
                     await self._db.set_wallet_watched(address, "polymarket", False)
                     demoted += 1
-                    log.info(
+                    log.debug(
                         "Wallet demoted (unwatched)",
                         address=address[:10] + "...",
                         insider_score=f"{result.insider_score:.2f}",
@@ -638,7 +642,7 @@ class WalletTracker:
                     error=str(e),
                 )
 
-        log.info(
+        log.debug(
             "Watched wallet re-score complete",
             total_rescored=len(addresses),
             demoted=demoted,
@@ -679,7 +683,7 @@ class WalletTracker:
             top_n_markets=top_n_markets,
             auto_watch_threshold=auto_watch_threshold,
         )
-        log.info("Starting wallet discovery pipeline")
+        log.debug("Starting wallet discovery pipeline")
 
         # Filter to Polymarket markets with condition_id, sorted by volume
         poly_markets = [m for m in markets if m.platform == "polymarket" and m.condition_id]
@@ -716,7 +720,7 @@ class WalletTracker:
             log.debug("No holder addresses discovered")
             return 0
 
-        log.info("Discovered holder addresses", count=len(discovered_addresses))
+        log.debug("Discovered holder addresses", count=len(discovered_addresses))
 
         # Step 2: Upsert all discovered wallets
         for address in discovered_addresses:
@@ -732,7 +736,7 @@ class WalletTracker:
             stale_hours=24,
         )
 
-        log.info(
+        log.debug(
             "Wallets needing score update",
             total_discovered=len(discovered_addresses),
             needing_update=len(addresses_needing_update),
@@ -763,7 +767,7 @@ class WalletTracker:
                         address, "polymarket", True, watch_reason="score"
                     )
                     newly_watched += 1
-                    log.info(
+                    log.debug(
                         "Auto-watched wallet",
                         address=address[:10] + "...",
                         insider_score=f"{insider_score:.2f}",
@@ -776,7 +780,7 @@ class WalletTracker:
                         address, "polymarket", True, watch_reason="high_conviction"
                     )
                     newly_watched += 1
-                    log.info(
+                    log.debug(
                         "Fast-track auto-watched wallet",
                         address=address[:10] + "...",
                         insider_score=f"{insider_score:.2f}",
@@ -795,7 +799,7 @@ class WalletTracker:
                     if insider_score < threshold:
                         await self._db.set_wallet_watched(address, "polymarket", False)
                         demoted += 1
-                        log.info(
+                        log.debug(
                             "Wallet demoted during discovery",
                             address=address[:10] + "...",
                             insider_score=f"{insider_score:.2f}",
@@ -811,7 +815,7 @@ class WalletTracker:
                     error=str(e),
                 )
 
-        log.info(
+        log.debug(
             "Wallet discovery complete",
             discovered=len(discovered_addresses),
             scored=scored_count,
