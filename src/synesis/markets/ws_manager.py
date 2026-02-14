@@ -43,7 +43,7 @@ class MarketWSManager:
         self._redis = redis
 
         # Track current subscriptions by platform
-        self._poly_markets: dict[str, str] = {}  # external_id -> condition_id/token
+        self._poly_markets: dict[str, str] = {}  # external_id -> yes_token_id
         self._kalshi_markets: dict[str, str] = {}  # external_id -> ticker
 
     @property
@@ -89,8 +89,8 @@ class MarketWSManager:
         kalshi_new: dict[str, str] = {}
 
         for m in markets[:MARKET_INTEL_MAX_TRACKED_MARKETS]:
-            if m.platform == "polymarket" and m.condition_id:
-                poly_new[m.external_id] = m.condition_id
+            if m.platform == "polymarket" and m.yes_token_id:
+                poly_new[m.external_id] = m.yes_token_id
             elif m.platform == "kalshi" and m.ticker:
                 kalshi_new[m.external_id] = m.ticker
 

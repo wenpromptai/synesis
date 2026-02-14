@@ -389,16 +389,14 @@ async def run_pydantic_agent(
                     "Database not available, WebSocket watchlist will be empty", error=str(e)
                 )
 
-        # Initialize ticker provider for verify_ticker tool
+        # Initialize ticker provider (FactSet or Finnhub based on config)
         try:
-            from synesis.providers.factset.client import FactSetClient
-            from synesis.providers.factset.ticker import FactSetTickerProvider
+            from synesis.providers.factory import create_ticker_provider
 
-            factset_client = FactSetClient()
-            ticker_provider = FactSetTickerProvider(client=factset_client, redis=redis)
-            logger.info("FactSet ticker provider initialized")
+            ticker_provider = await create_ticker_provider(redis)
+            logger.info("Ticker provider initialized", provider=settings.ticker_provider)
         except Exception as e:
-            logger.warning("FactSet ticker provider not available", error=str(e))
+            logger.warning("Ticker provider not available", error=str(e))
 
         # Use shared watchlist (passed from __main__.py)
         # If not provided (standalone mode), create local instance

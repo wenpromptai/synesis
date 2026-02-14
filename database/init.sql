@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS synesis.wallets (
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     is_watched BOOLEAN DEFAULT FALSE,
+    watch_reason TEXT,                  -- NULL, 'score', 'high_conviction'
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (platform, address)
 );
@@ -172,8 +173,20 @@ CREATE TABLE IF NOT EXISTS synesis.wallet_metrics (
     wins INTEGER DEFAULT 0,
     win_rate DECIMAL(5,4),              -- 0.0000 to 1.0000
     total_pnl DECIMAL(20,6) DEFAULT 0,
-    -- Computed insider score
+    -- Computed insider score (weighted average of sub-signals)
     insider_score DECIMAL(5,4),         -- 0.0 to 1.0
+    -- Richer scoring sub-signals (Feature 3)
+    unique_markets INTEGER DEFAULT 0,
+    avg_position_size DECIMAL(20,6) DEFAULT 0,
+    wash_trade_ratio DECIMAL(5,4) DEFAULT 0,
+    profitability_score DECIMAL(5,4) DEFAULT 0,
+    focus_score DECIMAL(5,4) DEFAULT 0,
+    sizing_score DECIMAL(5,4) DEFAULT 0,
+    freshness_score DECIMAL(5,4) DEFAULT 0,
+    wash_penalty DECIMAL(5,4) DEFAULT 0,
+    -- Wallet specialty (Feature 4)
+    specialty_category TEXT,
+    specialty_win_rate DECIMAL(5,4),
     -- Metadata
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -195,6 +208,7 @@ CREATE TABLE IF NOT EXISTS synesis.market_snapshots (
     time TIMESTAMPTZ NOT NULL,
     platform TEXT NOT NULL,
     market_external_id TEXT NOT NULL,
+    question TEXT,                      -- Market question text
     category TEXT,                      -- Market category
     yes_price DECIMAL(6,4),
     no_price DECIMAL(6,4),

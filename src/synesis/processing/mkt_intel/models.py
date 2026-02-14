@@ -11,6 +11,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from synesis.markets.models import (
+    CrossPlatformArb,
+    HighConvictionTrade,
     InsiderAlert,
     OddsMovement,
     UnifiedMarket,
@@ -54,6 +56,12 @@ class MarketIntelSignal(BaseModel):
 
     # Opportunities
     opportunities: list[MarketIntelOpportunity] = Field(default_factory=list)
+
+    # Cross-platform arbitrage (Feature 1)
+    cross_platform_arbs: list[CrossPlatformArb] = Field(default_factory=list)
+
+    # High-conviction trades (Feature 2)
+    high_conviction_trades: list[HighConvictionTrade] = Field(default_factory=list)
 
     # Aggregate metrics
     market_uncertainty_index: float = Field(default=0.0, ge=0.0, le=1.0)

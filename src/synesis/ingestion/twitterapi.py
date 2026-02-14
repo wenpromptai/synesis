@@ -334,7 +334,7 @@ class TwitterStreamClient:
         event_type = data.get("event_type")
 
         if event_type == "connected":
-            logger.info("ws_connected")
+            logger.info("twitter_ws_connected")
         elif event_type == "ping":
             logger.debug("ws_ping", timestamp=data.get("timestamp"))
         elif event_type == "tweet":
@@ -378,7 +378,7 @@ class TwitterStreamClient:
                 ) as ws:
                     self._ws = ws
                     delay = self.reconnect_delay  # Reset delay on successful connect
-                    logger.info("ws_connected")
+                    logger.info("twitter_ws_connected")
 
                     async for message in ws:
                         if not self._running:

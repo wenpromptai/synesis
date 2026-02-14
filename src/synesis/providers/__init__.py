@@ -2,7 +2,6 @@
 
 ## Provider Types
 
-- **PriceProvider**: Real-time and historical price data with WebSocket support
 - **TickerProvider**: Ticker validation and symbol search
 - **FundamentalsProvider**: Company fundamental data (financials, filings, etc.)
 - **CrawlerProvider**: Web crawling and content extraction
@@ -19,13 +18,11 @@
 from synesis.providers.base import (
     CrawlerProvider,
     FundamentalsProvider,
-    PriceProvider,
     TickerProvider,
 )
 
 # Factory functions
 from synesis.providers.factory import (
-    create_price_provider,
     create_ticker_provider,
 )
 
@@ -74,12 +71,10 @@ from synesis.providers.factset import (
 
 __all__ = [
     # Protocols
-    "PriceProvider",
     "TickerProvider",
     "FundamentalsProvider",
     "CrawlerProvider",
     # Factory functions
-    "create_price_provider",
     "create_ticker_provider",
     # Finnhub (prices only)
     "FinnhubPriceProvider",

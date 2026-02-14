@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time as _time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -28,13 +29,13 @@ from redis.asyncio import Redis
 
 from synesis.config import Settings
 from synesis.core.logging import get_logger
-from synesis.providers import FactSetTickerProvider
+from synesis.providers.factory import create_ticker_provider
 from synesis.providers.finnhub.prices import close_price_service, init_price_service
-from synesis.providers.factset.client import get_factset_client
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.ingestion.twitterapi import Tweet, TwitterStreamClient
 from synesis.notifications.telegram import (
+    format_arb_alert,
     format_mkt_intel_signal,
     format_sentiment_signal,
     format_watchlist_signal,
@@ -392,6 +393,161 @@ async def run_watchlist_intel_loop(
             logger.exception("Watchlist intel generation failed", error=str(e))
 
 
+async def run_arb_monitor(
+    redis: Redis,
+    scanner: Any,
+    ws_manager: Any,
+    shutdown_event: asyncio.Event,
+    cooldown_minutes: int = 10,
+) -> None:
+    """Monitor Redis price updates and alert on cross-platform arb opportunities.
+
+    Subscribes to price update channel and checks matched pairs for gaps.
+    Polymarket WS publishes ``polymarket:{token_id}:{price}`` where token_id
+    is a CLOB token ID (YES side).  We build a lookup dict from token IDs so
+    incoming messages can be matched to the correct market pair.
+    """
+    from synesis.core.constants import CROSS_PLATFORM_ARB_MIN_GAP, PRICE_UPDATE_CHANNEL
+    from synesis.markets.models import CrossPlatformArb
+
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(PRICE_UPDATE_CHANNEL)
+    cooldowns: dict[str, float] = {}  # pair_key → last_alert_time
+
+    # Cached lookup dicts — rebuilt only when cross_platform_matches changes
+    cached_matches: list[Any] | None = None
+    poly_token_to_pair: dict[str, tuple[Any, Any]] = {}
+    kalshi_ticker_to_pair: dict[str, tuple[Any, Any]] = {}
+
+    logger.info("Arb monitor started, listening for price updates")
+
+    try:
+        while not shutdown_event.is_set():
+            try:
+                message = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                # Prune stale cooldowns periodically (on every timeout)
+                cutoff = _time.time() - cooldown_minutes * 60
+                stale = [k for k, v in cooldowns.items() if v < cutoff]
+                for k in stale:
+                    del cooldowns[k]
+                continue
+
+            if message is None or message["type"] != "message":
+                continue
+
+            try:
+                data = message["data"]
+                if isinstance(data, bytes):
+                    data = data.decode()
+                parts = data.split(":", 2)
+                if len(parts) != 3:
+                    logger.debug("Malformed price update", data=data)
+                    continue
+                platform, market_id, price_str = parts
+                new_price = float(price_str)
+
+                # Rebuild lookup dicts only when matched pairs change
+                matches = scanner.cross_platform_matches
+                if matches is not cached_matches:
+                    cached_matches = matches
+                    poly_token_to_pair = {}
+                    kalshi_ticker_to_pair = {}
+                    for poly_mkt, kalshi_mkt in matches:
+                        if poly_mkt.yes_token_id:
+                            poly_token_to_pair[poly_mkt.yes_token_id] = (poly_mkt, kalshi_mkt)
+                        kalshi_id = kalshi_mkt.ticker or kalshi_mkt.external_id
+                        if kalshi_id:
+                            kalshi_ticker_to_pair[kalshi_id] = (poly_mkt, kalshi_mkt)
+
+                # Match the incoming message to a cross-platform pair
+                pair: tuple[Any, Any] | None = None
+                counterpart_platform: str | None = None
+                counterpart_ws_key: str | None = None
+
+                if platform == "polymarket":
+                    pair = poly_token_to_pair.get(market_id)
+                    if pair:
+                        counterpart_platform = "kalshi"
+                        counterpart_ws_key = pair[1].ticker or pair[1].external_id
+                elif platform == "kalshi":
+                    pair = kalshi_ticker_to_pair.get(market_id)
+                    if pair:
+                        counterpart_platform = "polymarket"
+                        # WS manager stores Polymarket prices by token ID
+                        counterpart_ws_key = pair[0].yes_token_id
+
+                if not pair or not counterpart_platform or not counterpart_ws_key:
+                    continue
+
+                poly_mkt, kalshi_mkt = pair
+
+                # Get other platform's price from WS manager
+                if not ws_manager:
+                    continue
+                other_price_data = await ws_manager.get_realtime_price(
+                    counterpart_platform, counterpart_ws_key
+                )
+                if not other_price_data:
+                    continue
+                other_price = other_price_data[0]
+
+                gap = abs(new_price - other_price)
+                if gap < CROSS_PLATFORM_ARB_MIN_GAP:
+                    continue
+
+                poly_condition_id = poly_mkt.condition_id or poly_mkt.external_id
+                kalshi_ticker = kalshi_mkt.ticker or kalshi_mkt.external_id
+                pair_key = f"{poly_condition_id}:{kalshi_ticker}"
+                now = _time.time()
+                last_alert = cooldowns.get(pair_key, 0)
+                if now - last_alert < cooldown_minutes * 60:
+                    continue
+
+                # Build arb and send alert
+                if platform == "polymarket":
+                    poly_price = new_price
+                    kalshi_price = other_price
+                else:
+                    poly_price = other_price
+                    kalshi_price = new_price
+
+                buy_platform = "polymarket" if poly_price < kalshi_price else "kalshi"
+                arb = CrossPlatformArb(
+                    polymarket=poly_mkt,
+                    kalshi=kalshi_mkt,
+                    price_gap=gap,
+                    suggested_buy_platform=buy_platform,
+                    suggested_side="yes",
+                    match_similarity=0.0,
+                )
+                alert_msg = format_arb_alert(arb)
+                try:
+                    await send_long_telegram(alert_msg)
+                    cooldowns[pair_key] = now
+                    logger.info(
+                        "Arb alert sent",
+                        gap=f"${gap:.2f}",
+                        poly=f"${poly_price:.2f}",
+                        kalshi=f"${kalshi_price:.2f}",
+                    )
+                except Exception as e:
+                    logger.error("Arb alert send failed", error=str(e), gap=f"${gap:.2f}")
+
+            except Exception as e:
+                logger.warning("Arb monitor message processing error", error=str(e))
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await pubsub.unsubscribe(PRICE_UPDATE_CHANNEL)
+        await pubsub.close()
+        logger.info("Arb monitor stopped")
+
+
 @asynccontextmanager
 async def agent_lifespan(
     settings: Settings,
@@ -419,7 +575,9 @@ async def agent_lifespan(
     mkt_intel_kalshi_client = None
     mkt_intel_poly_client = None
     mkt_intel_data_client = None
+    arb_monitor_task: asyncio.Task[None] | None = None
     watchlist_intel_task: asyncio.Task[None] | None = None
+    ticker_provider = None
     watchlist_intel_factset = None
     watchlist_intel_sec_edgar = None
     watchlist_intel_nasdaq = None
@@ -455,35 +613,15 @@ async def agent_lifespan(
         else:
             logger.info("No FINNHUB_API_KEY configured, price tracking disabled")
 
-        # 2c. Initialize shared WatchlistManager with WebSocket callbacks
-        on_ticker_added = None
-        on_ticker_removed = None
-        if price_service:
-
-            async def subscribe_ticker(ticker: str) -> None:
-                await price_service.subscribe([ticker])
-
-            async def unsubscribe_ticker(ticker: str) -> None:
-                await price_service.unsubscribe([ticker])
-
-            on_ticker_added = subscribe_ticker
-            on_ticker_removed = unsubscribe_ticker
-
+        # 2c. Initialize shared WatchlistManager
         watchlist = WatchlistManager(
             redis,
             db=db,
-            on_ticker_added=on_ticker_added,
-            on_ticker_removed=on_ticker_removed,
         )
 
-        # Sync from DB and subscribe existing tickers
+        # Sync from DB
         if db:
             await watchlist.sync_from_db()
-            if price_service:
-                tickers = await watchlist.get_all()
-                if tickers:
-                    await price_service.subscribe(tickers)
-                    logger.info("Subscribed to initial watchlist", count=len(tickers))
 
         # 3. Start Twitter stream (if configured)
         if settings.twitterapi_api_key:
@@ -519,13 +657,11 @@ async def agent_lifespan(
 
         # 5. Start Reddit RSS client + sentiment processor (if configured)
         if settings.reddit_subreddits:
-            # Initialize ticker provider (FactSet for pre-verification)
-            ticker_provider = None
-            if settings.sqlserver_host:
-                ticker_provider = FactSetTickerProvider(
-                    client=get_factset_client(),
-                    redis=redis,
-                )
+            # Initialize ticker provider (FactSet or Finnhub based on config)
+            try:
+                ticker_provider = await create_ticker_provider(redis)
+            except Exception as e:
+                logger.error("Ticker provider not available, sentiment will use LLM-only validation", error=str(e))
 
             # Initialize sentiment processor (with shared watchlist)
             sentiment_processor = SentimentProcessor(
@@ -631,6 +767,19 @@ async def agent_lifespan(
                     shutdown_event,
                 )
             )
+
+            # Start real-time arb monitor (if WebSocket enabled)
+            if ws_manager:
+                arb_monitor_task = asyncio.create_task(
+                    run_arb_monitor(
+                        redis=redis,
+                        scanner=scanner,
+                        ws_manager=ws_manager,
+                        shutdown_event=shutdown_event,
+                    )
+                )
+                logger.info("Real-time arb monitor started")
+
             logger.info(
                 "Market intelligence started",
                 interval=settings.mkt_intel_interval,
@@ -676,6 +825,7 @@ async def agent_lifespan(
                 sec_edgar=watchlist_intel_sec_edgar,
                 nasdaq=watchlist_intel_nasdaq,
                 db=db,
+                ticker_provider=ticker_provider,
             )
 
             watchlist_intel_task = asyncio.create_task(
@@ -770,6 +920,8 @@ async def agent_lifespan(
             background_tasks.append(watchlist_cleanup_task)
         if mkt_intel_task:
             background_tasks.append(mkt_intel_task)
+        if arb_monitor_task:
+            background_tasks.append(arb_monitor_task)
         if watchlist_intel_task:
             background_tasks.append(watchlist_intel_task)
 
@@ -812,6 +964,14 @@ async def agent_lifespan(
             except asyncio.CancelledError:
                 pass
             logger.info("Watchlist cleanup loop stopped")
+
+        if arb_monitor_task:
+            arb_monitor_task.cancel()
+            try:
+                await arb_monitor_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Arb monitor stopped")
 
         if mkt_intel_task:
             mkt_intel_task.cancel()

@@ -53,6 +53,9 @@ def setup_logging(settings: "Settings") -> None:
         force=True,
     )
 
+    # Silence noisy third-party loggers (websockets dumps every raw frame at DEBUG)
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Get a structlog logger instance."""

@@ -102,6 +102,7 @@ class SentimentRefinementDeps:
     raw_tickers: dict[str, list[float]]  # ticker -> [sentiment scores]
     subreddits: list[str] = field(default_factory=list)
     pre_verified: dict[str, str] = field(default_factory=dict)  # ticker -> company name
+    unverified_tickers: list[str] = field(default_factory=list)  # couldn't check (provider down)
 
 
 class ValidatedTicker(BaseModel):

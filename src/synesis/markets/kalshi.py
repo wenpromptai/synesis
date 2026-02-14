@@ -11,6 +11,8 @@ Cent-based fields are deprecated as of Feb 19, 2026.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -18,6 +20,11 @@ from typing import Any, Literal
 import httpx
 
 from synesis.config import get_settings
+from synesis.core.constants import (
+    KALSHI_CATEGORY_CACHE_TTL,
+    KALSHI_EVENT_FETCH_CONCURRENCY,
+    KALSHI_EVENT_FETCH_DELAY,
+)
 from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -117,6 +124,9 @@ class KalshiClient:
     timeout: float = 30.0
 
     _client: httpx.AsyncClient | None = dataclass_field(default=None, init=False, repr=False)
+    _category_cache: dict[str, tuple[str | None, float]] = dataclass_field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -191,6 +201,7 @@ class KalshiClient:
         cursor: str | None = None,
         min_close_ts: int | None = None,
         max_close_ts: int | None = None,
+        exclude_mve: bool = True,
     ) -> list[KalshiMarket]:
         """Get markets with optional filters.
 
@@ -200,6 +211,7 @@ class KalshiClient:
             cursor: Pagination cursor
             min_close_ts: Min close timestamp (unix seconds)
             max_close_ts: Max close timestamp (unix seconds)
+            exclude_mve: Exclude multivariate event parlays (default True)
         """
         client = self._get_client()
         params: dict[str, Any] = {"limit": min(limit, 1000)}
@@ -211,6 +223,8 @@ class KalshiClient:
             params["min_close_ts"] = min_close_ts
         if max_close_ts:
             params["max_close_ts"] = max_close_ts
+        if exclude_mve:
+            params["mve_filter"] = "exclude"
 
         try:
             response = await client.get("/markets", params=params)
@@ -269,10 +283,10 @@ class KalshiClient:
 
             return OrderBook(
                 ticker=ticker,
-                yes_bids=parse_levels(ob.get("yes", {}).get("bids", [])),
-                yes_asks=parse_levels(ob.get("yes", {}).get("asks", [])),
-                no_bids=parse_levels(ob.get("no", {}).get("bids", [])),
-                no_asks=parse_levels(ob.get("no", {}).get("asks", [])),
+                yes_bids=parse_levels((ob.get("yes") or {}).get("bids", [])),
+                yes_asks=parse_levels((ob.get("yes") or {}).get("asks", [])),
+                no_bids=parse_levels((ob.get("no") or {}).get("bids", [])),
+                no_asks=parse_levels((ob.get("no") or {}).get("asks", [])),
             )
         except httpx.HTTPStatusError as e:
             logger.error("Kalshi orderbook error", ticker=ticker, status=e.response.status_code)
@@ -368,38 +382,60 @@ class KalshiClient:
         """Batch-fetch event categories for a list of event tickers.
 
         Returns a mapping of event_ticker → category string.
+        Uses an in-memory cache (1h TTL) and semaphore (5 concurrent)
+        to avoid hitting Kalshi's 10 reads/sec rate limit.
         """
-        import asyncio
+        now = time.monotonic()
+
+        # Check cache first
+        categories: dict[str, str | None] = {}
+        uncached: list[str] = []
+        for ticker in event_tickers:
+            if ticker in self._category_cache:
+                cat, ts = self._category_cache[ticker]
+                if now - ts < KALSHI_CATEGORY_CACHE_TTL:
+                    categories[ticker] = cat
+                    continue
+            uncached.append(ticker)
+
+        if not uncached:
+            return categories
+
+        # Fetch uncached with concurrency limit
+        semaphore = asyncio.Semaphore(KALSHI_EVENT_FETCH_CONCURRENCY)
 
         async def _fetch_one(ticker: str) -> tuple[str, str | None]:
-            client = self._get_client()
-            try:
-                response = await client.get(f"/events/{ticker}")
-                response.raise_for_status()
-                data = response.json()
-                event = data.get("event", data)
-                return ticker, event.get("category")
-            except (httpx.HTTPStatusError, httpx.RequestError) as e:
-                logger.warning("Kalshi event fetch failed", ticker=ticker, error=str(e))
-                return ticker, None
+            async with semaphore:
+                client = self._get_client()
+                try:
+                    response = await client.get(f"/events/{ticker}")
+                    response.raise_for_status()
+                    data = response.json()
+                    event = data.get("event", data)
+                    return ticker, event.get("category")
+                except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                    logger.warning("Kalshi event fetch failed", ticker=ticker, error=str(e))
+                    return ticker, None
+                finally:
+                    await asyncio.sleep(KALSHI_EVENT_FETCH_DELAY)
 
         results = await asyncio.gather(
-            *[_fetch_one(t) for t in event_tickers],
+            *[_fetch_one(t) for t in uncached],
             return_exceptions=True,
         )
 
-        categories: dict[str, str | None] = {}
         for result in results:
             if isinstance(result, Exception):
                 logger.warning("Kalshi event category fetch failed", error=str(result))
             elif isinstance(result, tuple):
-                categories[result[0]] = result[1]
+                ticker, cat = result
+                categories[ticker] = cat
+                self._category_cache[ticker] = (cat, now)
+
         return categories
 
     async def get_expiring_markets(self, hours: int = 24) -> list[KalshiMarket]:
         """Get markets expiring within the specified hours."""
-        import time
-
         now_ts = int(time.time())
         max_ts = now_ts + (hours * 3600)
         return await self.get_markets(

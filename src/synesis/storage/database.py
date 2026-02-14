@@ -396,6 +396,7 @@ class Database:
         time: "datetime",
         platform: str,
         market_external_id: str,
+        question: str | None,
         category: str | None,
         yes_price: float | None,
         no_price: float | None,
@@ -411,6 +412,7 @@ class Database:
             time: Snapshot timestamp
             platform: Platform name ('polymarket', 'kalshi')
             market_external_id: Platform's market ID
+            question: Market question text
             category: Market category
             yes_price: Current YES price
             no_price: Current NO price
@@ -422,12 +424,13 @@ class Database:
         """
         query = """
             INSERT INTO market_snapshots (
-                time, platform, market_external_id, category,
+                time, platform, market_external_id, question, category,
                 yes_price, no_price, volume_1h, volume_24h, volume_total,
                 trade_count_1h, open_interest
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (time, platform, market_external_id) DO UPDATE SET
+                question = EXCLUDED.question,
                 category = EXCLUDED.category,
                 yes_price = EXCLUDED.yes_price,
                 no_price = EXCLUDED.no_price,
@@ -442,6 +445,7 @@ class Database:
             time,
             platform,
             market_external_id,
+            question,
             category,
             yes_price,
             no_price,
@@ -469,10 +473,13 @@ class Database:
             platform: Platform to filter by ('polymarket')
 
         Returns:
-            List of records with address, platform, insider_score
+            List of records with address, platform, insider_score,
+            specialty_category, watch_reason
         """
         query = """
-            SELECT w.address, w.platform, wm.insider_score, wm.win_rate, wm.total_trades
+            SELECT w.address, w.platform, w.watch_reason,
+                   wm.insider_score, wm.win_rate,
+                   wm.total_trades, wm.specialty_category
             FROM wallets w
             LEFT JOIN wallet_metrics wm ON wm.wallet_id = w.id
             WHERE w.platform = $1 AND w.is_watched = TRUE
@@ -485,6 +492,7 @@ class Database:
         address: str,
         platform: str,
         is_watched: bool,
+        watch_reason: str | None = None,
     ) -> None:
         """Update wallet watched status.
 
@@ -492,13 +500,16 @@ class Database:
             address: Wallet address
             platform: Platform ('polymarket')
             is_watched: Whether to watch this wallet
+            watch_reason: Why the wallet was watched ('score', 'high_conviction', or None)
         """
         query = """
             UPDATE wallets
-            SET is_watched = $3
+            SET is_watched = $3, watch_reason = $4
             WHERE platform = $1 AND address = $2
         """
-        await self.execute(query, platform, address, is_watched)
+        await self.execute(
+            query, platform, address, is_watched, watch_reason if is_watched else None
+        )
 
     async def get_wallets_needing_score_update(
         self,
@@ -570,21 +581,27 @@ class Database:
         win_rate: float,
         total_pnl: float,
         insider_score: float,
+        *,
+        unique_markets: int = 0,
+        avg_position_size: float = 0.0,
+        wash_trade_ratio: float = 0.0,
+        profitability_score: float = 0.0,
+        focus_score: float = 0.0,
+        sizing_score: float = 0.0,
+        freshness_score: float = 0.0,
+        wash_penalty: float = 0.0,
+        specialty_category: str | None = None,
+        specialty_win_rate: float | None = None,
     ) -> None:
-        """Insert or update wallet metrics.
-
-        Args:
-            address: Wallet address
-            platform: Platform ('polymarket')
-            total_trades: Total number of trades
-            wins: Number of winning trades
-            win_rate: Win rate (0.0 to 1.0)
-            total_pnl: Total PnL
-            insider_score: Calculated insider score (0.0 to 1.0)
-        """
+        """Insert or update wallet metrics."""
         query = """
-            INSERT INTO wallet_metrics (wallet_id, total_trades, wins, win_rate, total_pnl, insider_score, updated_at)
-            SELECT w.id, $3, $4, $5, $6, $7, NOW()
+            INSERT INTO wallet_metrics (
+                wallet_id, total_trades, wins, win_rate, total_pnl, insider_score,
+                unique_markets, avg_position_size, wash_trade_ratio,
+                profitability_score, focus_score, sizing_score, freshness_score, wash_penalty,
+                specialty_category, specialty_win_rate, updated_at
+            )
+            SELECT w.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW()
             FROM wallets w
             WHERE w.platform = $1 AND w.address = $2
             ON CONFLICT (wallet_id) DO UPDATE SET
@@ -593,6 +610,16 @@ class Database:
                 win_rate = EXCLUDED.win_rate,
                 total_pnl = EXCLUDED.total_pnl,
                 insider_score = EXCLUDED.insider_score,
+                unique_markets = EXCLUDED.unique_markets,
+                avg_position_size = EXCLUDED.avg_position_size,
+                wash_trade_ratio = EXCLUDED.wash_trade_ratio,
+                profitability_score = EXCLUDED.profitability_score,
+                focus_score = EXCLUDED.focus_score,
+                sizing_score = EXCLUDED.sizing_score,
+                freshness_score = EXCLUDED.freshness_score,
+                wash_penalty = EXCLUDED.wash_penalty,
+                specialty_category = EXCLUDED.specialty_category,
+                specialty_win_rate = EXCLUDED.specialty_win_rate,
                 updated_at = NOW()
         """
         await self.execute(
@@ -604,7 +631,41 @@ class Database:
             win_rate,
             total_pnl,
             insider_score,
+            unique_markets,
+            avg_position_size,
+            wash_trade_ratio,
+            profitability_score,
+            focus_score,
+            sizing_score,
+            freshness_score,
+            wash_penalty,
+            specialty_category,
+            specialty_win_rate,
         )
+
+    async def get_wallet_first_seen(self, address: str, platform: str) -> "datetime | None":
+        """Get the first_seen_at timestamp for a wallet."""
+        result = await self.fetchval(
+            "SELECT first_seen_at FROM wallets WHERE platform = $1 AND address = $2",
+            platform,
+            address,
+        )
+        return result  # type: ignore[no-any-return]
+
+    async def get_market_categories(self, market_ids: list[str]) -> dict[str, str | None]:
+        """Get categories for markets from most recent snapshots."""
+        if not market_ids:
+            return {}
+        rows = await self.fetch(
+            """
+            SELECT DISTINCT ON (market_external_id) market_external_id, category
+            FROM market_snapshots
+            WHERE market_external_id = ANY($1) AND category IS NOT NULL
+            ORDER BY market_external_id, time DESC
+            """,
+            market_ids,
+        )
+        return {row["market_external_id"]: row["category"] for row in rows}
 
     # -------------------------------------------------------------------------
     # Flow 1: Signal and Prediction Storage (continued)

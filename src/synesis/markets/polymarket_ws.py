@@ -20,7 +20,7 @@ import websockets.exceptions
 from websockets.asyncio.client import ClientConnection
 
 from synesis.config import get_settings
-from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX
+from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX, PRICE_UPDATE_CHANNEL
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -202,6 +202,12 @@ class PolymarketWSClient:
                         )
                         await self._redis.expire(key, _PRICE_TTL)
 
+                        # Publish for real-time arb detection
+                        await self._redis.publish(
+                            PRICE_UPDATE_CHANNEL,
+                            f"polymarket:{asset_id}:{price}",
+                        )
+
                         # Increment volume counter
                         size = float(event.get("size", 0))
                         if size > 0:
@@ -222,6 +228,12 @@ class PolymarketWSClient:
                             },
                         )
                         await self._redis.expire(key, _PRICE_TTL)
+
+                        # Publish for real-time arb detection
+                        await self._redis.publish(
+                            PRICE_UPDATE_CHANNEL,
+                            f"polymarket:{asset_id}:{price}",
+                        )
 
         except Exception as e:
             logger.warning("Polymarket WS message parse error", error=str(e))

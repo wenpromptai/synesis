@@ -248,8 +248,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     # --- Finnhub ---
     ("finnhub_api_key", "FINNHUB_API_KEY", "fhkey", "fhkey"),  # SecretStr
     # --- Providers ---
-    ("price_provider", "PRICE_PROVIDER", "finnhub", "finnhub"),
-    ("ticker_provider", "TICKER_PROVIDER", "finnhub", "finnhub"),
+    ("ticker_provider", "TICKER_PROVIDER", "factset", "factset"),
     ("fundamentals_provider", "FUNDAMENTALS_PROVIDER", "sec_edgar", "sec_edgar"),
     # --- SEC EDGAR ---
     ("sec_edgar_user_agent", "SEC_EDGAR_USER_AGENT", "Test test@test.com", "Test test@test.com"),

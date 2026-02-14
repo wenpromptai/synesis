@@ -412,6 +412,132 @@ class TestFetchWebResults:
         assert "unavailable" in results[0].lower() or "failed" in results[0].lower()
 
 
+class TestSourceTypeBranching:
+    """Tests for source_type-based urgency gate and Polymarket branching."""
+
+    @pytest.fixture
+    def processor(self) -> NewsProcessor:
+        """Create a NewsProcessor with mocked internals."""
+        proc = NewsProcessor(AsyncMock())
+        mock_dedup = AsyncMock()
+        mock_dedup_result = MagicMock()
+        mock_dedup_result.is_duplicate = False
+        mock_dedup.process_message = AsyncMock(return_value=mock_dedup_result)
+
+        mock_classifier = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.search_polymarket = AsyncMock(return_value="Markets found")
+        mock_analyzer.analyze = AsyncMock(return_value=create_test_analysis())
+
+        mock_polymarket = MagicMock()
+        mock_polymarket._get_client = MagicMock(return_value=MagicMock())
+
+        proc._deduplicator = mock_dedup
+        proc._classifier = mock_classifier
+        proc._analyzer = mock_analyzer
+        proc._polymarket = mock_polymarket
+        proc._initialized = True
+        return proc
+
+    @pytest.mark.asyncio
+    async def test_analysis_normal_urgency_passes_gate(self, processor: NewsProcessor) -> None:
+        """Analysis source + normal urgency should pass to Stage 2."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.normal)
+        )
+
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            message = create_test_message(
+                text="Interesting take on AAPL earnings",
+                source_type=SourceType.analysis,
+            )
+            result = await processor.process_message(message)
+
+        # Stage 2 should run (analysis is not None)
+        assert result.analysis is not None
+
+    @pytest.mark.asyncio
+    async def test_analysis_low_urgency_filtered(self, processor: NewsProcessor) -> None:
+        """Analysis source + low urgency should still be filtered."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.low)
+        )
+
+        message = create_test_message(
+            text="Check out this promo link",
+            source_type=SourceType.analysis,
+        )
+        result = await processor.process_message(message)
+
+        # Stage 2 should NOT run
+        assert result.analysis is None
+
+    @pytest.mark.asyncio
+    async def test_news_normal_urgency_still_filtered(self, processor: NewsProcessor) -> None:
+        """News source + normal urgency should still be filtered (unchanged behavior)."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.normal)
+        )
+
+        message = create_test_message(
+            text="Minor update on housing data",
+            source_type=SourceType.news,
+        )
+        result = await processor.process_message(message)
+
+        # Stage 2 should NOT run for news+normal
+        assert result.analysis is None
+
+    @pytest.mark.asyncio
+    async def test_analysis_source_skips_polymarket(self, processor: NewsProcessor) -> None:
+        """Analysis source should NOT call search_polymarket."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.high)
+        )
+
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            message = create_test_message(
+                text="Deep analysis of semiconductor sector",
+                source_type=SourceType.analysis,
+            )
+            await processor.process_message(message)
+
+        # Polymarket search should NOT have been called
+        processor._analyzer.search_polymarket.assert_not_called()
+        # Analyzer should receive empty markets_text
+        call_kwargs = processor._analyzer.analyze.call_args
+        assert call_kwargs[0][3] == ""  # markets_text positional arg
+
+    @pytest.mark.asyncio
+    async def test_news_source_calls_polymarket(self, processor: NewsProcessor) -> None:
+        """News source should call search_polymarket (unchanged behavior)."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            message = create_test_message(
+                text="*BREAKING* Fed cuts rates by 50bps",
+                source_type=SourceType.news,
+            )
+            await processor.process_message(message)
+
+        # Polymarket search SHOULD have been called for news
+        processor._analyzer.search_polymarket.assert_called_once()
+
+
 class TestNewsProcessorStage2Failure:
     """Tests for NewsProcessor when Stage 2 analysis fails."""
 

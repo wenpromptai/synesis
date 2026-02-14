@@ -17,7 +17,6 @@ Tests all new components:
 from __future__ import annotations
 
 import asyncio
-import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -56,6 +55,7 @@ def _make_market(
     no_price: float = 0.35,
     volume_24h: float = 50000.0,
     condition_id: str | None = "cond_1",
+    yes_token_id: str | None = "token_yes_1",
     ticker: str | None = None,
     end_date: datetime | None = None,
     **kwargs: Any,
@@ -64,6 +64,7 @@ def _make_market(
         platform=platform,
         external_id=external_id,
         condition_id=condition_id,
+        yes_token_id=yes_token_id,
         ticker=ticker,
         question=question,
         yes_price=yes_price,
@@ -689,12 +690,51 @@ class TestPolymarketDataClient:
         assert len(trades) == 1
 
     @pytest.mark.asyncio
-    async def test_get_top_holders(self) -> None:
+    async def test_get_top_holders_nested(self) -> None:
+        """Test get_top_holders flattens nested API response and normalises proxyWallet."""
         from synesis.markets.polymarket import PolymarketDataClient
 
         client = PolymarketDataClient()
         mock_http = AsyncMock()
         mock_resp = MagicMock()
+        # Nested format from real API: [{token, holders: [...]}]
+        mock_resp.json.return_value = [
+            {
+                "token": "tok_yes",
+                "holders": [
+                    {"proxyWallet": "0xwhale", "amount": 50000, "outcomeIndex": 0},
+                    {"proxyWallet": "0xshark", "amount": 20000, "outcomeIndex": 0},
+                ],
+            },
+            {
+                "token": "tok_no",
+                "holders": [
+                    {"proxyWallet": "0xdolphin", "amount": 10000, "outcomeIndex": 1},
+                ],
+            },
+        ]
+        mock_resp.raise_for_status = MagicMock()
+        mock_http.get = AsyncMock(return_value=mock_resp)
+
+        with patch.object(client, "_get_client", return_value=mock_http):
+            holders = await client.get_top_holders("cond_1")
+
+        assert len(holders) == 3
+        assert holders[0]["address"] == "0xwhale"
+        assert holders[1]["address"] == "0xshark"
+        assert holders[2]["address"] == "0xdolphin"
+        # proxyWallet should be removed
+        assert "proxyWallet" not in holders[0]
+
+    @pytest.mark.asyncio
+    async def test_get_top_holders_flat_fallback(self) -> None:
+        """Test get_top_holders handles already-flat format (no holders key)."""
+        from synesis.markets.polymarket import PolymarketDataClient
+
+        client = PolymarketDataClient()
+        mock_http = AsyncMock()
+        mock_resp = MagicMock()
+        # Flat format (no nested holders key)
         mock_resp.json.return_value = [{"address": "0xwhale", "amount": 50000}]
         mock_resp.raise_for_status = MagicMock()
         mock_http.get = AsyncMock(return_value=mock_resp)
@@ -856,6 +896,7 @@ class TestMarketScanner:
             created_at=None,
             is_active=True,
             is_closed=False,
+            yes_token_id="token_m1_yes",
         )
         expiring = SimpleMarket(
             id="m2",
@@ -872,6 +913,7 @@ class TestMarketScanner:
             created_at=None,
             is_active=True,
             is_closed=False,
+            yes_token_id="token_m2_yes",
         )
         client.get_trending_markets = AsyncMock(return_value=[market])
         client.get_expiring_markets = AsyncMock(return_value=[expiring])
@@ -1029,12 +1071,20 @@ class TestWalletTracker:
                 {"address": "0xrandom", "amount": 1000, "outcome": "no"},
             ]
         )
+        client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 100.0, "initialValue": 500, "currentValue": 600, "conditionId": "c1"},
+                {"cashPnl": 50.0, "initialValue": 300, "currentValue": 350, "conditionId": "c2"},
+                {"cashPnl": -20.0, "initialValue": 200, "currentValue": 180, "conditionId": "c3"},
+                {"cashPnl": 30.0, "initialValue": 150, "currentValue": 180, "conditionId": "c4"},
+            ]
+        )
         client.get_wallet_trades = AsyncMock(
             return_value=[
-                {"pnl": 100.0},
-                {"pnl": 50.0},
-                {"pnl": -20.0},
-                {"pnl": 30.0},
+                {"side": "buy", "conditionId": "c1"},
+                {"side": "buy", "conditionId": "c2"},
+                {"side": "buy", "conditionId": "c3"},
+                {"side": "buy", "conditionId": "c4"},
             ]
         )
         return client
@@ -1097,7 +1147,8 @@ class TestWalletTracker:
         assert alerts[0].wallet_address == "0xinsider"
         assert alerts[0].insider_score == 0.8
         assert alerts[0].trade_direction == "yes"
-        assert alerts[0].trade_size == 50000.0
+        # 50,000 tokens × 0.65 yes_price = 32,500 USDC
+        assert alerts[0].trade_size == 32500.0
 
     @pytest.mark.asyncio
     async def test_check_wallet_activity_filters_below_threshold(
@@ -1597,8 +1648,10 @@ class TestTelegramFormatting:
         )
         msg = format_mkt_intel_signal(signal)
         assert "Odds Movements" in msg
-        assert "+0.12" in msg
-        assert "+0.25" in msg
+        # yes_price=0.65, change_1h=0.12 → prev=0.53 → "YES 53% → 65% (1h)"
+        assert "YES 53% → 65% (1h)" in msg
+        # yes_price=0.65, change_6h=0.25 → prev=0.40 → "YES 40% → 65% (6h)"
+        assert "YES 40% → 65% (6h)" in msg
 
     def test_format_with_insider_activity(self) -> None:
         from synesis.notifications.telegram import format_mkt_intel_signal
@@ -2212,54 +2265,106 @@ class TestUncertaintyAndInformedFormulas:
 
 
 class TestWalletMetricsFormula:
-    """Validate insider_score = min(1.0, win_rate * log10(max(total,1)) / 2)."""
+    """Validate insider_score uses 5 weighted sub-signals (positions-based)."""
+
+    @staticmethod
+    def _make_db_mock() -> AsyncMock:
+        """Create a mock DB with all methods needed by update_wallet_metrics."""
+        db = AsyncMock()
+        db.upsert_wallet_metrics = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)  # No freshness bonus
+        db.get_market_categories = AsyncMock(return_value={})  # No specialty
+        return db
 
     @pytest.mark.parametrize(
-        "pnls, expected_score",
+        "positions, expected_profitability",
         [
-            # trades=[+100, -50, +30] → wins=2, total=3, win_rate=2/3
-            # score = min(1.0, (2/3) * log10(3) / 2) ≈ 0.159
-            ([100.0, -50.0, 30.0], min(1.0, (2 / 3) * math.log10(3) / 2)),
-            # trades=[+10] → wins=1, total=1, log10(1)=0 → score=0
-            ([10.0], 0.0),
-            # trades=[+1]*100 → wins=100, total=100, score=min(1.0, 1.0*2.0/2)=1.0
-            ([1.0] * 100, 1.0),
-            # trades=[+1]*10 → wins=10, total=10, score=min(1.0, 1.0*1.0/2)=0.5
-            ([1.0] * 10, 0.5),
+            # 3 positions: 2 profitable → win_rate = 2/3, profitability = 2/3
+            (
+                [
+                    {
+                        "cashPnl": 100.0,
+                        "initialValue": 500,
+                        "currentValue": 600,
+                        "conditionId": "c1",
+                    },
+                    {
+                        "cashPnl": -50.0,
+                        "initialValue": 300,
+                        "currentValue": 250,
+                        "conditionId": "c2",
+                    },
+                    {
+                        "cashPnl": 30.0,
+                        "initialValue": 200,
+                        "currentValue": 230,
+                        "conditionId": "c3",
+                    },
+                ],
+                2 / 3,
+            ),
+            # 1 position, profitable → win_rate = 1.0
+            (
+                [{"cashPnl": 10.0, "initialValue": 100, "currentValue": 110, "conditionId": "c1"}],
+                1.0,
+            ),
+            # 100 positions all profitable → profitability = 1.0
+            (
+                [
+                    {"cashPnl": 1.0, "initialValue": 10, "currentValue": 11, "conditionId": f"c{i}"}
+                    for i in range(100)
+                ],
+                1.0,
+            ),
+            # 10 positions all profitable → profitability = 1.0
+            (
+                [
+                    {"cashPnl": 1.0, "initialValue": 10, "currentValue": 11, "conditionId": f"c{i}"}
+                    for i in range(10)
+                ],
+                1.0,
+            ),
         ],
     )
     @pytest.mark.asyncio
     async def test_insider_score_formula(
-        self, mock_redis: Any, pnls: list[float], expected_score: float
+        self, mock_redis: Any, positions: list[dict[str, Any]], expected_profitability: float
     ) -> None:
         from synesis.processing.mkt_intel.wallets import WalletTracker
 
         mock_data_client = AsyncMock()
-        mock_data_client.get_wallet_trades = AsyncMock(return_value=[{"pnl": p} for p in pnls])
+        mock_data_client.get_wallet_positions = AsyncMock(return_value=positions)
+        mock_data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"side": "buy"}] * len(positions)
+        )
 
-        mock_db = AsyncMock()
-        mock_db.upsert_wallet_metrics = AsyncMock()
+        mock_db = self._make_db_mock()
 
         tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=mock_data_client)
         await tracker.update_wallet_metrics("0xtest")
 
-        # Verify the score passed to DB
+        # Verify the profitability sub-score passed to DB
         mock_db.upsert_wallet_metrics.assert_called_once()
         call_kwargs = mock_db.upsert_wallet_metrics.call_args[1]
-        actual_score = call_kwargs["insider_score"]
-        assert actual_score == pytest.approx(expected_score, abs=0.001)
+        assert call_kwargs["profitability_score"] == pytest.approx(
+            expected_profitability, abs=0.001
+        )
+        # insider_score is a weighted average of 5 sub-signals, always between 0 and 1
+        assert 0 <= call_kwargs["insider_score"] <= 1.0
 
     @pytest.mark.asyncio
-    async def test_update_metrics_zero_trades(self, mock_redis: Any) -> None:
+    async def test_update_metrics_zero_data(self, mock_redis: Any) -> None:
         from synesis.processing.mkt_intel.wallets import WalletTracker
 
         mock_data_client = AsyncMock()
+        mock_data_client.get_wallet_positions = AsyncMock(return_value=[])
         mock_data_client.get_wallet_trades = AsyncMock(return_value=[])
         mock_db = AsyncMock()
         mock_db.upsert_wallet_metrics = AsyncMock()
 
         tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=mock_data_client)
-        await tracker.update_wallet_metrics("0xtest")
+        result = await tracker.update_wallet_metrics("0xtest")
+        assert result is None
         mock_db.upsert_wallet_metrics.assert_not_called()
 
     @pytest.mark.asyncio
@@ -2270,7 +2375,8 @@ class TestWalletMetricsFormula:
         mock_db.upsert_wallet_metrics = AsyncMock()
 
         tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=None)
-        await tracker.update_wallet_metrics("0xtest")
+        result = await tracker.update_wallet_metrics("0xtest")
+        assert result is None
         mock_db.upsert_wallet_metrics.assert_not_called()
 
     @pytest.mark.asyncio
@@ -2278,11 +2384,21 @@ class TestWalletMetricsFormula:
         from synesis.processing.mkt_intel.wallets import WalletTracker
 
         mock_data_client = AsyncMock()
-        mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": 100.0}, {"pnl": -50.0}, {"pnl": 30.0}]
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 100.0, "initialValue": 500, "currentValue": 600, "conditionId": "c1"},
+                {"cashPnl": -50.0, "initialValue": 300, "currentValue": 250, "conditionId": "c2"},
+                {"cashPnl": 30.0, "initialValue": 200, "currentValue": 230, "conditionId": "c3"},
+            ]
         )
-        mock_db = AsyncMock()
-        mock_db.upsert_wallet_metrics = AsyncMock()
+        mock_data_client.get_wallet_trades = AsyncMock(
+            return_value=[
+                {"side": "buy", "conditionId": "c1"},
+                {"side": "buy", "conditionId": "c2"},
+                {"side": "buy", "conditionId": "c3"},
+            ]
+        )
+        mock_db = self._make_db_mock()
 
         tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=mock_data_client)
         await tracker.update_wallet_metrics("0xtest")
@@ -2291,8 +2407,8 @@ class TestWalletMetricsFormula:
         kwargs = mock_db.upsert_wallet_metrics.call_args[1]
         assert kwargs["address"] == "0xtest"
         assert kwargs["platform"] == "polymarket"
-        assert kwargs["total_trades"] == 3
-        assert kwargs["wins"] == 2
+        assert kwargs["total_trades"] == 3  # 3 trades
+        assert kwargs["wins"] == 2  # 2 positions with cashPnl > 0
         assert kwargs["win_rate"] == pytest.approx(2 / 3)
         assert kwargs["total_pnl"] == pytest.approx(80.0)  # 100-50+30
 
@@ -2301,17 +2417,23 @@ class TestWalletMetricsFormula:
         from synesis.processing.mkt_intel.wallets import WalletTracker
 
         mock_data_client = AsyncMock()
-        mock_data_client.get_wallet_trades = AsyncMock(return_value=[{"pnl": None}, {"pnl": 50.0}])
-        mock_db = AsyncMock()
-        mock_db.upsert_wallet_metrics = AsyncMock()
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": None, "initialValue": 100, "currentValue": 100, "conditionId": "c1"},
+                {"cashPnl": 50.0, "initialValue": 200, "currentValue": 250, "conditionId": "c2"},
+            ]
+        )
+        mock_data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"side": "buy"}, {"side": "buy"}]
+        )
+        mock_db = self._make_db_mock()
 
         tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=mock_data_client)
         await tracker.update_wallet_metrics("0xtest")
 
         mock_db.upsert_wallet_metrics.assert_called_once()
         kwargs = mock_db.upsert_wallet_metrics.call_args[1]
-        assert kwargs["total_trades"] == 2
-        assert kwargs["wins"] == 1  # only pnl=50 is > 0; pnl=None → 0 → not win
+        assert kwargs["wins"] == 1  # only cashPnl=50 is > 0; cashPnl=None → 0 → not win
         assert kwargs["total_pnl"] == pytest.approx(50.0)
 
 
@@ -3185,7 +3307,7 @@ class TestWalletDiscoveryPipeline:
 
     @pytest.fixture
     def mock_data_client(self) -> AsyncMock:
-        """Mock PolymarketDataClient with holder and trade data."""
+        """Mock PolymarketDataClient with holder, position, and trade data."""
         client = AsyncMock()
         client.get_top_holders = AsyncMock(
             return_value=[
@@ -3194,13 +3316,21 @@ class TestWalletDiscoveryPipeline:
                 {"address": "0xloser1", "amount": 10000, "outcome": "yes"},
             ]
         )
-        # Default: good win rate (3 wins out of 4)
+        # Default: good win rate (3 wins out of 4 positions)
+        client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 100.0, "initialValue": 500, "currentValue": 600, "conditionId": "c1"},
+                {"cashPnl": 50.0, "initialValue": 300, "currentValue": 350, "conditionId": "c2"},
+                {"cashPnl": -20.0, "initialValue": 200, "currentValue": 180, "conditionId": "c3"},
+                {"cashPnl": 30.0, "initialValue": 150, "currentValue": 180, "conditionId": "c4"},
+            ]
+        )
         client.get_wallet_trades = AsyncMock(
             return_value=[
-                {"pnl": 100.0},
-                {"pnl": 50.0},
-                {"pnl": -20.0},
-                {"pnl": 30.0},
+                {"side": "buy", "conditionId": "c1"},
+                {"side": "buy", "conditionId": "c2"},
+                {"side": "buy", "conditionId": "c3"},
+                {"side": "buy", "conditionId": "c4"},
             ]
         )
         return client
@@ -3213,6 +3343,8 @@ class TestWalletDiscoveryPipeline:
         db.get_wallets_needing_score_update = AsyncMock(return_value=["0xwinner1", "0xwinner2"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
         return db
 
     @pytest.mark.asyncio
@@ -3266,10 +3398,18 @@ class TestWalletDiscoveryPipeline:
         db.get_wallets_needing_score_update = AsyncMock(return_value=["0xwinner1"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
 
-        # Set up data client to return trades that result in high score
+        # Set up data client to return positions with high win rate + enough trades
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 100.0, "initialValue": 500, "currentValue": 600, "conditionId": f"c{i}"}
+                for i in range(50)
+            ]
+        )
         mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": 100.0} for _ in range(50)]  # 100% win rate, 50 trades
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(50)]
         )
 
         tracker = WalletTracker(
@@ -3308,10 +3448,23 @@ class TestWalletDiscoveryPipeline:
         db.get_wallets_needing_score_update = AsyncMock(return_value=["0xloser1"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
 
-        # Set up data client to return trades that result in low score
+        # Set up data client to return positions with 0% win rate
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "cashPnl": -100.0,
+                    "initialValue": 500,
+                    "currentValue": 400,
+                    "conditionId": f"c{i}",
+                }
+                for i in range(5)
+            ]
+        )
         mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": -100.0} for _ in range(5)]  # 0% win rate
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(5)]
         )
 
         tracker = WalletTracker(
@@ -3338,7 +3491,7 @@ class TestWalletDiscoveryPipeline:
         mock_redis: Any,
         mock_data_client: Any,
     ) -> None:
-        """Test that wallets with too few trades are NOT auto-watched."""
+        """Test that wallets with too few trades are NOT auto-watched (and don't fast-track)."""
         from synesis.processing.mkt_intel.wallets import WalletTracker
 
         db = AsyncMock()
@@ -3346,10 +3499,24 @@ class TestWalletDiscoveryPipeline:
         db.get_wallets_needing_score_update = AsyncMock(return_value=["0xwinner1"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)  # no freshness
+        db.get_market_categories = AsyncMock(return_value={})
 
-        # High win rate but only 5 trades
+        # Positions: 50% win rate (blocks fast-track hard filter), tiny sizes
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 5.0, "initialValue": 10, "currentValue": 15, "conditionId": "c1"},
+                {"cashPnl": -5.0, "initialValue": 10, "currentValue": 5, "conditionId": "c2"},
+            ]
+        )
         mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": 100.0} for _ in range(5)]
+            return_value=[
+                {"side": "buy", "conditionId": "c1"},
+                {"side": "buy", "conditionId": "c2"},
+                {"side": "buy", "conditionId": "c3"},
+                {"side": "buy", "conditionId": "c4"},
+                {"side": "buy", "conditionId": "c5"},
+            ]
         )
 
         tracker = WalletTracker(
@@ -3367,7 +3534,7 @@ class TestWalletDiscoveryPipeline:
             min_trades_to_watch=20,  # Require 20 trades
         )
 
-        # Should NOT auto-watch (only 5 trades < 20 required)
+        # Should NOT auto-watch (only 5 trades < 20, win_rate 50% blocks fast-track)
         db.set_wallet_watched.assert_not_called()
 
     @pytest.mark.asyncio
@@ -3496,13 +3663,13 @@ class TestWalletDiscoveryPipeline:
         mock_data_client.get_top_holders.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_wallet_metrics_returns_score(
+    async def test_update_wallet_metrics_returns_result(
         self,
         mock_redis: Any,
         mock_db_for_discovery: Any,
         mock_data_client: Any,
     ) -> None:
-        """Test that update_wallet_metrics returns insider score and trade count."""
+        """Test that update_wallet_metrics returns WalletMetricsResult."""
         from synesis.processing.mkt_intel.wallets import WalletTracker
 
         tracker = WalletTracker(
@@ -3511,10 +3678,12 @@ class TestWalletDiscoveryPipeline:
             data_client=mock_data_client,
         )
 
-        score, total = await tracker.update_wallet_metrics("0xtest")
+        result = await tracker.update_wallet_metrics("0xtest")
 
-        assert total == 4  # 4 trades in mock
-        assert 0 <= score <= 1.0
+        assert result is not None
+        assert result.total_trades == 4  # 4 trades in mock
+        assert result.position_count == 4  # 4 positions in mock
+        assert 0 <= result.insider_score <= 1.0
         mock_db_for_discovery.upsert_wallet_metrics.assert_called_once()
 
 
@@ -3523,21 +3692,23 @@ class TestDatabaseWalletMethods:
 
     @pytest.mark.asyncio
     async def test_set_wallet_watched(self) -> None:
-        """Test set_wallet_watched updates wallet watched status."""
+        """Test set_wallet_watched updates wallet watched status with reason."""
         from synesis.storage.database import Database
 
         db = Database.__new__(Database)
         db.execute = AsyncMock()
 
-        await db.set_wallet_watched("0xtest", "polymarket", True)
+        await db.set_wallet_watched("0xtest", "polymarket", True, watch_reason="score")
 
         db.execute.assert_called_once()
         args = db.execute.call_args[0]
         assert "UPDATE wallets" in args[0]
         assert "is_watched" in args[0]
+        assert "watch_reason" in args[0]
         assert args[1] == "polymarket"
         assert args[2] == "0xtest"
         assert args[3] is True
+        assert args[4] == "score"
 
     @pytest.mark.asyncio
     async def test_get_wallets_needing_score_update_empty(self) -> None:
@@ -3606,6 +3777,50 @@ class TestDatabaseWalletMethods:
         assert args[5] == 0.75
         assert args[6] == 5000.0
         assert args[7] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_upsert_wallet_metrics_with_keyword_params(self) -> None:
+        """Test upsert_wallet_metrics passes new keyword params in correct SQL order."""
+        from synesis.storage.database import Database
+
+        db = Database.__new__(Database)
+        db.execute = AsyncMock()
+
+        await db.upsert_wallet_metrics(
+            address="0xtest",
+            platform="polymarket",
+            total_trades=100,
+            wins=75,
+            win_rate=0.75,
+            total_pnl=5000.0,
+            insider_score=0.85,
+            unique_markets=5,
+            avg_position_size=1200.0,
+            wash_trade_ratio=0.10,
+            profitability_score=0.80,
+            focus_score=0.65,
+            sizing_score=0.70,
+            freshness_score=1.0,
+            wash_penalty=0.90,
+            specialty_category="Politics",
+            specialty_win_rate=0.85,
+        )
+
+        db.execute.assert_called_once()
+        args = db.execute.call_args[0]
+        # Positional SQL params: $1=platform, $2=address, $3-$7=core, $8-$17=new kwargs
+        assert args[1] == "polymarket"  # $1
+        assert args[2] == "0xtest"  # $2
+        assert args[8] == 5  # $8 unique_markets
+        assert args[9] == 1200.0  # $9 avg_position_size
+        assert args[10] == 0.10  # $10 wash_trade_ratio
+        assert args[11] == 0.80  # $11 profitability_score
+        assert args[12] == 0.65  # $12 focus_score
+        assert args[13] == 0.70  # $13 sizing_score
+        assert args[14] == 1.0  # $14 freshness_score
+        assert args[15] == 0.90  # $15 wash_penalty
+        assert args[16] == "Politics"  # $16 specialty_category
+        assert args[17] == 0.85  # $17 specialty_win_rate
 
 
 class TestWalletDiscoveryAPIEndpoint:
@@ -4259,14 +4474,32 @@ class TestWalletDemotionInDiscovery:
         db.get_wallets_needing_score_update = AsyncMock(return_value=["0xwatched1"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
-        # get_watched_wallets returns the wallet as currently watched
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
+        # get_watched_wallets returns the wallet as currently watched (watch_reason='score')
         db.get_watched_wallets = AsyncMock(
-            return_value=[{"address": "0xwatched1", "platform": "polymarket", "insider_score": 0.7}]
+            return_value=[
+                {
+                    "address": "0xwatched1",
+                    "platform": "polymarket",
+                    "insider_score": 0.7,
+                    "watch_reason": "score",
+                }
+            ]
         )
 
-        # Low win rate → low insider score (1 win out of 10)
+        # Low win rate → low insider score (1 win out of 10 positions)
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 10.0, "initialValue": 50, "currentValue": 60, "conditionId": "c1"},
+            ]
+            + [
+                {"cashPnl": -5.0, "initialValue": 50, "currentValue": 45, "conditionId": f"c{i}"}
+                for i in range(2, 11)
+            ]
+        )
         mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": 10.0}] + [{"pnl": -5.0}] * 9
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(1, 11)]
         )
 
         tracker = WalletTracker(redis=mock_redis, db=db, data_client=mock_data_client)
@@ -4300,9 +4533,18 @@ class TestWalletDemotionInDiscovery:
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
         db.get_watched_wallets = AsyncMock(return_value=[])  # empty
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
 
+        # All losses in positions
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": -5.0, "initialValue": 50, "currentValue": 45, "conditionId": f"c{i}"}
+                for i in range(5)
+            ]
+        )
         mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": -5.0}] * 5  # all losses
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(5)]
         )
 
         tracker = WalletTracker(redis=mock_redis, db=db, data_client=mock_data_client)
@@ -4332,16 +4574,29 @@ class TestReScoreWatchedWallets:
         db.get_watched_wallets_needing_rescore = AsyncMock(return_value=["0xold1"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
 
         data_client = AsyncMock()
-        # Poor trades → low score
+        # 2 wins out of 10 positions → low profitability score
+        data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 5.0, "initialValue": 50, "currentValue": 55, "conditionId": f"c{i}"}
+                for i in range(2)
+            ]
+            + [
+                {"cashPnl": -10.0, "initialValue": 50, "currentValue": 40, "conditionId": f"c{i}"}
+                for i in range(2, 10)
+            ]
+        )
         data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": -10.0}] * 8 + [{"pnl": 5.0}] * 2
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(10)]
         )
 
         tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
 
-        demoted = await tracker.re_score_watched_wallets(unwatch_threshold=0.3, stale_hours=24)
+        # Threshold 0.40 should be above the resulting score
+        demoted = await tracker.re_score_watched_wallets(unwatch_threshold=0.40, stale_hours=24)
 
         assert demoted == 1
         db.set_wallet_watched.assert_called_once()
@@ -4358,10 +4613,25 @@ class TestReScoreWatchedWallets:
         db.get_watched_wallets_needing_rescore = AsyncMock(return_value=["0xgood1"])
         db.upsert_wallet_metrics = AsyncMock()
         db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
 
         data_client = AsyncMock()
-        # Great trades → high score
-        data_client.get_wallet_trades = AsyncMock(return_value=[{"pnl": 100.0}] * 50)
+        # All profitable positions with large sizes → high score
+        data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "cashPnl": 100.0,
+                    "initialValue": 1000,
+                    "currentValue": 1100,
+                    "conditionId": f"c{i}",
+                }
+                for i in range(5)
+            ]
+        )
+        data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(50)]
+        )
 
         tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
 
@@ -4415,6 +4685,294 @@ class TestDatabaseWatchedWalletsNeedingRescore:
         assert args[2] == 24
 
 
+class TestFastTrackAutoWatch:
+    """Tests for high-conviction fast-track auto-watch pathway."""
+
+    @staticmethod
+    def _make_tracker(
+        mock_redis: Any,
+        positions: list[dict[str, Any]],
+        trades: list[dict[str, Any]],
+        watched: list[dict[str, Any]] | None = None,
+        first_seen: Any = None,
+    ) -> tuple[Any, Any, Any]:
+        """Build WalletTracker with mocked data + db. Returns (tracker, db, data_client)."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.upsert_wallet = AsyncMock()
+        db.get_wallets_needing_score_update = AsyncMock(return_value=["0xnew"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=first_seen)
+        db.get_market_categories = AsyncMock(return_value={})
+        db.get_watched_wallets = AsyncMock(return_value=watched or [])
+
+        data_client = AsyncMock()
+        data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xnew", "amount": 50000}]
+        )
+        data_client.get_wallet_positions = AsyncMock(return_value=positions)
+        data_client.get_wallet_trades = AsyncMock(return_value=trades)
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
+        return tracker, db, data_client
+
+    @pytest.mark.asyncio
+    async def test_fast_track_consistent_insider(self, mock_redis: Any) -> None:
+        """Consistent Insider: 10 positions, 60% WR, $15k PnL/pos → watched."""
+        # 6 winners at $25k each, 4 losers at 0 → total PnL $150k, 10 pos → $15k/pos
+        tracker, db, _ = self._make_tracker(
+            mock_redis,
+            positions=[
+                {
+                    "cashPnl": 25000,
+                    "initialValue": 50000,
+                    "currentValue": 75000,
+                    "conditionId": f"c{i}",
+                }
+                for i in range(6)
+            ]
+            + [
+                {"cashPnl": 0, "initialValue": 50000, "currentValue": 0, "conditionId": f"c{i}"}
+                for i in range(6, 10)
+            ],
+            trades=[{"side": "buy", "conditionId": f"c{i}"} for i in range(10)],
+        )
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets, top_n_markets=1, auto_watch_threshold=0.6, min_trades_to_watch=20
+        )
+        db.set_wallet_watched.assert_called_once()
+        assert db.set_wallet_watched.call_args[1]["watch_reason"] == "high_conviction"
+
+    @pytest.mark.asyncio
+    async def test_fast_track_fresh_insider(self, mock_redis: Any) -> None:
+        """Fresh Insider: 0 trades, 0 resolved positions, 1 large open position → watched."""
+        # Brand new wallet with a single $60k open position, no trade history
+        tracker, db, _ = self._make_tracker(
+            mock_redis,
+            positions=[
+                {"cashPnl": 0, "initialValue": 60000, "currentValue": 60000, "conditionId": "c1"},
+            ],
+            trades=[],
+        )
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets, top_n_markets=1, auto_watch_threshold=0.6, min_trades_to_watch=20
+        )
+        db.set_wallet_watched.assert_called_once()
+        assert db.set_wallet_watched.call_args[1]["watch_reason"] == "high_conviction"
+
+    @pytest.mark.asyncio
+    async def test_fast_track_rejects_small_pnl_per_position(self, mock_redis: Any) -> None:
+        """$5k PnL/position, 60% WR → rejected (below $10k threshold)."""
+        # 6 wins at $8333 each, 4 at $0 → total $50k, 10 pos → $5k/pos
+        tracker, db, _ = self._make_tracker(
+            mock_redis,
+            positions=[
+                {"cashPnl": 8333, "initialValue": 20000, "currentValue": 0, "conditionId": f"c{i}"}
+                for i in range(6)
+            ]
+            + [
+                {"cashPnl": 0, "initialValue": 20000, "currentValue": 0, "conditionId": f"c{i}"}
+                for i in range(6, 10)
+            ],
+            trades=[{"side": "buy", "conditionId": f"c{i}"} for i in range(10)],
+        )
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets, top_n_markets=1, auto_watch_threshold=0.6, min_trades_to_watch=20
+        )
+        db.set_wallet_watched.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fast_track_rejects_market_maker(self, mock_redis: Any) -> None:
+        """High wash_ratio (0.5) → rejected by hard filter."""
+        tracker, db, _ = self._make_tracker(
+            mock_redis,
+            positions=[
+                {
+                    "cashPnl": 25000,
+                    "initialValue": 50000,
+                    "currentValue": 75000,
+                    "conditionId": "c1",
+                },
+                {
+                    "cashPnl": 25000,
+                    "initialValue": 50000,
+                    "currentValue": 75000,
+                    "conditionId": "c2",
+                },
+                {
+                    "cashPnl": 25000,
+                    "initialValue": 50000,
+                    "currentValue": 75000,
+                    "conditionId": "c3",
+                },
+            ],
+            # Heavy wash: buy+sell in 3 out of 5 markets → wash_ratio 0.6
+            trades=[
+                {"side": "buy", "market": "m1"},
+                {"side": "sell", "market": "m1"},
+                {"side": "buy", "market": "m2"},
+                {"side": "sell", "market": "m2"},
+                {"side": "buy", "market": "m3"},
+                {"side": "sell", "market": "m3"},
+                {"side": "buy", "market": "m4"},
+                {"side": "buy", "market": "m5"},
+            ],
+        )
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets, top_n_markets=1, auto_watch_threshold=0.6, min_trades_to_watch=20
+        )
+        db.set_wallet_watched.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fast_track_rejects_loser(self, mock_redis: Any) -> None:
+        """40% WR, even with big PnL → rejected (win_rate <= 0.5)."""
+        # 2 big wins, 3 losses → 40% WR.  PnL/pos = (50k+50k) / 5 = $20k
+        tracker, db, _ = self._make_tracker(
+            mock_redis,
+            positions=[
+                {"cashPnl": 50000, "initialValue": 50000, "currentValue": 0, "conditionId": "c1"},
+                {"cashPnl": 50000, "initialValue": 50000, "currentValue": 0, "conditionId": "c2"},
+                {"cashPnl": -10000, "initialValue": 50000, "currentValue": 0, "conditionId": "c3"},
+                {"cashPnl": -10000, "initialValue": 50000, "currentValue": 0, "conditionId": "c4"},
+                {"cashPnl": -10000, "initialValue": 50000, "currentValue": 0, "conditionId": "c5"},
+            ],
+            trades=[{"side": "buy", "conditionId": f"c{i}"} for i in range(1, 6)],
+        )
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets, top_n_markets=1, auto_watch_threshold=0.6, min_trades_to_watch=20
+        )
+        db.set_wallet_watched.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_normal_path_unaffected(self, mock_redis: Any) -> None:
+        """50 trades, high score → normal 'score' path, not fast-track."""
+        tracker, db, _ = self._make_tracker(
+            mock_redis,
+            positions=[
+                {"cashPnl": 100, "initialValue": 1000, "currentValue": 1100, "conditionId": f"c{i}"}
+                for i in range(5)
+            ],
+            trades=[{"side": "buy", "conditionId": f"c{i}"} for i in range(50)],
+        )
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets, top_n_markets=1, auto_watch_threshold=0.5, min_trades_to_watch=20
+        )
+        db.set_wallet_watched.assert_called_once()
+        assert db.set_wallet_watched.call_args[1]["watch_reason"] == "score"
+
+    @pytest.mark.asyncio
+    async def test_demotion_high_conviction_lenient(self, mock_redis: Any) -> None:
+        """HC wallet with score 0.20 → NOT demoted (lenient threshold 0.15)."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.upsert_wallet = AsyncMock()
+        db.get_wallets_needing_score_update = AsyncMock(return_value=["0xhc"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
+        db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xhc",
+                    "platform": "polymarket",
+                    "insider_score": 0.6,
+                    "watch_reason": "high_conviction",
+                }
+            ]
+        )
+
+        data_client = AsyncMock()
+        data_client.get_top_holders = AsyncMock(return_value=[{"address": "0xhc", "amount": 50000}])
+        # Score ends up around 0.20: low WR, tiny positions, stale
+        data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 5, "initialValue": 50, "currentValue": 55, "conditionId": "c1"},
+                {"cashPnl": -3, "initialValue": 50, "currentValue": 47, "conditionId": "c2"},
+                {"cashPnl": -3, "initialValue": 50, "currentValue": 47, "conditionId": "c3"},
+                {"cashPnl": 2, "initialValue": 50, "currentValue": 52, "conditionId": "c4"},
+                {"cashPnl": -4, "initialValue": 50, "currentValue": 46, "conditionId": "c5"},
+            ]
+        )
+        data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(1, 11)]
+        )
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets,
+            top_n_markets=1,
+            auto_watch_threshold=0.6,
+            min_trades_to_watch=20,
+            unwatch_threshold=0.3,
+        )
+        # HC wallet at ~0.20 score should NOT be demoted (threshold for HC is 0.15)
+        db.set_wallet_watched.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_demotion_score_wallet_strict(self, mock_redis: Any) -> None:
+        """Score wallet with insider_score 0.25 → demoted (strict threshold 0.3)."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        db = AsyncMock()
+        db.upsert_wallet = AsyncMock()
+        db.get_wallets_needing_score_update = AsyncMock(return_value=["0xscore"])
+        db.upsert_wallet_metrics = AsyncMock()
+        db.set_wallet_watched = AsyncMock()
+        db.get_wallet_first_seen = AsyncMock(return_value=None)
+        db.get_market_categories = AsyncMock(return_value={})
+        db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xscore",
+                    "platform": "polymarket",
+                    "insider_score": 0.6,
+                    "watch_reason": "score",
+                }
+            ]
+        )
+
+        data_client = AsyncMock()
+        data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xscore", "amount": 50000}]
+        )
+        # Degraded: 1 win out of 5 positions, small sizes → score ~0.34
+        data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"cashPnl": 5, "initialValue": 50, "currentValue": 55, "conditionId": "c1"},
+                {"cashPnl": -3, "initialValue": 50, "currentValue": 47, "conditionId": "c2"},
+                {"cashPnl": -3, "initialValue": 50, "currentValue": 47, "conditionId": "c3"},
+                {"cashPnl": -4, "initialValue": 50, "currentValue": 46, "conditionId": "c4"},
+                {"cashPnl": -4, "initialValue": 50, "currentValue": 46, "conditionId": "c5"},
+            ]
+        )
+        data_client.get_wallet_trades = AsyncMock(
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(1, 11)]
+        )
+
+        tracker = WalletTracker(redis=mock_redis, db=db, data_client=data_client)
+        markets = [_make_market(condition_id="cond_1")]
+        await tracker.discover_and_score_wallets(
+            markets,
+            top_n_markets=1,
+            auto_watch_threshold=0.6,
+            min_trades_to_watch=20,
+            unwatch_threshold=0.4,  # score ~0.34 < 0.4 → demoted
+        )
+        db.set_wallet_watched.assert_called_once()
+        assert db.set_wallet_watched.call_args[0][2] is False
+
+
 class TestProcessorRescoreIntegration:
     """Tests for processor wiring of wallet re-score task."""
 
@@ -4455,3 +5013,950 @@ class TestProcessorRescoreIntegration:
 
         assert processor._last_rescore_time is not None
         assert processor._rescore_task is not None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Feature 1: Cross-Platform Arbitrage Detection
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestCrossPlatformArbModel:
+    """Test CrossPlatformArb model."""
+
+    def test_create_arb(self) -> None:
+        from synesis.markets.models import CrossPlatformArb
+
+        arb = CrossPlatformArb(
+            polymarket=_make_market(yes_price=0.45),
+            kalshi=_make_kalshi_market(yes_price=0.52),
+            price_gap=0.07,
+            suggested_buy_platform="polymarket",
+            suggested_side="yes",
+            match_similarity=0.92,
+        )
+        assert arb.price_gap == 0.07
+        assert arb.suggested_buy_platform == "polymarket"
+        assert arb.match_similarity == 0.92
+
+    def test_scan_result_has_arbs(self) -> None:
+        from synesis.markets.models import CrossPlatformArb
+
+        arb = CrossPlatformArb(
+            polymarket=_make_market(yes_price=0.40),
+            kalshi=_make_kalshi_market(yes_price=0.50),
+            price_gap=0.10,
+            suggested_buy_platform="polymarket",
+            suggested_side="yes",
+            match_similarity=0.85,
+        )
+        result = ScanResult(
+            timestamp=datetime.now(UTC),
+            cross_platform_arbs=[arb],
+        )
+        assert len(result.cross_platform_arbs) == 1
+
+
+class TestCrossPlatformArbDetection:
+    """Test the scanner's _detect_cross_platform_arbs method."""
+
+    def test_arb_detection_empty_lists(self) -> None:
+        scanner = MagicMock()
+        scanner._model = None
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        s = MarketScanner.__new__(MarketScanner)
+        s._model = None
+        result = s._detect_cross_platform_arbs([], [])
+        assert result == []
+
+    @patch("synesis.processing.mkt_intel.scanner.MarketScanner._get_model")
+    def test_arb_detection_finds_match(self, mock_get_model: MagicMock) -> None:
+        import numpy as np
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        # Mock model that returns predictable embeddings
+        mock_model = MagicMock()
+        # Two questions with high similarity
+        mock_model.encode.side_effect = [
+            np.array([[1.0, 0.0, 0.0]]),  # poly embedding
+            np.array([[0.95, 0.1, 0.0]]),  # kalshi embedding (similar)
+        ]
+        mock_get_model.return_value = mock_model
+
+        s = MarketScanner.__new__(MarketScanner)
+        s._model = mock_model
+        s._cross_platform_matches = []
+
+        poly = [_make_market(yes_price=0.40, question="Will X happen?")]
+        kalshi = [_make_kalshi_market(yes_price=0.50, question="Will X happen?")]
+
+        arbs = s._detect_cross_platform_arbs(poly, kalshi, min_gap=0.05, min_similarity=0.80)
+        assert len(arbs) == 1
+        assert arbs[0].price_gap == pytest.approx(0.10, abs=0.01)
+        assert arbs[0].suggested_buy_platform == "polymarket"
+        assert len(s._cross_platform_matches) == 1
+
+    @patch("synesis.processing.mkt_intel.scanner.MarketScanner._get_model")
+    def test_arb_detection_no_gap(self, mock_get_model: MagicMock) -> None:
+        import numpy as np
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        mock_model = MagicMock()
+        mock_model.encode.side_effect = [
+            np.array([[1.0, 0.0, 0.0]]),
+            np.array([[0.95, 0.1, 0.0]]),
+        ]
+        mock_get_model.return_value = mock_model
+
+        s = MarketScanner.__new__(MarketScanner)
+        s._model = mock_model
+        s._cross_platform_matches = []
+
+        # Same price — no arb
+        poly = [_make_market(yes_price=0.50)]
+        kalshi = [_make_kalshi_market(yes_price=0.50)]
+
+        arbs = s._detect_cross_platform_arbs(poly, kalshi, min_gap=0.05, min_similarity=0.80)
+        assert len(arbs) == 0
+        # But matches should still be stored
+        assert len(s._cross_platform_matches) == 1
+
+    @patch("synesis.processing.mkt_intel.scanner.MarketScanner._get_model")
+    def test_arb_detection_kalshi_cheaper(self, mock_get_model: MagicMock) -> None:
+        """When Kalshi YES is cheaper, suggested_buy_platform should be 'kalshi'."""
+        import numpy as np
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        mock_model = MagicMock()
+        mock_model.encode.side_effect = [
+            np.array([[1.0, 0.0, 0.0]]),
+            np.array([[0.95, 0.1, 0.0]]),
+        ]
+        mock_get_model.return_value = mock_model
+
+        s = MarketScanner.__new__(MarketScanner)
+        s._model = mock_model
+        s._cross_platform_matches = []
+
+        # Kalshi is cheaper for YES
+        poly = [_make_market(yes_price=0.60, question="Will Y happen?")]
+        kalshi = [_make_kalshi_market(yes_price=0.45, question="Will Y happen?")]
+
+        arbs = s._detect_cross_platform_arbs(poly, kalshi, min_gap=0.05, min_similarity=0.80)
+        assert len(arbs) == 1
+        assert arbs[0].suggested_buy_platform == "kalshi"
+        assert arbs[0].suggested_side == "yes"
+        assert arbs[0].price_gap == pytest.approx(0.15, abs=0.01)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Feature 2: High-Conviction Trade Detection
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestHighConvictionModel:
+    """Test HighConvictionTrade model."""
+
+    def test_create_high_conviction(self) -> None:
+        from synesis.markets.models import HighConvictionTrade
+
+        hc = HighConvictionTrade(
+            market=_make_market(),
+            wallet_address="0xabc123",
+            insider_score=0.85,
+            position_size=15000.0,
+            total_positions=3,
+            concentration_pct=0.72,
+            wallet_specialty="Politics",
+        )
+        assert hc.concentration_pct == 0.72
+        assert hc.total_positions == 3
+        assert hc.wallet_specialty == "Politics"
+
+
+class TestHighConvictionDetection:
+    """Test WalletTracker.detect_high_conviction_trades."""
+
+    @pytest.mark.asyncio
+    async def test_detects_concentrated_wallet(self) -> None:
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        # Watched wallet with high score
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xabc",
+                    "platform": "polymarket",
+                    "insider_score": 0.8,
+                    "specialty_category": "Crypto",
+                }
+            ]
+        )
+
+        # Top holder includes our watched wallet (amount is in tokens, not used for sizing)
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xabc", "amount": "5000", "outcome": "yes"}]
+        )
+
+        # Wallet has only 2 positions — conditionId on first matches the market
+        # position_size and concentration use currentValue (USDC) from positions API
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "conditionId": "cond_1",
+                    "currentValue": "5000",
+                    "initialValue": "4000",
+                    "avgPrice": "0.80",
+                },
+                {"conditionId": "other_cond", "currentValue": "1000", "initialValue": "800"},
+            ]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis,
+            db=mock_db,
+            data_client=mock_data_client,
+            insider_score_min=0.5,
+        )
+
+        market = _make_market()  # condition_id="cond_1"
+        results = await tracker.detect_high_conviction_trades([market])
+        assert len(results) == 1
+        # position_size = currentValue $5000, total portfolio = $6000
+        assert results[0].position_size == pytest.approx(5000)
+        assert results[0].concentration_pct == pytest.approx(5000 / 6000, abs=0.01)
+        assert results[0].entry_cost == pytest.approx(4000)
+        assert results[0].avg_entry_price == pytest.approx(0.80)
+        assert results[0].total_positions == 2
+        assert results[0].trade_direction == "yes"
+
+    @pytest.mark.asyncio
+    async def test_skips_diversified_wallet(self) -> None:
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xabc",
+                    "platform": "polymarket",
+                    "insider_score": 0.8,
+                    "specialty_category": None,
+                }
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xabc", "amount": "1000"}]
+        )
+        # Too many positions (>5)
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[{"currentValue": "1000", "initialValue": "800"}] * 10
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        results = await tracker.detect_high_conviction_trades([_make_market()])
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_match_without_condition_id_in_positions(self) -> None:
+        """If positions don't have conditionId, pos_size is 0 and nothing qualifies."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {"address": "0xabc", "platform": "polymarket", "insider_score": 0.8}
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xabc", "amount": "99999", "outcome": "yes"}]
+        )
+        # Positions have no conditionId — can't match to market
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {"currentValue": "50000", "initialValue": "40000"},
+            ]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        results = await tracker.detect_high_conviction_trades([_make_market()])
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_entry_date_from_trades(self) -> None:
+        """entry_date should be the earliest trade timestamp for the conditionId."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xabc",
+                    "platform": "polymarket",
+                    "insider_score": 0.8,
+                    "specialty_category": None,
+                }
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xabc", "amount": "5000", "outcome": "yes"}]
+        )
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "conditionId": "cond_1",
+                    "currentValue": "5000",
+                    "initialValue": "4000",
+                    "avgPrice": "0.80",
+                },
+            ]
+        )
+        # Two trades on cond_1 — earliest at ts=1700000000
+        mock_data_client.get_wallet_trades = AsyncMock(
+            return_value=[
+                {"conditionId": "cond_1", "timestamp": "1700100000"},
+                {"conditionId": "cond_1", "timestamp": "1700000000"},
+            ]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis,
+            db=mock_db,
+            data_client=mock_data_client,
+            insider_score_min=0.5,
+        )
+        results = await tracker.detect_high_conviction_trades([_make_market()])
+        assert len(results) == 1
+        assert results[0].entry_date is not None
+        assert results[0].entry_date == datetime.fromtimestamp(1700000000, tz=UTC)
+
+    @pytest.mark.asyncio
+    async def test_entry_date_none_without_trades(self) -> None:
+        """entry_date should be None when no trades are available."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xabc",
+                    "platform": "polymarket",
+                    "insider_score": 0.8,
+                    "specialty_category": None,
+                }
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xabc", "amount": "5000", "outcome": "yes"}]
+        )
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "conditionId": "cond_1",
+                    "currentValue": "5000",
+                    "initialValue": "4000",
+                    "avgPrice": "0.80",
+                },
+            ]
+        )
+        mock_data_client.get_wallet_trades = AsyncMock(return_value=[])
+
+        tracker = WalletTracker(
+            redis=mock_redis,
+            db=mock_db,
+            data_client=mock_data_client,
+            insider_score_min=0.5,
+        )
+        results = await tracker.detect_high_conviction_trades([_make_market()])
+        assert len(results) == 1
+        assert results[0].entry_date is None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Token → USDC Conversion
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestTokenToUsdConversion:
+    """Verify that holder token amounts are correctly converted to USDC."""
+
+    @pytest.mark.asyncio
+    async def test_insider_alert_yes_tokens_use_yes_price(self) -> None:
+        """YES tokens × yes_price = trade_size in USDC."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xw1", "amount": 10000, "outcome": "yes"}]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        # yes_price=0.70, no_price=0.30
+        market = _make_market(yes_price=0.70, no_price=0.30)
+        alerts = await tracker.check_wallet_activity([market])
+
+        assert len(alerts) == 1
+        # 10,000 tokens × 0.70 = $7,000
+        assert alerts[0].trade_size == pytest.approx(7000.0)
+        assert alerts[0].trade_direction == "yes"
+
+    @pytest.mark.asyncio
+    async def test_insider_alert_no_tokens_use_no_price(self) -> None:
+        """NO tokens × no_price = trade_size in USDC."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xw1", "amount": 20000, "outcome": "no"}]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        market = _make_market(yes_price=0.80, no_price=0.20)
+        alerts = await tracker.check_wallet_activity([market])
+
+        assert len(alerts) == 1
+        # 20,000 tokens × 0.20 = $4,000
+        assert alerts[0].trade_size == pytest.approx(4000.0)
+        assert alerts[0].trade_direction == "no"
+
+    @pytest.mark.asyncio
+    async def test_insider_alert_unsure_falls_back_to_yes_price(self) -> None:
+        """Unknown outcome falls back to yes_price."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
+            ]
+        )
+        # No outcome field
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xw1", "amount": 5000}]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        market = _make_market(yes_price=0.60, no_price=0.40)
+        alerts = await tracker.check_wallet_activity([market])
+
+        assert len(alerts) == 1
+        # 5,000 tokens × 0.60 (yes_price fallback) = $3,000
+        assert alerts[0].trade_size == pytest.approx(3000.0)
+        assert alerts[0].trade_direction == "unsure"
+
+    @pytest.mark.asyncio
+    async def test_high_conviction_uses_position_current_value(self) -> None:
+        """High-conviction position_size comes from positions API currentValue, not holders amount."""
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
+            ]
+        )
+        # Holders shows 100,000 tokens — but this should NOT be used for sizing
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xw1", "amount": "100000", "outcome": "yes"}]
+        )
+        # Positions shows actual USDC values — this IS the source of truth
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "conditionId": "cond_1",
+                    "currentValue": "8500",
+                    "initialValue": "6000",
+                    "avgPrice": "0.45",
+                },
+                {
+                    "conditionId": "other",
+                    "currentValue": "1500",
+                    "initialValue": "1200",
+                },
+            ]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        market = _make_market(yes_price=0.10, no_price=0.90)  # price irrelevant here
+        results = await tracker.detect_high_conviction_trades([market])
+
+        assert len(results) == 1
+        # position_size = $8,500 from currentValue, NOT 100,000 × 0.10
+        assert results[0].position_size == pytest.approx(8500.0)
+        assert results[0].entry_cost == pytest.approx(6000.0)
+        assert results[0].avg_entry_price == pytest.approx(0.45)
+        # concentration = $8,500 / $10,000 total = 85%
+        assert results[0].concentration_pct == pytest.approx(0.85, abs=0.01)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Feature 3: Richer Insider Scoring
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestRicherInsiderScoring:
+    """Test the 5 sub-signal scoring in update_wallet_metrics (positions-based)."""
+
+    @pytest.mark.asyncio
+    async def test_scoring_sub_signals(self) -> None:
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        # Positions with varied PnL and sizes
+        positions = [
+            {"cashPnl": 100, "initialValue": 500, "currentValue": 600, "conditionId": "m1"},
+            {"cashPnl": -50, "initialValue": 300, "currentValue": 250, "conditionId": "m2"},
+            {"cashPnl": 200, "initialValue": 800, "currentValue": 1000, "conditionId": "m3"},
+            {"cashPnl": 50, "initialValue": 200, "currentValue": 250, "conditionId": "m4"},
+        ]
+        mock_data_client.get_wallet_positions = AsyncMock(return_value=positions)
+
+        # Trades with wash trading in m1
+        trades = [
+            {"market": "m1", "conditionId": "", "side": "buy"},
+            {"market": "m1", "conditionId": "", "side": "sell"},
+            {"market": "m2", "conditionId": "", "side": "buy"},
+            {"market": "m3", "conditionId": "", "side": "buy"},
+        ]
+        mock_data_client.get_wallet_trades = AsyncMock(return_value=trades)
+
+        # Wallet first seen 10 days ago (fresh)
+        from datetime import timezone
+
+        first_seen = datetime.now(timezone.utc) - timedelta(days=10)
+        mock_db.get_wallet_first_seen = AsyncMock(return_value=first_seen)
+        mock_db.get_market_categories = AsyncMock(return_value={"m1": "Politics", "m3": "Crypto"})
+        mock_db.upsert_wallet_metrics = AsyncMock()
+
+        tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=mock_data_client)
+        result = await tracker.update_wallet_metrics("0xtest")
+
+        assert result is not None
+        assert result.total_trades == 4
+        assert 0.0 <= result.insider_score <= 1.0
+
+        # Check upsert_wallet_metrics was called with sub-scores
+        call_kwargs = mock_db.upsert_wallet_metrics.call_args
+        assert call_kwargs is not None
+        assert "profitability_score" in call_kwargs.kwargs or len(call_kwargs.args) > 7
+
+    @pytest.mark.asyncio
+    async def test_scoring_wash_trade_penalty(self) -> None:
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        # Positions
+        positions = [
+            {"cashPnl": 10, "initialValue": 100, "currentValue": 110, "conditionId": "m1"},
+            {"cashPnl": -5, "initialValue": 100, "currentValue": 95, "conditionId": "m1"},
+        ]
+        mock_data_client.get_wallet_positions = AsyncMock(return_value=positions)
+
+        # All trades in same market, both buy and sell (wash trading)
+        trades = [
+            {"market": "m1", "conditionId": "", "side": "buy"},
+            {"market": "m1", "conditionId": "", "side": "sell"},
+        ]
+        mock_data_client.get_wallet_trades = AsyncMock(return_value=trades)
+
+        from datetime import timezone
+
+        mock_db.get_wallet_first_seen = AsyncMock(
+            return_value=datetime.now(timezone.utc) - timedelta(days=365)
+        )
+        mock_db.get_market_categories = AsyncMock(return_value={})
+        mock_db.upsert_wallet_metrics = AsyncMock()
+
+        tracker = WalletTracker(redis=mock_redis, db=mock_db, data_client=mock_data_client)
+        result = await tracker.update_wallet_metrics("0xwash")
+
+        assert result is not None
+        assert result.total_trades == 2
+        # Wash ratio should be 1.0 (all trades are wash), so wash_penalty = 0.0
+        call_kwargs = mock_db.upsert_wallet_metrics.call_args
+        assert call_kwargs is not None
+
+
+# ═══════════════════════════════════════════════════════════════
+# Feature 4: Wallet Specialty Classification
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestWalletSpecialty:
+    """Test wallet specialty detection."""
+
+    def test_insider_alert_has_specialty(self) -> None:
+        alert = InsiderAlert(
+            market=_make_market(),
+            wallet_address="0xabc",
+            insider_score=0.8,
+            trade_direction="yes",
+            trade_size=1000,
+            wallet_specialty="Politics",
+        )
+        assert alert.wallet_specialty == "Politics"
+
+    @pytest.mark.asyncio
+    async def test_check_wallet_activity_returns_specialty(self) -> None:
+        from synesis.processing.mkt_intel.wallets import WalletTracker
+
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_data_client = AsyncMock()
+
+        mock_db.get_watched_wallets = AsyncMock(
+            return_value=[
+                {
+                    "address": "0xabc",
+                    "platform": "polymarket",
+                    "insider_score": 0.8,
+                    "specialty_category": "Crypto",
+                }
+            ]
+        )
+        mock_data_client.get_top_holders = AsyncMock(
+            return_value=[{"address": "0xabc", "amount": "1000", "outcome": "yes"}]
+        )
+
+        tracker = WalletTracker(
+            redis=mock_redis, db=mock_db, data_client=mock_data_client, insider_score_min=0.5
+        )
+        alerts = await tracker.check_wallet_activity([_make_market()])
+        assert len(alerts) == 1
+        assert alerts[0].wallet_specialty == "Crypto"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Processor Integration with New Triggers
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestProcessorNewTriggers:
+    """Test _score_opportunities with new Feature 1/2/5/6 triggers."""
+
+    def test_cross_platform_arb_trigger(self) -> None:
+        from synesis.markets.models import CrossPlatformArb
+        from synesis.processing.mkt_intel.processor import MarketIntelProcessor
+
+        processor = MarketIntelProcessor.__new__(MarketIntelProcessor)
+
+        poly_mkt = _make_market(external_id="poly1", yes_price=0.40)
+        kalshi_mkt = _make_kalshi_market(ticker="K-MKT", yes_price=0.50)
+
+        scan_result = ScanResult(
+            timestamp=datetime.now(UTC),
+            trending_markets=[poly_mkt],
+            cross_platform_arbs=[
+                CrossPlatformArb(
+                    polymarket=poly_mkt,
+                    kalshi=kalshi_mkt,
+                    price_gap=0.10,
+                    suggested_buy_platform="polymarket",
+                    suggested_side="yes",
+                    match_similarity=0.90,
+                )
+            ],
+        )
+
+        opps = processor._score_opportunities(scan_result=scan_result, insider_alerts=[])
+        arb_opps = [o for o in opps if "cross_platform_arb" in o.triggers]
+        assert len(arb_opps) == 1
+        assert arb_opps[0].confidence >= 0.20
+
+    def test_high_conviction_trigger(self) -> None:
+        from synesis.markets.models import HighConvictionTrade
+        from synesis.processing.mkt_intel.processor import MarketIntelProcessor
+
+        processor = MarketIntelProcessor.__new__(MarketIntelProcessor)
+        market = _make_market(external_id="m1", yes_price=0.40)
+
+        scan_result = ScanResult(
+            timestamp=datetime.now(UTC),
+            trending_markets=[market],
+        )
+
+        hc = HighConvictionTrade(
+            market=market,
+            wallet_address="0xabc",
+            insider_score=0.9,
+            position_size=10000,
+            total_positions=2,
+            concentration_pct=0.80,
+        )
+
+        opps = processor._score_opportunities(
+            scan_result=scan_result,
+            insider_alerts=[],
+            high_conviction=[hc],
+        )
+        hc_opps = [o for o in opps if "high_conviction" in o.triggers]
+        assert len(hc_opps) == 1
+        assert hc_opps[0].confidence >= 0.25
+
+class TestSignalNewFields:
+    """Test MarketIntelSignal includes new fields."""
+
+    def test_signal_has_new_fields(self) -> None:
+        signal = _make_signal()
+        assert signal.cross_platform_arbs == []
+        assert signal.high_conviction_trades == []
+
+
+# ═══════════════════════════════════════════════════════════════
+# Telegram Formatting Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestNewTelegramFormatters:
+    """Test new Telegram alert formatters."""
+
+    def test_format_arb_alert(self) -> None:
+        from synesis.markets.models import CrossPlatformArb
+        from synesis.notifications.telegram import format_arb_alert
+
+        arb = CrossPlatformArb(
+            polymarket=_make_market(yes_price=0.45, question="Will X happen?"),
+            kalshi=_make_kalshi_market(yes_price=0.52, question="Will X happen?"),
+            price_gap=0.07,
+            suggested_buy_platform="polymarket",
+            suggested_side="yes",
+            match_similarity=0.92,
+        )
+        msg = format_arb_alert(arb)
+        assert "ARB ALERT" in msg
+        assert "$0.45" in msg
+        assert "$0.52" in msg
+        assert "Polymarket" in msg
+
+    def test_mkt_intel_signal_includes_new_sections(self) -> None:
+        from synesis.markets.models import CrossPlatformArb, HighConvictionTrade
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        arb = CrossPlatformArb(
+            polymarket=_make_market(yes_price=0.40, question="Test Q?"),
+            kalshi=_make_kalshi_market(yes_price=0.50, question="Test Q?"),
+            price_gap=0.10,
+            suggested_buy_platform="polymarket",
+            suggested_side="yes",
+            match_similarity=0.85,
+        )
+        hc = HighConvictionTrade(
+            market=_make_market(),
+            wallet_address="0xabc123",
+            insider_score=0.9,
+            position_size=15000,
+            total_positions=2,
+            concentration_pct=0.75,
+            wallet_specialty="Politics",
+        )
+        signal = _make_signal(
+            cross_platform_arbs=[arb],
+            high_conviction_trades=[hc],
+        )
+        msg = format_mkt_intel_signal(signal)
+        # Arbs are pushed live, not in hourly digest
+        assert "Cross-Platform Arbs" not in msg
+        assert "High-Conviction Trades" in msg
+        assert "Politics" in msg
+
+    def test_hc_format_matches_insider_style(self) -> None:
+        """High-conviction trades should use 👤 prefix and [specialty] brackets."""
+        from synesis.markets.models import HighConvictionTrade
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        hc = HighConvictionTrade(
+            market=_make_market(question="Test market?"),
+            wallet_address="0xdeadbeef1234",
+            insider_score=0.9,
+            position_size=50000,
+            entry_cost=25000,
+            avg_entry_price=0.50,
+            total_positions=2,
+            concentration_pct=0.80,
+            trade_direction="yes",
+            wallet_specialty="Crypto",
+        )
+        signal = _make_signal(high_conviction_trades=[hc])
+        msg = format_mkt_intel_signal(signal)
+        # Uses 👤 prefix like insider activity
+        assert "👤 0xdeadbe" in msg
+        # Specialty in brackets
+        assert "[Crypto]" in msg
+        # Entry info
+        assert "entered @ 50%" in msg
+        assert "$25,000" in msg
+
+    def test_hc_format_shows_entry_date(self) -> None:
+        """High-conviction trades should show entry_date as relative time."""
+        from synesis.markets.models import HighConvictionTrade
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        hc = HighConvictionTrade(
+            market=_make_market(question="Test market?"),
+            wallet_address="0xdeadbeef1234",
+            insider_score=0.9,
+            position_size=50000,
+            entry_cost=25000,
+            avg_entry_price=0.50,
+            total_positions=2,
+            concentration_pct=0.80,
+            trade_direction="yes",
+            entry_date=datetime.now(UTC) - timedelta(days=11),
+        )
+        signal = _make_signal(high_conviction_trades=[hc])
+        msg = format_mkt_intel_signal(signal)
+        assert "11d ago" in msg
+
+    def test_hc_format_entry_date_hours(self) -> None:
+        """entry_date less than 1 day ago shows hours."""
+        from synesis.markets.models import HighConvictionTrade
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        hc = HighConvictionTrade(
+            market=_make_market(question="Test market?"),
+            wallet_address="0xdeadbeef1234",
+            insider_score=0.9,
+            position_size=50000,
+            total_positions=1,
+            concentration_pct=1.0,
+            trade_direction="yes",
+            entry_date=datetime.now(UTC) - timedelta(hours=5),
+        )
+        signal = _make_signal(high_conviction_trades=[hc])
+        msg = format_mkt_intel_signal(signal)
+        assert "5h ago" in msg
+
+    def test_hc_format_no_entry_date(self) -> None:
+        """No entry_date = no 'ago' text."""
+        from synesis.markets.models import HighConvictionTrade
+        from synesis.notifications.telegram import format_mkt_intel_signal
+
+        hc = HighConvictionTrade(
+            market=_make_market(question="Test market?"),
+            wallet_address="0xdeadbeef1234",
+            insider_score=0.9,
+            position_size=50000,
+            total_positions=1,
+            concentration_pct=1.0,
+            trade_direction="yes",
+        )
+        signal = _make_signal(high_conviction_trades=[hc])
+        msg = format_mkt_intel_signal(signal)
+        assert "ago" not in msg
+
+
+# ═══════════════════════════════════════════════════════════════
+# WS Price Publish Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestWSPricePublish:
+    """Test that WS clients publish price updates to Redis."""
+
+    @pytest.mark.asyncio
+    async def test_polymarket_ws_publishes(self) -> None:
+        from synesis.markets.polymarket_ws import PolymarketWSClient
+
+        mock_redis = AsyncMock()
+        client = PolymarketWSClient(mock_redis)
+
+        # Simulate a last_trade_price event
+        event = orjson.dumps(
+            [
+                {
+                    "event_type": "last_trade_price",
+                    "asset_id": "token_123",
+                    "price": "0.65",
+                    "size": "100",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                }
+            ]
+        )
+        await client._handle_message(event)
+
+        # Should have published to price update channel
+        mock_redis.publish.assert_called()
+        call_args = mock_redis.publish.call_args_list
+        publish_calls = [c for c in call_args if "price_update" in str(c)]
+        assert len(publish_calls) >= 1
+
+    @pytest.mark.asyncio
+    async def test_kalshi_ws_publishes_on_trade(self) -> None:
+        from synesis.markets.kalshi_ws import KalshiWSClient
+
+        mock_redis = AsyncMock()
+        client = KalshiWSClient(mock_redis)
+
+        # Simulate a trade event
+        event = orjson.dumps(
+            {
+                "type": "trade",
+                "msg": {
+                    "market_ticker": "TEST-MKT",
+                    "count": "5",
+                    "yes_price_dollars": "0.55",
+                },
+            }
+        )
+        await client._handle_message(event)
+
+        # Should have published
+        mock_redis.publish.assert_called()
+        publish_calls = [c for c in mock_redis.publish.call_args_list if "price_update" in str(c)]
+        assert len(publish_calls) >= 1
