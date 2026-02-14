@@ -282,6 +282,8 @@ For each market row in the Polymarket table:
 2. **Check Relevance**: Does the news DIRECTLY affect this market?
    - Many keyword matches are FALSE POSITIVES
    - "Trump praises Visa" does NOT relate to "Trump deportation" markets
+   - Meta/meme markets ("Nothing Ever Happens", "Will anyone care", etc.) are NEVER relevant unless the thesis is specifically about prediction market behavior
+   - Markets about WHETHER an event matters are not the same as markets about the event itself
 3. **If Relevant**: Evaluate if odds are mispriced
    - undervalued: YES price too low (buy YES)
    - overvalued: YES price too high (buy NO)

@@ -467,8 +467,8 @@ class TestKalshiClient:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "orderbook": {
-                "yes": {"bids": [[0.60, 100], [0.55, 200]], "asks": [[0.65, 150]]},
-                "no": {"bids": [[0.35, 100]], "asks": [[0.40, 120]]},
+                "yes": [[0.55, 200], [0.60, 100]],
+                "no": [[0.35, 100]],
             }
         }
         mock_resp.raise_for_status = MagicMock()
@@ -479,9 +479,9 @@ class TestKalshiClient:
 
         assert ob is not None
         assert len(ob.yes_bids) == 2
-        assert ob.yes_bids[0].price == 0.60
-        assert ob.yes_bids[0].quantity == 100
-        assert len(ob.yes_asks) == 1
+        assert ob.yes_bids[0].price == 0.55
+        assert ob.yes_bids[0].quantity == 200
+        assert len(ob.yes_asks) == 0
 
     @pytest.mark.asyncio
     async def test_get_trades(self) -> None:
@@ -907,7 +907,7 @@ class TestMarketScanner:
             category=None,
             yes_price=0.80,
             no_price=0.20,
-            volume_24h=5000,
+            volume_24h=15000,
             volume_total=20000,
             end_date=datetime.now(UTC) + timedelta(hours=12),
             created_at=None,
@@ -933,8 +933,8 @@ class TestMarketScanner:
             no_bid=0.40,
             no_ask=0.45,
             last_price=0.58,
-            volume=1000,
-            volume_24h=200,
+            volume=50000,
+            volume_24h=15000,
             open_interest=500,
             close_time=None,
             category="econ",
@@ -4026,8 +4026,8 @@ class TestKalshiCategoryEnrichment:
             no_bid=0.40,
             no_ask=0.45,
             last_price=0.58,
-            volume=1000,
-            volume_24h=200,
+            volume=50000,
+            volume_24h=15000,
             open_interest=500,
             close_time=None,
             category=None,  # No category on market
@@ -4381,8 +4381,8 @@ class TestKalshiEnrichmentFailureKeepsMarkets:
             no_bid=0.45,
             no_ask=0.50,
             last_price=0.52,
-            volume=1000,
-            volume_24h=200,
+            volume=50000,
+            volume_24h=15000,
             open_interest=500,
             close_time=None,
             category=None,

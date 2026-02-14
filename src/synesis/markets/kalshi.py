@@ -281,12 +281,17 @@ class KalshiClient:
                     if len(lvl) >= 2
                 ]
 
+            # Kalshi returns only bids: yes bids and no bids (no asks).
+            # A yes bid at price X is equivalent to a no ask at (100-X).
+            yes_bids = parse_levels(ob.get("yes") or [])
+            no_bids = parse_levels(ob.get("no") or [])
+
             return OrderBook(
                 ticker=ticker,
-                yes_bids=parse_levels((ob.get("yes") or {}).get("bids", [])),
-                yes_asks=parse_levels((ob.get("yes") or {}).get("asks", [])),
-                no_bids=parse_levels((ob.get("no") or {}).get("bids", [])),
-                no_asks=parse_levels((ob.get("no") or {}).get("asks", [])),
+                yes_bids=yes_bids,
+                yes_asks=[],
+                no_bids=no_bids,
+                no_asks=[],
             )
         except httpx.HTTPStatusError as e:
             logger.error("Kalshi orderbook error", ticker=ticker, status=e.response.status_code)

@@ -324,7 +324,7 @@ class PolymarketClient:
 
         prices_are_default = yes_price == 0.5 and no_price == 0.5
         if prices_are_default:
-            logger.warning(
+            logger.debug(
                 "Prices remain at default after all parsing methods",
                 market_id=data.get("id"),
                 question=data.get("question", "")[:80],

@@ -152,9 +152,9 @@ class MarketScanner:
             self._fetch_kalshi_expiring(),
         )
 
-        # Filter out non-tradable markets (no volume, or settled prices)
+        # Filter out non-tradable markets (low volume, or settled prices)
         def _is_tradable(m: UnifiedMarket) -> bool:
-            return m.volume_24h > 0 and 0.02 < m.yes_price < 0.98 and 0.02 < m.no_price < 0.98
+            return m.volume_24h >= 10_000 and 0.02 < m.yes_price < 0.98 and 0.02 < m.no_price < 0.98
 
         pre_filter_trending = poly_trending + kalshi_trending
         pre_filter_expiring = poly_expiring + kalshi_expiring

@@ -392,7 +392,7 @@ class WalletTracker:
 
         Sub-signals (weighted average):
         1. Profitability (0.30): position win_rate directly
-        2. Freshness (0.15): Age < 30d → 1.0, < 90d → 0.5, else 0.0
+        2. Freshness (0.15): Linear decay over 100 days (1.0 at day 0, 0.0 at day 100+)
         3. Focus (0.20): max(0, 1 - (position_count - 1) / 10)
         4. Sizing (0.20): min(1.0, avg_initialValue / 1000) — USDC
         5. Wash trade penalty (0.15): 1.0 - wash_ratio (from trades)
