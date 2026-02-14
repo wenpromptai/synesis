@@ -448,7 +448,11 @@ async def run_arb_monitor(
                     logger.debug("Malformed price update", data=data)
                     continue
                 platform, market_id, price_str = parts
-                new_price = float(price_str)
+                try:
+                    new_price = float(price_str)
+                except ValueError:
+                    logger.debug("Invalid price in update", data=data)
+                    continue
 
                 # Rebuild lookup dicts only when matched pairs change
                 if scanner.matches_version != cached_version:

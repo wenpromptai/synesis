@@ -476,7 +476,7 @@ class WalletTracker:
 
             # Wash trade ratio: markets with both BUY and SELL / unique markets
             wash_count = sum(1 for sides in market_day_sides.values() if len(sides) > 1)
-            wash_ratio = wash_count / max(unique_trade_markets, 1)
+            wash_ratio = wash_count / unique_trade_markets if unique_trade_markets > 0 else 0.0
 
             # --- 5 Sub-signals ---
             # 1. Profitability (0.30): position win_rate directly
@@ -487,10 +487,7 @@ class WalletTracker:
             freshness = 0.0
             if first_seen:
                 age_days = (datetime.now(UTC) - first_seen).days
-                if age_days < 30:
-                    freshness = 1.0
-                elif age_days < 90:
-                    freshness = 0.5
+                freshness = max(0.0, 1.0 - (age_days / 100.0))
 
             # 3. Focus (0.20): fewer positions = more focused
             focus = max(0.0, 1.0 - (position_count - 1) / 10) if position_count > 0 else 0.0

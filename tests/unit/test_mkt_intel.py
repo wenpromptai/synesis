@@ -5151,6 +5151,35 @@ class TestCrossPlatformArbDetection:
         assert arbs[0].suggested_side == "yes"
         assert arbs[0].price_gap == pytest.approx(0.15, abs=0.01)
 
+    @patch("synesis.processing.mkt_intel.scanner.MarketScanner._get_model")
+    def test_arb_detection_no_duplicate_kalshi_match(self, mock_get_model: MagicMock) -> None:
+        """Two Poly markets should not match the same Kalshi market."""
+        import numpy as np
+        from synesis.processing.mkt_intel.scanner import MarketScanner
+
+        mock_model = MagicMock()
+        # Both poly embeddings are similar to the single kalshi embedding
+        mock_model.encode.side_effect = [
+            np.array([[1.0, 0.0, 0.0], [0.95, 0.1, 0.0]]),  # 2 poly
+            np.array([[0.98, 0.05, 0.0]]),  # 1 kalshi
+        ]
+        mock_get_model.return_value = mock_model
+
+        s = MarketScanner.__new__(MarketScanner)
+        s._model = mock_model
+        s._cross_platform_matches = []
+        s._matches_version = 0
+
+        poly = [
+            _make_market(yes_price=0.40, question="Will X happen?"),
+            _make_market(yes_price=0.35, question="Will X occur?"),
+        ]
+        kalshi = [_make_kalshi_market(yes_price=0.55, question="Will X happen?")]
+
+        s._detect_cross_platform_arbs(poly, kalshi, min_gap=0.05, min_similarity=0.80)
+        # Only 1 match — second poly should NOT claim the same kalshi
+        assert len(s._cross_platform_matches) == 1
+
 
 # ═══════════════════════════════════════════════════════════════
 # Feature 2: High-Conviction Trade Detection

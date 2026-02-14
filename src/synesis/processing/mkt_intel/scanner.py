@@ -362,14 +362,26 @@ class MarketScanner:
         arbs: list[CrossPlatformArb] = []
         matched_pairs: list[tuple[UnifiedMarket, UnifiedMarket]] = []
 
-        for i, poly_mkt in enumerate(poly_markets):
-            best_j = int(np.argmax(sim_matrix[i]))
-            best_sim = float(sim_matrix[i, best_j])
+        # Sort all candidate pairs by similarity descending so the best match
+        # always wins, preventing duplicate claims on the same market.
+        candidates = []
+        for i in range(len(poly_markets)):
+            for j in range(len(kalshi_markets)):
+                if float(sim_matrix[i, j]) >= min_similarity:
+                    candidates.append((float(sim_matrix[i, j]), i, j))
+        candidates.sort(reverse=True)
 
-            if best_sim < min_similarity:
+        matched_poly: set[int] = set()
+        matched_kalshi: set[int] = set()
+
+        for best_sim, i, j in candidates:
+            if i in matched_poly or j in matched_kalshi:
                 continue
+            matched_poly.add(i)
+            matched_kalshi.add(j)
 
-            kalshi_mkt = kalshi_markets[best_j]
+            poly_mkt = poly_markets[i]
+            kalshi_mkt = kalshi_markets[j]
             matched_pairs.append((poly_mkt, kalshi_mkt))
 
             price_gap = abs(poly_mkt.yes_price - kalshi_mkt.yes_price)
