@@ -20,7 +20,7 @@ import websockets.exceptions
 from websockets.asyncio.client import ClientConnection
 
 from synesis.config import get_settings
-from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX
+from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX, PRICE_UPDATE_CHANNEL
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -69,7 +69,7 @@ class PolymarketWSClient:
             return
         self._running = True
         self._ws_task = asyncio.create_task(self._ws_loop())
-        logger.info("Polymarket WS started")
+        logger.debug("Polymarket WS started")
 
     async def stop(self) -> None:
         """Stop WebSocket."""
@@ -84,7 +84,7 @@ class PolymarketWSClient:
             except asyncio.CancelledError:
                 pass
             self._ws_task = None
-        logger.info("Polymarket WS stopped")
+        logger.debug("Polymarket WS stopped")
 
     async def subscribe(self, token_ids: list[str]) -> None:
         """Subscribe to market token IDs."""
@@ -129,7 +129,7 @@ class PolymarketWSClient:
                 logger.error("Polymarket WS error", error=str(e))
 
             if self._running:
-                logger.info(
+                logger.debug(
                     "Polymarket WS reconnecting",
                     delay=self._reconnect_delay,
                 )
@@ -145,7 +145,7 @@ class PolymarketWSClient:
             async with websockets.connect(url) as ws:
                 self._ws = ws
                 self._reconnect_delay = 1.0  # Reset on success
-                logger.info(
+                logger.debug(
                     "Polymarket WS connected",
                     subscribed=len(self._subscribed_tokens),
                 )
@@ -202,6 +202,12 @@ class PolymarketWSClient:
                         )
                         await self._redis.expire(key, _PRICE_TTL)
 
+                        # Publish for real-time arb detection
+                        await self._redis.publish(
+                            PRICE_UPDATE_CHANNEL,
+                            f"polymarket:{asset_id}:{price}",
+                        )
+
                         # Increment volume counter
                         size = float(event.get("size", 0))
                         if size > 0:
@@ -222,6 +228,12 @@ class PolymarketWSClient:
                             },
                         )
                         await self._redis.expire(key, _PRICE_TTL)
+
+                        # Publish for real-time arb detection
+                        await self._redis.publish(
+                            PRICE_UPDATE_CHANNEL,
+                            f"polymarket:{asset_id}:{price}",
+                        )
 
         except Exception as e:
             logger.warning("Polymarket WS message parse error", error=str(e))

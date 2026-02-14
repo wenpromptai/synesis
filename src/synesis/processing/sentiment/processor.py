@@ -82,6 +82,15 @@ Confidence guidelines:
 - 0.5-0.7 : Ambiguous but plausible financial reference
 - Below 0.5 : Reject (is_valid_ticker = False)
 
+## 1b. Validate Unverified Tickers (if any)
+
+If there are UNVERIFIED tickers (ticker provider was unavailable), validate them using your own financial knowledge:
+1. If you recognize the ticker as a well-known instrument (e.g., NVDA → NVIDIA, AAPL → Apple) → output ValidatedTicker with is_valid_ticker=True and correct company_name
+2. If the ticker is ambiguous or you're unsure → use the `web_search` tool to check (search "{TICKER} stock ticker company")
+3. If neither your knowledge nor web_search confirms it → output with is_valid_ticker=False
+
+Do NOT web_search every unverified ticker — only search when genuinely unsure.
+
 ## 2. Assess Post Quality
 
 **HIGH**: DD with research, earnings analysis, technical analysis with levels, news with implications
@@ -115,7 +124,7 @@ Flag tickers with >85% one-directional sentiment as potential contrarian signals
 - Context is key: the FactSet company name is provided but may not match the author's intent — CORRECT the company_name rather than rejecting the ticker
 - WSB culture: "regarded" = regarded, "apes" = retail traders, "tendies" = gains
 - Confidence scores should be conservative (0.7+ for high confidence)
-- ONLY output ValidatedTickers for tickers in the Pre-Verified Tickers table. Do NOT add tickers you find in the post content that aren't in the table."""
+- ONLY output ValidatedTickers for tickers in the Pre-Verified Tickers table or the UNVERIFIED Tickers table. Do NOT add tickers you find in the post content that aren't in either table."""
 
 
 # =============================================================================
@@ -247,8 +256,12 @@ class SentimentProcessor:
             else:
                 verified_section += "_No verified tickers this batch._\n"
 
-            # Format NOT FOUND tickers (auto-rejected)
-            not_found = [t for t in deps.raw_tickers if t not in deps.pre_verified]
+            # Format NOT FOUND tickers (auto-rejected — excludes unverified)
+            not_found = [
+                t
+                for t in deps.raw_tickers
+                if t not in deps.pre_verified and t not in deps.unverified_tickers
+            ]
             not_found_section = ""
             if not_found:
                 not_found_section = "## NOT FOUND Tickers (Auto-Rejected)\n\n"
@@ -256,6 +269,18 @@ class SentimentProcessor:
                 not_found_section += "|--------|\n"
                 for ticker in sorted(not_found):
                     not_found_section += f"| {ticker} |\n"
+
+            # Format UNVERIFIED tickers (provider down — LLM validates from knowledge)
+            unverified_section = ""
+            if deps.unverified_tickers:
+                unverified_section = "## UNVERIFIED Tickers (Ticker Provider Unavailable)\n\n"
+                unverified_section += (
+                    "These tickers could NOT be checked (ticker provider down/unavailable). "
+                    "Validate using your own knowledge — only use `web_search` if genuinely unsure.\n\n"
+                )
+                unverified_section += "| Ticker |\n|--------|\n"
+                for ticker in sorted(deps.unverified_tickers):
+                    unverified_section += f"| {ticker} |\n"
 
             subreddits_str = ", ".join(deps.subreddits) if deps.subreddits else "various"
 
@@ -266,10 +291,13 @@ Subreddits: {subreddits_str}
 Unique Tickers (raw): {len(deps.raw_tickers)}
 Pre-verified (valid): {len(deps.pre_verified)}
 Not found (rejected): {len(not_found)}
+Unverified (provider down): {len(deps.unverified_tickers)}
 
 {verified_section}
 
 {not_found_section}
+
+{unverified_section}
 
 {posts_section}
 
@@ -281,11 +309,12 @@ Not found (rejected): {len(not_found)}
             ctx: RunContext[SentimentRefinementDeps],
             query: str,
         ) -> str:
-            """Search the web for additional research and context.
+            """Search the web for additional research, context, or ticker verification.
 
-            Use to fetch background info, recent news, or historical context
-            about companies, events, or market conditions — NOT for ticker verification
-            (tickers are already pre-verified via FactSet).
+            Use to:
+            - Verify unverified tickers when the ticker provider is unavailable
+              (e.g., "NVDA stock ticker company" to confirm it's NVIDIA)
+            - Fetch background info, recent news, or historical context
 
             Args:
                 query: Search query (e.g., "NVDA earnings Q4 2026 results")
@@ -359,7 +388,7 @@ Not found (rejected): {len(not_found)}
             return SentimentRefinement()
 
         log = logger.bind(post_count=len(posts))
-        log.info("Flow 2 processing started")
+        log.debug("Flow 2 processing started")
 
         # Gate 1: Lexicon analysis (fast, free)
         lexicon_results: list[tuple[RedditPost, SentimentResult]] = []
@@ -378,7 +407,7 @@ Not found (rejected): {len(not_found)}
         # Get unique subreddits
         subreddits = list({post.subreddit for post in posts})
 
-        log.info(
+        log.debug(
             "Gate 1 complete",
             unique_tickers=len(raw_tickers),
             subreddits=subreddits,
@@ -388,30 +417,39 @@ Not found (rejected): {len(not_found)}
         self._raw_tickers = raw_tickers
 
         # Pre-verify tickers in batch (before Gate 2, eliminates tool calls)
+        # Three-way split: pre_verified / not_found / unverified
         pre_verified: dict[str, str] = {}
+        unverified_tickers: list[str] = []
+
         if self._ticker_provider and raw_tickers:
             for ticker in raw_tickers:
                 try:
-                    is_valid, company_name = await self._ticker_provider.verify_ticker(ticker)
+                    is_valid, _region, company_name = await self._ticker_provider.verify_ticker(
+                        ticker
+                    )
                     if is_valid and company_name:
                         pre_verified[ticker] = company_name
                 except Exception as e:
                     logger.warning("Pre-verify failed", ticker=ticker, error=str(e))
-
-            log.info(
-                "Ticker pre-verification complete",
-                total=len(raw_tickers),
-                verified=len(pre_verified),
-                rejected=len(raw_tickers) - len(pre_verified),
+                    unverified_tickers.append(ticker)
+        elif raw_tickers:
+            # No provider available — all tickers are unverified
+            unverified_tickers = list(raw_tickers.keys())
+            log.warning(
+                "No ticker provider available, all tickers unverified",
+                count=len(unverified_tickers),
             )
 
-        # Collect NOT FOUND tickers (auto-rejected, appended after LLM)
-        not_found_tickers = [t for t in raw_tickers if t not in pre_verified]
+        # NOT FOUND = provider explicitly rejected (not in pre_verified AND not unverified)
+        not_found_tickers = [
+            t for t in raw_tickers if t not in pre_verified and t not in unverified_tickers
+        ]
 
-        log.info(
+        log.debug(
             "Pre-verification complete",
             verified=len(pre_verified),
             not_found=len(not_found_tickers),
+            unverified=len(unverified_tickers),
         )
 
         # Gate 2: LLM context-checks pre-verified tickers + narrative/quality/themes
@@ -421,6 +459,7 @@ Not found (rejected): {len(not_found)}
             raw_tickers=raw_tickers,
             subreddits=subreddits,
             pre_verified=pre_verified,
+            unverified_tickers=unverified_tickers,
         )
 
         user_prompt = """Analyze the Reddit posts and lexicon results above.
@@ -430,6 +469,8 @@ For each pre-verified ticker, output a ValidatedTicker:
 - If the FactSet match is correct, keep company_name as-is with is_valid_ticker=True
 - If the FactSet match is WRONG but the symbol has real financial meaning, set is_valid_ticker=True and CORRECT company_name to what the author actually means
 - Only set is_valid_ticker=False if the symbol has zero financial meaning in context
+
+For each UNVERIFIED ticker (if any), validate using your knowledge (only `web_search` if genuinely unsure), then output a ValidatedTicker.
 
 Also:
 1. **Assess post quality** (high/medium/low/spam)
@@ -454,7 +495,7 @@ Also:
                         company_name=validated_ticker.company_name or None,
                     )
 
-            log.info(
+            log.debug(
                 "Gate 2 complete",
                 validated_tickers=len(
                     [t for t in refinement.validated_tickers if t.is_valid_ticker]

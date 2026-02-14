@@ -17,6 +17,7 @@ from synesis.core.constants import TELEGRAM_MAX_MESSAGE_LENGTH
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
+    from synesis.markets.models import CrossPlatformArb
     from synesis.processing.mkt_intel.models import MarketIntelSignal
     from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
     from synesis.processing.sentiment import SentimentSignal
@@ -329,7 +330,7 @@ def format_condensed_signal(
         msg += f"\n\n📜 <b>Context:</b> <i>{_escape_html(analysis.historical_context)}</i>"
 
     # Single most relevant Polymarket (best by relevance, show even without edge)
-    relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant]
+    relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6]
     if relevant_markets:
         # Sort by confidence (most confident first), then by absolute edge
         relevant_markets.sort(key=lambda e: (e.confidence, abs(e.edge or 0)), reverse=True)
@@ -547,7 +548,7 @@ Sentiment: {sentiment_emoji.get(sentiment, sentiment)} {sentiment.upper()} ({ana
     # =========================================================================
     # POLYMARKET (all relevant markets, no edge filter)
     # =========================================================================
-    relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant]
+    relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6]
     if relevant_markets:
         msg += f"""
 
@@ -733,6 +734,16 @@ Sources: {subs_str}"""
     return msg
 
 
+def format_arb_alert(arb: "CrossPlatformArb") -> str:
+    """Format a real-time cross-platform arbitrage alert for Telegram."""
+    return f"""💱 <b>ARB ALERT</b>
+
+<b>"{_escape_html(arb.polymarket.question)}"</b>
+Polymarket: ${arb.polymarket.yes_price:.2f} | Kalshi: ${arb.kalshi.yes_price:.2f} | Gap: ${arb.price_gap:.2f}
+→ Buy {arb.suggested_side.upper()} on {arb.suggested_buy_platform.title()}
+Match confidence: {arb.match_similarity:.0%}"""
+
+
 def format_mkt_intel_signal(signal: "MarketIntelSignal") -> str:
     """Format market intelligence signal for Telegram.
 
@@ -781,11 +792,15 @@ Markets scanned: {signal.total_markets_scanned}"""
             question = _escape_html(om.market.question)
             if om.market.outcome_label:
                 question += f" → {_escape_html(om.market.outcome_label)}"
+            current = om.market.yes_price
+            prev_1h = current - om.price_change_1h
+            changes = f"YES {prev_1h:.0%} → {current:.0%} (1h)"
+            if om.price_change_6h is not None:
+                prev_6h = current - om.price_change_6h
+                changes += f" | YES {prev_6h:.0%} → {current:.0%} (6h)"
             msg += f"""
 {arrow} {question}
-   {om.price_change_1h:+.2f} (1h)"""
-            if om.price_change_6h is not None:
-                msg += f" | {om.price_change_6h:+.2f} (6h)"
+   {changes}"""
 
     # Volume spikes
     if signal.volume_spikes:
@@ -808,9 +823,55 @@ Markets scanned: {signal.total_markets_scanned}"""
 {SECTION_SEPARATOR}
 🕵️ <b>Insider Activity</b>"""
         for ia in signal.insider_activity[:5]:
+            specialty = f" [{_escape_html(ia.wallet_specialty)}]" if ia.wallet_specialty else ""
+            reason_tag = " ⚡" if ia.watch_reason == "high_conviction" else ""
+            direction = (
+                "✅ YES"
+                if ia.trade_direction == "yes"
+                else "❌ NO"
+                if ia.trade_direction == "no"
+                else ""
+            )
+            direction_str = f" | {direction}" if direction else ""
             msg += f"""
-👤 {ia.wallet_address[:8]}... on {_escape_html(ia.market.question)}
-   Score: {ia.insider_score:.2f} | {ia.trade_direction} ${ia.trade_size:.0f}"""
+👤 {ia.wallet_address[:8]}...{specialty} on {_escape_html(ia.market.question)}
+   Score: {ia.insider_score:.2f}{reason_tag}{direction_str} ${ia.trade_size:,.0f}"""
+
+    # Cross-platform arbs omitted — pushed live via format_arb_alert()
+
+    # High-conviction trades
+    if signal.high_conviction_trades:
+        msg += f"""
+
+{SECTION_SEPARATOR}
+🎯 <b>High-Conviction Trades</b>"""
+        for hc in signal.high_conviction_trades[:5]:
+            specialty = f" [{_escape_html(hc.wallet_specialty)}]" if hc.wallet_specialty else ""
+            hc_dir = (
+                "✅ YES"
+                if hc.trade_direction == "yes"
+                else "❌ NO"
+                if hc.trade_direction == "no"
+                else ""
+            )
+            hc_dir_str = f" | {hc_dir}" if hc_dir else ""
+            entry_parts: list[str] = []
+            if hc.avg_entry_price > 0:
+                entry_parts.append(f"entered @ {hc.avg_entry_price:.0%}")
+            if hc.entry_cost > 0:
+                entry_parts.append(f"${hc.entry_cost:,.0f}")
+            if hc.entry_date:
+                delta = datetime.now(UTC) - hc.entry_date
+                days = delta.days
+                if days >= 1:
+                    entry_parts.append(f"{days}d ago")
+                else:
+                    hours = int(delta.total_seconds() / 3600)
+                    entry_parts.append(f"{hours}h ago")
+            entry_str = f" ({', '.join(entry_parts)})" if entry_parts else ""
+            msg += f"""
+👤 {hc.wallet_address[:8]}...{specialty} on {_escape_html(hc.market.question)}
+   {hc_dir_str} ${hc.position_size:,.0f}{entry_str} ({hc.concentration_pct:.0%} of portfolio, {hc.total_positions} positions)"""
 
     # Expiring markets (only show markets that haven't expired yet)
     if signal.expiring_soon:

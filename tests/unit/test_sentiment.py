@@ -1,5 +1,11 @@
 """Unit tests for sentiment analyzer."""
 
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from synesis.processing.sentiment import SentimentAnalyzer, SentimentResult
@@ -218,7 +224,7 @@ class TestMentionCountFromRealData:
     async def test_mention_count_equals_raw_ticker_scores(self) -> None:
         """mention_count must equal len(scores) from _raw_tickers, not an LLM field."""
         from datetime import datetime, timezone
-        from unittest.mock import AsyncMock, Mock, patch
+        from unittest.mock import AsyncMock, Mock
 
         from synesis.ingestion.reddit import RedditPost
         from synesis.processing.sentiment.models import (
@@ -327,3 +333,94 @@ class TestMentionCountFromRealData:
         assert "MSFT" not in ticker_map, (
             "MSFT should be excluded from signal because it has no Gate 1 raw_tickers scores"
         )
+
+
+class TestUnverifiedTickers:
+    """Test the three-way ticker split (pre_verified / not_found / unverified)."""
+
+    def _make_post(self, title: str, content: str = "") -> Any:
+        """Create a minimal RedditPost for testing."""
+        from synesis.ingestion.reddit import RedditPost
+
+        return RedditPost(
+            post_id="test1",
+            subreddit="wallstreetbets",
+            author="tester",
+            title=title,
+            content=content,
+            url="https://reddit.com/r/wallstreetbets/test1",
+            permalink="/r/wallstreetbets/test1",
+            timestamp=datetime.now(timezone.utc),
+            raw={},
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_provider_all_tickers_unverified(self) -> None:
+        """When no ticker provider, all tickers should go to unverified_tickers."""
+        from synesis.processing.sentiment.models import SentimentRefinement
+        from synesis.processing.sentiment.processor import SentimentProcessor
+
+        settings = AsyncMock()
+        settings.smart_model = "claude-sonnet-4-5-20250929"
+        redis = AsyncMock()
+
+        # No ticker_provider
+        processor = SentimentProcessor(settings, redis, db=None, ticker_provider=None)
+
+        post = self._make_post("AAPL and TSLA are mooning today!")
+
+        # Mock Gate 2 agent via the private attribute to avoid property setter issue
+        mock_refinement = SentimentRefinement()
+        mock_agent = AsyncMock()
+        mock_agent.run = AsyncMock(return_value=AsyncMock(output=mock_refinement))
+        processor._refiner_agent = mock_agent
+
+        await processor.process_posts([post])
+
+        # Check that deps passed to Gate 2 have unverified tickers
+        assert mock_agent.run.called
+        call_kwargs = mock_agent.run.call_args
+        deps = call_kwargs.kwargs.get("deps")
+        assert deps is not None
+        # All tickers should be unverified since no provider
+        assert len(deps.pre_verified) == 0
+        assert len(deps.unverified_tickers) > 0
+
+    @pytest.mark.asyncio
+    async def test_provider_error_marks_ticker_unverified(self) -> None:
+        """When ticker provider raises, that ticker goes to unverified (not not_found)."""
+        from synesis.processing.sentiment.models import SentimentRefinement
+        from synesis.processing.sentiment.processor import SentimentProcessor
+
+        settings = AsyncMock()
+        settings.smart_model = "claude-sonnet-4-5-20250929"
+        redis = AsyncMock()
+
+        # Provider that raises on one ticker but works on another
+        mock_provider = AsyncMock()
+
+        async def verify_side_effect(ticker: str) -> tuple[bool, str | None, str | None]:
+            if ticker == "AAPL":
+                return (True, "AAPL-US", "Apple Inc.")
+            raise ConnectionError("Provider down")
+
+        mock_provider.verify_ticker = AsyncMock(side_effect=verify_side_effect)
+
+        processor = SentimentProcessor(settings, redis, db=None, ticker_provider=mock_provider)
+
+        post = self._make_post("AAPL and TSLA are mooning today!")
+
+        mock_refinement = SentimentRefinement()
+        mock_agent = AsyncMock()
+        mock_agent.run = AsyncMock(return_value=AsyncMock(output=mock_refinement))
+        processor._refiner_agent = mock_agent
+
+        await processor.process_posts([post])
+
+        assert mock_agent.run.called
+        call_kwargs = mock_agent.run.call_args
+        deps = call_kwargs.kwargs.get("deps")
+        assert deps is not None
+        # AAPL should be pre-verified, TSLA should be unverified (error)
+        assert "AAPL" in deps.pre_verified
+        assert "TSLA" in deps.unverified_tickers

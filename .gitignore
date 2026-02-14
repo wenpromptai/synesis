@@ -6,6 +6,7 @@
 *.key
 keys/*.pem
 keys/*.key
+keys/*.txt
 !keys/.gitkeep
 
 # Python

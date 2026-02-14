@@ -5,77 +5,13 @@ providers must implement. This allows swapping between providers (Finnhub,
 Polygon, Yahoo Finance, etc.) without changing consumer code.
 
 Provider Types:
-- PriceProvider: Real-time and historical price data with WebSocket support
 - TickerProvider: Ticker validation and symbol search
 - FundamentalsProvider: Company fundamental data (financials, filings, etc.)
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
-
-
-@runtime_checkable
-class PriceProvider(Protocol):
-    """Protocol for real-time and historical price data.
-
-    Providers implementing this protocol must support:
-    - Cached price lookups (fast, from local cache)
-    - REST API fallback for cache misses
-    - Optional WebSocket subscription for real-time updates
-    """
-
-    async def get_price(self, ticker: str) -> Decimal | None:
-        """Get current price for a single ticker.
-
-        Args:
-            ticker: Stock ticker symbol (e.g., "AAPL")
-
-        Returns:
-            Price as Decimal, or None if not available
-        """
-        ...
-
-    async def get_prices(
-        self,
-        tickers: list[str],
-        fallback_to_rest: bool = True,
-    ) -> dict[str, Decimal]:
-        """Get prices for multiple tickers.
-
-        Args:
-            tickers: List of stock ticker symbols
-            fallback_to_rest: Whether to use REST API for cache misses
-
-        Returns:
-            Dict mapping ticker to price (only includes available prices)
-        """
-        ...
-
-    async def subscribe(self, tickers: list[str]) -> None:
-        """Subscribe to real-time price updates for tickers.
-
-        Args:
-            tickers: List of ticker symbols to subscribe to
-        """
-        ...
-
-    async def unsubscribe(self, tickers: list[str]) -> None:
-        """Unsubscribe from real-time price updates.
-
-        Args:
-            tickers: List of ticker symbols to unsubscribe from
-        """
-        ...
-
-    async def start(self) -> None:
-        """Start the price provider (e.g., WebSocket connection)."""
-        ...
-
-    async def close(self) -> None:
-        """Clean up resources."""
-        ...
 
 
 @runtime_checkable
@@ -87,15 +23,16 @@ class TickerProvider(Protocol):
     - Symbol search (find tickers matching a query)
     """
 
-    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None]:
+    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None, str | None]:
         """Verify if a ticker symbol exists on a major exchange.
 
         Args:
-            ticker: Stock ticker symbol to verify (e.g., "AAPL")
+            ticker: Stock ticker symbol to verify (e.g., "AAPL", "D05")
 
         Returns:
-            Tuple of (is_valid, company_name):
+            Tuple of (is_valid, ticker_region, company_name):
             - is_valid: True if ticker exists on major exchange
+            - ticker_region: Full ticker with region (e.g., "AAPL-US", "D05-SG")
             - company_name: Company name if found, None otherwise
         """
         ...
@@ -109,6 +46,10 @@ class TickerProvider(Protocol):
         Returns:
             List of matching symbols with keys: symbol, description, type
         """
+        ...
+
+    async def close(self) -> None:
+        """Clean up resources."""
         ...
 
 

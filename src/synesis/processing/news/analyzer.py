@@ -282,6 +282,8 @@ For each market row in the Polymarket table:
 2. **Check Relevance**: Does the news DIRECTLY affect this market?
    - Many keyword matches are FALSE POSITIVES
    - "Trump praises Visa" does NOT relate to "Trump deportation" markets
+   - Meta/meme markets ("Nothing Ever Happens", "Will anyone care", etc.) are NEVER relevant unless the thesis is specifically about prediction market behavior
+   - Markets about WHETHER an event matters are not the same as markets about the event itself
 3. **If Relevant**: Evaluate if odds are mispriced
    - undervalued: YES price too low (buy YES)
    - overvalued: YES price too high (buy NO)
@@ -418,7 +420,7 @@ Summary: {ext.summary}
 {web_section}
 
 ## Polymarket Markets (Pre-Searched)
-{ctx.deps.markets_text}"""
+{ctx.deps.markets_text or "No prediction markets searched (analysis post)."}"""
 
         # Tool: Check Relevance (structured thinking tool)
         @agent.tool
@@ -640,21 +642,27 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             ticker_provider=ticker_provider,
         )
 
-        # Simple user prompt - context is injected via dynamic system prompt
-        user_prompt = """Analyze this news. Determine:
-1. Affected tickers and sectors (use research to validate)
-2. Primary investment thesis with confidence score
-3. Ticker-level analysis with bull/bear thesis for each
-4. Sector implications
-5. Historical precedents from web research
-6. Sentiment and sentiment score (based on your analysis above)
+        # Build user prompt — market instructions only when Polymarket was searched
+        if markets_text:
+            market_instructions = """
 7. Evaluate EACH prediction market from the table
 
 **CRITICAL for market_evaluations**:
 - You MUST return a MarketEvaluation for EVERY market in the Polymarket table
 - Copy the market_id EXACTLY from the table (e.g., "0x123abc...")
 - Set is_relevant=false for markets unrelated to this specific news
-- Set verdict="skip" and recommended_side="skip" for irrelevant markets
+- Set verdict="skip" and recommended_side="skip" for irrelevant markets"""
+        else:
+            market_instructions = ""
+
+        user_prompt = f"""Analyze this news. Determine:
+1. Affected tickers and sectors (use research to validate)
+2. Primary investment thesis with confidence score
+3. Ticker-level analysis with bull/bear thesis for each
+4. Sector implications
+5. Historical precedents from web research
+6. Sentiment and sentiment score (based on your analysis above)
+{market_instructions}
 
 Focus on DIRECT impacts. Be conservative with confidence scores."""
 

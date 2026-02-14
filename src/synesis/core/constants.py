@@ -67,6 +67,15 @@ MARKET_INTEL_SNAPSHOT_INTERVAL = 300  # 5 min snapshots for volume tracking
 MARKET_INTEL_MAX_TRACKED_MARKETS = 100  # Max markets to track via WebSocket
 MARKET_INTEL_REDIS_PREFIX = "synesis:mkt_intel"
 KALSHI_RATE_LIMIT_CALLS_PER_SECOND = 10  # Kalshi public API rate limit
+KALSHI_EVENT_FETCH_CONCURRENCY = 5  # Max concurrent event category fetches
+KALSHI_EVENT_FETCH_DELAY = 0.15  # Seconds between event fetches (rate pacing)
+KALSHI_CATEGORY_CACHE_TTL = 3600  # 1 hour TTL for event category cache
+
+# Cross-platform arbitrage (Feature 1)
+CROSS_PLATFORM_ARB_MIN_GAP = 0.03  # 3 cents min price gap (must exceed ~2% comms)
+CROSS_PLATFORM_MATCH_SIMILARITY = 0.80  # Cosine similarity threshold
+ARB_ALERT_COOLDOWN_MINUTES = 10
+PRICE_UPDATE_CHANNEL = "synesis:mkt_intel:price_update"
 
 # Wallet Tracker
 WALLET_API_DELAY_SECONDS = 0.1  # Rate limiting delay between wallet API calls
@@ -75,6 +84,12 @@ WALLET_RESCORE_INTERVAL_SECONDS = 86400  # 24h between full re-score cycles
 WALLET_DISCOVERY_TOP_N_MARKETS = 15  # Top markets by volume to scan for wallets
 WALLET_TOP_HOLDERS_LIMIT = 10  # Top holders to fetch per market
 WALLET_ACTIVITY_MAX_MARKETS = 20  # Max markets to check for wallet activity
+
+# Fast-track auto-watch thresholds
+FAST_TRACK_MAX_WASH_RATIO = 0.30  # Hard filter: reject if wash_trade_ratio exceeds this
+CONSISTENT_INSIDER_MIN_WIN_RATE = 0.50  # Consistent Insider: minimum win rate
+CONSISTENT_INSIDER_MIN_PNL_PER_POSITION = 10_000  # Consistent Insider: min PnL per position (USDC)
+FRESH_INSIDER_MIN_POSITION = 50_000  # Fresh Insider: min open position size (USDC)
 
 # ─────────────────────────────────────────────────────────────
 # Watchlist Intelligence (Flow 4)

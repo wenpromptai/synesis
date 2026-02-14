@@ -66,6 +66,9 @@ class SimpleMarket:
     # Non-Yes/No outcome label for yes_price (e.g. "Up", "Over", "Pistons")
     yes_outcome: str | None = None
 
+    # CLOB token ID for the YES outcome (used to resolve holder direction)
+    yes_token_id: str | None = None
+
     # Price parsing metadata
     prices_are_default: bool = False
 
@@ -288,9 +291,40 @@ class PolymarketClient:
             no_price = 0.5
             yes_outcome = None
 
+        # Extract YES token ID from clobTokenIds for holder direction resolution
+        yes_token_id: str | None = None
+        clob_ids_str = data.get("clobTokenIds")
+        outcomes_list = None
+        if outcomes_str:
+            try:
+                outcomes_list = json.loads(outcomes_str)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        if clob_ids_str:
+            try:
+                clob_ids = json.loads(clob_ids_str)
+                if outcomes_list and len(clob_ids) == len(outcomes_list):
+                    # Match by outcome name
+                    for i, outcome in enumerate(outcomes_list):
+                        if outcome.lower() == "yes":
+                            yes_token_id = str(clob_ids[i])
+                            break
+                    # For non-Yes/No markets, first token = yes_price side
+                    if not yes_token_id and clob_ids:
+                        yes_token_id = str(clob_ids[0])
+                elif clob_ids:
+                    yes_token_id = str(clob_ids[0])
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(
+                    "Failed to parse clobTokenIds, holder direction will be unknown",
+                    condition_id=data.get("conditionId"),
+                    clob_ids_raw=clob_ids_str[:100] if clob_ids_str else None,
+                    error=str(e),
+                )
+
         prices_are_default = yes_price == 0.5 and no_price == 0.5
         if prices_are_default:
-            logger.warning(
+            logger.debug(
                 "Prices remain at default after all parsing methods",
                 market_id=data.get("id"),
                 question=data.get("question", "")[:80],
@@ -325,6 +359,7 @@ class PolymarketClient:
             is_closed=data.get("closed", False),
             group_item_title=group_item_title,
             yes_outcome=yes_outcome,
+            yes_token_id=yes_token_id,
             prices_are_default=prices_are_default,
             event_id=event_id,
         )
@@ -647,15 +682,29 @@ class PolymarketDataClient:
             )
             return []
 
-    async def get_top_holders(self, condition_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    async def get_top_holders(
+        self,
+        condition_id: str,
+        limit: int = 20,
+        yes_token_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get top holders for a market.
+
+        The API returns nested ``[{token, holders: [...]}, ...]``.
+        This method flattens the response and normalises ``proxyWallet`` → ``address``
+        so downstream code can use ``holder.get("address")`` uniformly.
+
+        Each holder gets an ``outcome`` field ("yes" or "no") resolved by matching
+        the token group's ``token`` field against ``yes_token_id``.
 
         Args:
             condition_id: Polymarket condition ID
             limit: Max holders to return
+            yes_token_id: CLOB token ID for the YES outcome (from Gamma API).
+                Used to deterministically resolve holder direction.
 
         Returns:
-            List of holder data dicts
+            Flat list of holder dicts with ``address``, ``amount``, ``outcome``, etc.
         """
         client = self._get_client()
         try:
@@ -664,8 +713,34 @@ class PolymarketDataClient:
                 params={"market": condition_id, "limit": limit},
             )
             response.raise_for_status()
-            result: list[dict[str, Any]] = response.json()
-            return result
+            raw: list[dict[str, Any]] = response.json()
+
+            # Flatten nested {token, holders: [...]} into flat list
+            flat: list[dict[str, Any]] = []
+            for token_group in raw:
+                token_id = str(token_group.get("token", ""))
+                # Resolve outcome by matching token ID
+                if yes_token_id and token_id:
+                    outcome = "yes" if token_id == yes_token_id else "no"
+                else:
+                    outcome = ""
+                holders = token_group.get("holders")
+                if isinstance(holders, list):
+                    for holder in holders:
+                        holder["address"] = holder.pop("proxyWallet", holder.get("address", ""))
+                        holder.setdefault("outcome", outcome)
+                        flat.append(holder)
+                else:
+                    # Already flat format (e.g. from mocks or future API changes)
+                    token_group["address"] = token_group.pop(
+                        "proxyWallet", token_group.get("address", "")
+                    )
+                    token_group.setdefault("outcome", outcome)
+                    flat.append(token_group)
+
+            # Sort by amount descending so truncation doesn't bias toward one token group
+            flat.sort(key=lambda h: float(h.get("amount", 0) or 0), reverse=True)
+            return flat[:limit]
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             logger.error(
                 "Data API holders error",
@@ -688,6 +763,9 @@ class PolymarketDataClient:
             response = await client.get("/oi", params={"market": condition_id})
             response.raise_for_status()
             data = response.json()
+            if isinstance(data, list):
+                # API returns list of {market, value} records
+                return sum(float(r.get("value", 0) or 0) for r in data) if data else None
             return float(data) if data else None
         except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as e:
             logger.error(

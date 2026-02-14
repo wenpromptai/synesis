@@ -19,7 +19,7 @@ class TestVerifyTicker:
     @pytest.mark.asyncio
     async def test_valid_ticker(self) -> None:
         provider = AsyncMock()
-        provider.verify_ticker.return_value = (True, "Apple Inc")
+        provider.verify_ticker.return_value = (True, "AAPL-US", "Apple Inc")
         result = await verify_ticker("aapl", provider)
         assert "VERIFIED" in result
         assert "Apple Inc" in result
@@ -27,7 +27,7 @@ class TestVerifyTicker:
     @pytest.mark.asyncio
     async def test_invalid_ticker(self) -> None:
         provider = AsyncMock()
-        provider.verify_ticker.return_value = (False, None)
+        provider.verify_ticker.return_value = (False, None, None)
         result = await verify_ticker("XYZZY", provider)
         assert "NOT FOUND" in result
 
@@ -41,6 +41,6 @@ class TestVerifyTicker:
     @pytest.mark.asyncio
     async def test_uppercases_ticker(self) -> None:
         provider = AsyncMock()
-        provider.verify_ticker.return_value = (True, "Tesla Inc")
+        provider.verify_ticker.return_value = (True, "TSLA-US", "Tesla Inc")
         await verify_ticker("tsla", provider)
         provider.verify_ticker.assert_called_once_with("TSLA")

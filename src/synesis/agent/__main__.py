@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time as _time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -28,13 +29,13 @@ from redis.asyncio import Redis
 
 from synesis.config import Settings
 from synesis.core.logging import get_logger
-from synesis.providers import FactSetTickerProvider
+from synesis.providers.factory import create_ticker_provider
 from synesis.providers.finnhub.prices import close_price_service, init_price_service
-from synesis.providers.factset.client import get_factset_client
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.ingestion.twitterapi import Tweet, TwitterStreamClient
 from synesis.notifications.telegram import (
+    format_arb_alert,
     format_mkt_intel_signal,
     format_sentiment_signal,
     format_watchlist_signal,
@@ -98,7 +99,7 @@ def create_tweet_to_queue_callback(
         )
 
         await push_to_queue(redis, message)
-        logger.info(
+        logger.debug(
             "Tweet received and queued",
             tweet_id=tweet.tweet_id,
             username=tweet.username,
@@ -128,7 +129,7 @@ def create_telegram_to_queue_callback(
         )
 
         await push_to_queue(redis, message)
-        logger.info(
+        logger.debug(
             "Telegram message received and queued",
             message_id=telegram_msg.message_id,
             channel=telegram_msg.channel_name,
@@ -151,7 +152,7 @@ def create_reddit_to_sentiment_callback(
         # Process through Gate 1 (lexicon analysis) and buffer
         result = await sentiment_processor.process_post(post)
 
-        logger.info(
+        logger.debug(
             "Reddit post processed (sentiment)",
             post_id=post.post_id,
             subreddit=post.subreddit,
@@ -197,7 +198,7 @@ async def run_sentiment_signal_loop(
                 pass
 
             first_run = False
-            logger.info("Generating sentiment signal")
+            logger.debug("Generating sentiment signal")
             signal = await sentiment_processor.generate_signal()
 
             # Publish signal to Redis for subscribers
@@ -305,7 +306,7 @@ async def run_mkt_intel_loop(
                 logger.info("Manual mkt_intel scan triggered")
 
             first_run = False
-            logger.info("Running mkt_intel scan")
+            logger.debug("Running mkt_intel scan")
             signal = await processor.run_scan()
 
             # Publish to Redis
@@ -366,7 +367,7 @@ async def run_watchlist_intel_loop(
                 logger.info("Manual watchlist intel scan triggered")
 
             first_run = False
-            logger.info("Running watchlist intel scan")
+            logger.debug("Running watchlist intel scan")
             signal = await processor.run_analysis()
 
             # Publish to Redis
@@ -390,6 +391,165 @@ async def run_watchlist_intel_loop(
 
         except Exception as e:
             logger.exception("Watchlist intel generation failed", error=str(e))
+
+
+async def run_arb_monitor(
+    redis: Redis,
+    scanner: Any,
+    ws_manager: Any,
+    shutdown_event: asyncio.Event,
+    cooldown_minutes: int = 10,
+) -> None:
+    """Monitor Redis price updates and alert on cross-platform arb opportunities.
+
+    Subscribes to price update channel and checks matched pairs for gaps.
+    Polymarket WS publishes ``polymarket:{token_id}:{price}`` where token_id
+    is a CLOB token ID (YES side).  We build a lookup dict from token IDs so
+    incoming messages can be matched to the correct market pair.
+    """
+    from synesis.core.constants import CROSS_PLATFORM_ARB_MIN_GAP, PRICE_UPDATE_CHANNEL
+    from synesis.markets.models import CrossPlatformArb
+
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(PRICE_UPDATE_CHANNEL)
+    cooldowns: dict[str, float] = {}  # pair_key → last_alert_time
+
+    # Cached lookup dicts — rebuilt only when cross_platform_matches changes
+    cached_version: int = -1
+    poly_token_to_pair: dict[str, tuple[Any, Any]] = {}
+    kalshi_ticker_to_pair: dict[str, tuple[Any, Any]] = {}
+
+    logger.debug("Arb monitor started, listening for price updates")
+
+    try:
+        while not shutdown_event.is_set():
+            try:
+                message = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                # Prune stale cooldowns periodically (on every timeout)
+                cutoff = _time.time() - cooldown_minutes * 60
+                stale = [k for k, v in cooldowns.items() if v < cutoff]
+                for k in stale:
+                    del cooldowns[k]
+                continue
+
+            if message is None or message["type"] != "message":
+                continue
+
+            try:
+                data = message["data"]
+                if isinstance(data, bytes):
+                    data = data.decode()
+                parts = data.split(":", 2)
+                if len(parts) != 3:
+                    logger.debug("Malformed price update", data=data)
+                    continue
+                platform, market_id, price_str = parts
+                try:
+                    new_price = float(price_str)
+                except ValueError:
+                    logger.debug("Invalid price in update", data=data)
+                    continue
+
+                # Rebuild lookup dicts only when matched pairs change
+                if scanner.matches_version != cached_version:
+                    cached_version = scanner.matches_version
+                    matches = scanner.cross_platform_matches
+                    poly_token_to_pair = {}
+                    kalshi_ticker_to_pair = {}
+                    for poly_mkt, kalshi_mkt in matches:
+                        if poly_mkt.yes_token_id:
+                            poly_token_to_pair[poly_mkt.yes_token_id] = (poly_mkt, kalshi_mkt)
+                        kalshi_id = kalshi_mkt.ticker or kalshi_mkt.external_id
+                        if kalshi_id:
+                            kalshi_ticker_to_pair[kalshi_id] = (poly_mkt, kalshi_mkt)
+
+                # Match the incoming message to a cross-platform pair
+                pair: tuple[Any, Any] | None = None
+                counterpart_platform: str | None = None
+                counterpart_ws_key: str | None = None
+
+                if platform == "polymarket":
+                    pair = poly_token_to_pair.get(market_id)
+                    if pair:
+                        counterpart_platform = "kalshi"
+                        counterpart_ws_key = pair[1].ticker or pair[1].external_id
+                elif platform == "kalshi":
+                    pair = kalshi_ticker_to_pair.get(market_id)
+                    if pair:
+                        counterpart_platform = "polymarket"
+                        # WS manager stores Polymarket prices by token ID
+                        counterpart_ws_key = pair[0].yes_token_id
+
+                if not pair or not counterpart_platform or not counterpart_ws_key:
+                    continue
+
+                poly_mkt, kalshi_mkt = pair
+
+                # Get other platform's price from WS manager
+                if not ws_manager:
+                    continue
+                other_price_data = await ws_manager.get_realtime_price(
+                    counterpart_platform, counterpart_ws_key
+                )
+                if not other_price_data:
+                    continue
+                other_price = other_price_data[0]
+
+                gap = abs(new_price - other_price)
+                if gap < CROSS_PLATFORM_ARB_MIN_GAP:
+                    continue
+
+                poly_condition_id = poly_mkt.condition_id or poly_mkt.external_id
+                kalshi_ticker = kalshi_mkt.ticker or kalshi_mkt.external_id
+                pair_key = f"{poly_condition_id}:{kalshi_ticker}"
+                now = _time.time()
+                last_alert = cooldowns.get(pair_key, 0)
+                if now - last_alert < cooldown_minutes * 60:
+                    continue
+
+                # Build arb and send alert
+                if platform == "polymarket":
+                    poly_price = new_price
+                    kalshi_price = other_price
+                else:
+                    poly_price = other_price
+                    kalshi_price = new_price
+
+                buy_platform = "polymarket" if poly_price < kalshi_price else "kalshi"
+                arb = CrossPlatformArb(
+                    polymarket=poly_mkt,
+                    kalshi=kalshi_mkt,
+                    price_gap=gap,
+                    suggested_buy_platform=buy_platform,
+                    suggested_side="yes",
+                    match_similarity=0.0,
+                )
+                alert_msg = format_arb_alert(arb)
+                try:
+                    await send_long_telegram(alert_msg)
+                    cooldowns[pair_key] = now
+                    logger.info(
+                        "Arb alert sent",
+                        gap=f"${gap:.2f}",
+                        poly=f"${poly_price:.2f}",
+                        kalshi=f"${kalshi_price:.2f}",
+                    )
+                except Exception as e:
+                    logger.error("Arb alert send failed", error=str(e), gap=f"${gap:.2f}")
+
+            except Exception as e:
+                logger.warning("Arb monitor message processing error", error=str(e))
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await pubsub.unsubscribe(PRICE_UPDATE_CHANNEL)
+        await pubsub.close()
+        logger.debug("Arb monitor stopped")
 
 
 @asynccontextmanager
@@ -419,24 +579,26 @@ async def agent_lifespan(
     mkt_intel_kalshi_client = None
     mkt_intel_poly_client = None
     mkt_intel_data_client = None
+    arb_monitor_task: asyncio.Task[None] | None = None
     watchlist_intel_task: asyncio.Task[None] | None = None
+    ticker_provider = None
     watchlist_intel_factset = None
     watchlist_intel_sec_edgar = None
     watchlist_intel_nasdaq = None
 
     try:
         # 1. Connect to Redis (also sets the module-level global for get_redis())
-        logger.info("Connecting to Redis")
+        logger.debug("Connecting to Redis")
         redis = await init_redis(settings.redis_url)
-        logger.info("Redis connected")
+        logger.debug("Redis connected")
 
         # 2. Connect to PostgreSQL (if configured)
         if settings.database_url:
             try:
-                logger.info("Connecting to PostgreSQL")
+                logger.debug("Connecting to PostgreSQL")
                 db = await init_database(settings.database_url)
                 db_initialized = True
-                logger.info("PostgreSQL connected")
+                logger.debug("PostgreSQL connected")
             except Exception as e:
                 logger.warning(
                     "PostgreSQL connection failed, continuing without database storage",
@@ -451,39 +613,19 @@ async def agent_lifespan(
                 settings.finnhub_api_key.get_secret_value(), redis
             )
             await price_service.start()
-            logger.info("PriceService initialized with WebSocket")
+            logger.debug("PriceService initialized with WebSocket")
         else:
             logger.info("No FINNHUB_API_KEY configured, price tracking disabled")
 
-        # 2c. Initialize shared WatchlistManager with WebSocket callbacks
-        on_ticker_added = None
-        on_ticker_removed = None
-        if price_service:
-
-            async def subscribe_ticker(ticker: str) -> None:
-                await price_service.subscribe([ticker])
-
-            async def unsubscribe_ticker(ticker: str) -> None:
-                await price_service.unsubscribe([ticker])
-
-            on_ticker_added = subscribe_ticker
-            on_ticker_removed = unsubscribe_ticker
-
+        # 2c. Initialize shared WatchlistManager
         watchlist = WatchlistManager(
             redis,
             db=db,
-            on_ticker_added=on_ticker_added,
-            on_ticker_removed=on_ticker_removed,
         )
 
-        # Sync from DB and subscribe existing tickers
+        # Sync from DB
         if db:
             await watchlist.sync_from_db()
-            if price_service:
-                tickers = await watchlist.get_all()
-                if tickers:
-                    await price_service.subscribe(tickers)
-                    logger.info("Subscribed to initial watchlist", count=len(tickers))
 
         # 3. Start Twitter stream (if configured)
         if settings.twitterapi_api_key:
@@ -519,13 +661,11 @@ async def agent_lifespan(
 
         # 5. Start Reddit RSS client + sentiment processor (if configured)
         if settings.reddit_subreddits:
-            # Initialize ticker provider (FactSet for pre-verification)
-            ticker_provider = None
-            if settings.sqlserver_host:
-                ticker_provider = FactSetTickerProvider(
-                    client=get_factset_client(),
-                    redis=redis,
-                )
+            # Initialize ticker provider (FactSet or Finnhub based on config)
+            try:
+                ticker_provider = await create_ticker_provider(redis)
+            except Exception as e:
+                logger.error("Ticker provider not available, sentiment will use LLM-only validation", error=str(e))
 
             # Initialize sentiment processor (with shared watchlist)
             sentiment_processor = SentimentProcessor(
@@ -593,7 +733,7 @@ async def agent_lifespan(
                 ws_manager = MarketWSManager(poly_ws, kalshi_ws, redis)
                 mkt_intel_ws_manager = ws_manager
                 await ws_manager.start()
-                logger.info("Market intelligence WebSocket clients started")
+                logger.debug("Market intelligence WebSocket clients started")
 
             # Create scanner
             scanner = MarketScanner(
@@ -631,6 +771,19 @@ async def agent_lifespan(
                     shutdown_event,
                 )
             )
+
+            # Start real-time arb monitor (if WebSocket enabled)
+            if ws_manager:
+                arb_monitor_task = asyncio.create_task(
+                    run_arb_monitor(
+                        redis=redis,
+                        scanner=scanner,
+                        ws_manager=ws_manager,
+                        shutdown_event=shutdown_event,
+                    )
+                )
+                logger.debug("Real-time arb monitor started")
+
             logger.info(
                 "Market intelligence started",
                 interval=settings.mkt_intel_interval,
@@ -654,7 +807,7 @@ async def agent_lifespan(
 
                 fs_client = FSClient()
                 watchlist_intel_factset = FSProvider(client=fs_client)
-                logger.info("Watchlist intel: FactSet provider initialized")
+                logger.debug("Watchlist intel: FactSet provider initialized")
             except Exception as e:
                 logger.warning("Watchlist intel: FactSet not available", error=str(e))
 
@@ -666,7 +819,7 @@ async def agent_lifespan(
 
                 watchlist_intel_sec_edgar = SECClient(redis=redis)
                 watchlist_intel_nasdaq = NQClient(redis=redis)
-                logger.info("Watchlist intel: SEC EDGAR + NASDAQ initialized")
+                logger.debug("Watchlist intel: SEC EDGAR + NASDAQ initialized")
             except Exception as e:
                 logger.warning("Watchlist intel: SEC EDGAR/NASDAQ not available", error=str(e))
 
@@ -676,6 +829,7 @@ async def agent_lifespan(
                 sec_edgar=watchlist_intel_sec_edgar,
                 nasdaq=watchlist_intel_nasdaq,
                 db=db,
+                ticker_provider=ticker_provider,
             )
 
             watchlist_intel_task = asyncio.create_task(
@@ -715,7 +869,7 @@ async def agent_lifespan(
             watchlist_cleanup_task = asyncio.create_task(
                 run_watchlist_cleanup_loop(db, shutdown_event, watchlist=watchlist)
             )
-            logger.info("Watchlist cleanup loop started")
+            logger.debug("Watchlist cleanup loop started")
 
         # 6. Start agent processing loop
         def agent_exception_handler(task: asyncio.Task[None]) -> None:
@@ -728,7 +882,7 @@ async def agent_lifespan(
 
         from synesis.agent.pydantic_runner import run_pydantic_agent
 
-        logger.info("Starting PydanticAI agent")
+        logger.debug("Starting PydanticAI agent")
         agent_task = asyncio.create_task(
             run_pydantic_agent(
                 watchlist=watchlist,
@@ -770,6 +924,8 @@ async def agent_lifespan(
             background_tasks.append(watchlist_cleanup_task)
         if mkt_intel_task:
             background_tasks.append(mkt_intel_task)
+        if arb_monitor_task:
+            background_tasks.append(arb_monitor_task)
         if watchlist_intel_task:
             background_tasks.append(watchlist_intel_task)
 
@@ -803,7 +959,7 @@ async def agent_lifespan(
                 await sentiment_signal_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Sentiment signal loop stopped")
+            logger.debug("Sentiment signal loop stopped")
 
         if watchlist_cleanup_task:
             watchlist_cleanup_task.cancel()
@@ -811,7 +967,15 @@ async def agent_lifespan(
                 await watchlist_cleanup_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Watchlist cleanup loop stopped")
+            logger.debug("Watchlist cleanup loop stopped")
+
+        if arb_monitor_task:
+            arb_monitor_task.cancel()
+            try:
+                await arb_monitor_task
+            except asyncio.CancelledError:
+                pass
+            logger.debug("Arb monitor stopped")
 
         if mkt_intel_task:
             mkt_intel_task.cancel()
@@ -819,7 +983,7 @@ async def agent_lifespan(
                 await mkt_intel_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Mkt_intel signal loop stopped")
+            logger.debug("Mkt_intel signal loop stopped")
 
         if watchlist_intel_task:
             watchlist_intel_task.cancel()
@@ -827,7 +991,7 @@ async def agent_lifespan(
                 await watchlist_intel_task
             except asyncio.CancelledError:
                 pass
-            logger.info("Watchlist intel loop stopped")
+            logger.debug("Watchlist intel loop stopped")
 
         for wl_client, wl_name in [
             (watchlist_intel_factset, "Watchlist FactSet"),
@@ -845,7 +1009,7 @@ async def agent_lifespan(
                 await mkt_intel_ws_manager.stop()
             except Exception as e:
                 logger.error("Failed to stop WS manager", error=str(e))
-            logger.info("Market intelligence WebSocket clients stopped")
+            logger.debug("Market intelligence WebSocket clients stopped")
 
         for client, name in [
             (mkt_intel_kalshi_client, "Kalshi"),
@@ -860,30 +1024,30 @@ async def agent_lifespan(
 
         if twitter_client:
             await twitter_client.stop()
-            logger.info("Twitter stream stopped")
+            logger.debug("Twitter stream stopped")
 
         if telegram_listener:
             await telegram_listener.stop()
-            logger.info("Telegram listener stopped")
+            logger.debug("Telegram listener stopped")
 
         if reddit_client:
             await reddit_client.stop()
-            logger.info("Reddit RSS client stopped")
+            logger.debug("Reddit RSS client stopped")
 
         if sentiment_processor:
             await sentiment_processor.close()
-            logger.info("Sentiment processor closed")
+            logger.debug("Sentiment processor closed")
 
         if price_service:
             await close_price_service()
-            logger.info("PriceService closed")
+            logger.debug("PriceService closed")
 
         if db_initialized:
             await close_database()
-            logger.info("PostgreSQL disconnected")
+            logger.debug("PostgreSQL disconnected")
 
         if redis:
             await close_redis()
-            logger.info("Redis disconnected")
+            logger.debug("Redis disconnected")
 
         logger.info("Agent shutdown complete")

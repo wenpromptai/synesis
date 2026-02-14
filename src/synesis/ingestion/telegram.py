@@ -52,7 +52,7 @@ class TelegramListener:
         await self._client.start()
         self._running = True
 
-        logger.info(
+        logger.debug(
             "Telegram client started",
             session=self._session_name,
             channels=self._channels,
@@ -69,7 +69,7 @@ class TelegramListener:
         self._running = False
         if self._client:
             await self._client.disconnect()
-            logger.info("Telegram client stopped")
+            logger.debug("Telegram client stopped")
 
     def on_message(self, callback: Any) -> None:
         """Register a callback for new messages."""

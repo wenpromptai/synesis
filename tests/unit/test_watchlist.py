@@ -99,22 +99,6 @@ class TestWatchlistAddTicker:
         mock_redis.sadd.assert_called_once_with(WATCHLIST_KEY, "TSLA")
 
     @pytest.mark.asyncio
-    async def test_fires_callback_on_new(self, mock_redis: AsyncMock) -> None:
-        callback = AsyncMock()
-        mgr = WatchlistManager(redis=mock_redis, on_ticker_added=callback)
-        mock_redis.sismember.return_value = False
-        await mgr.add_ticker("NVDA", "twitter")
-        callback.assert_awaited_once_with("NVDA")
-
-    @pytest.mark.asyncio
-    async def test_no_callback_on_existing(self, mock_redis: AsyncMock) -> None:
-        callback = AsyncMock()
-        mgr = WatchlistManager(redis=mock_redis, on_ticker_added=callback)
-        mock_redis.sismember.return_value = True
-        await mgr.add_ticker("NVDA", "twitter")
-        callback.assert_not_awaited()
-
-    @pytest.mark.asyncio
     async def test_refreshes_ttl_on_existing(
         self, manager: WatchlistManager, mock_redis: AsyncMock
     ) -> None:
@@ -145,14 +129,6 @@ class TestWatchlistRemoveTicker:
         result = await manager.remove_ticker("AAPL")
         assert result is False
         mock_redis.srem.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_fires_callback_on_remove(self, mock_redis: AsyncMock) -> None:
-        callback = AsyncMock()
-        mgr = WatchlistManager(redis=mock_redis, on_ticker_removed=callback)
-        mock_redis.sismember.return_value = True
-        await mgr.remove_ticker("AAPL")
-        callback.assert_awaited_once_with("AAPL")
 
 
 class TestWatchlistGetAll:
@@ -240,18 +216,6 @@ class TestWatchlistCleanupExpired:
         removed = await manager.cleanup_expired()
         assert "AAPL" in removed
         assert "TSLA" not in removed
-
-    @pytest.mark.asyncio
-    async def test_fires_callback_on_expired(self, mock_redis: AsyncMock) -> None:
-        callback = AsyncMock()
-        mgr = WatchlistManager(redis=mock_redis, on_ticker_removed=callback)
-        mock_redis.smembers.return_value = {b"AAPL"}
-
-        mock_script = AsyncMock(return_value=1)
-        mock_redis.register_script = MagicMock(return_value=mock_script)
-
-        await mgr.cleanup_expired()
-        callback.assert_awaited_once_with("AAPL")
 
 
 class TestWatchlistBulkAdd:

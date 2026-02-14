@@ -35,6 +35,7 @@ from synesis.processing.news import (
     NewsClassifier,
     SmartAnalysis,
     SmartAnalyzer,
+    SourceType,
     UnifiedMessage,
     UrgencyLevel,
     create_deduplicator,
@@ -310,12 +311,16 @@ class NewsProcessor:
             urgency=extraction.urgency.value,
         )
 
-        # 3. Early exit for low-urgency messages (skip Stage 2)
-        # Only proceed to Stage 2 if urgency is CRITICAL or HIGH
-        should_skip_stage2 = extraction.urgency in (
-            UrgencyLevel.low,
-            UrgencyLevel.normal,
-        )
+        # 3. Early exit based on source type + urgency
+        if message.source_type == SourceType.analysis:
+            # Analysis sources (X/Twitter): only skip spam/promo
+            should_skip_stage2 = extraction.urgency == UrgencyLevel.low
+        else:
+            # News sources (Telegram): only critical/high pass
+            should_skip_stage2 = extraction.urgency in (
+                UrgencyLevel.low,
+                UrgencyLevel.normal,
+            )
 
         if should_skip_stage2:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
@@ -336,18 +341,24 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 4. Pre-fetch context (parallel) - only for high/critical urgency
+        # 4. Pre-fetch context (parallel)
         log.debug(
             "Pre-fetching context",
+            source_type=message.source_type.value,
             search_keywords=extraction.search_keywords[:2],
             polymarket_keywords=extraction.polymarket_keywords,
         )
 
-        # Fetch web results and Polymarket markets in parallel
-        web_results, markets_text = await asyncio.gather(
-            self._fetch_web_results(extraction.search_keywords),
-            self.analyzer.search_polymarket(extraction.polymarket_keywords),
-        )
+        if message.source_type == SourceType.analysis:
+            # Analysis sources: web search only, no Polymarket
+            web_results = await self._fetch_web_results(extraction.search_keywords)
+            markets_text = ""
+        else:
+            # News sources: both web search + Polymarket in parallel
+            web_results, markets_text = await asyncio.gather(
+                self._fetch_web_results(extraction.search_keywords),
+                self.analyzer.search_polymarket(extraction.polymarket_keywords),
+            )
 
         # 5. Stage 2: Smart analysis (all informed judgments)
         log.debug("Stage 2: Smart analysis with context")

@@ -41,6 +41,7 @@ def _poly_market(
         created_at=None,
         is_active=True,
         is_closed=False,
+        yes_token_id=f"token_{mid}_yes",
     )
 
 
@@ -62,7 +63,7 @@ def _kalshi_market(
         no_ask=1.0 - yes_bid,
         last_price=(yes_bid + yes_ask) / 2,
         volume=5000,
-        volume_24h=1000,
+        volume_24h=10000,
         open_interest=2000,
         close_time=datetime.now(UTC) + timedelta(days=7),
         category="economics",
@@ -134,12 +135,13 @@ def mock_poly_client() -> AsyncMock:
                 category=None,
                 yes_price=0.80,
                 no_price=0.20,
-                volume_24h=3000,
+                volume_24h=10000,
                 volume_total=15000,
                 end_date=datetime.now(UTC) + timedelta(hours=8),
                 created_at=None,
                 is_active=True,
                 is_closed=False,
+                yes_token_id="token_m3_yes",
             )
         ]
     )
@@ -569,9 +571,20 @@ class TestMktIntelE2EWithMocks:
                 {"address": "0xpro_trader", "amount": 100000, "outcome": "yes"},
             ]
         )
-        # 100% win rate with 50 trades = high insider score
+        # 100% win rate with 50 positions = high insider score
+        mock_data_client.get_wallet_positions = AsyncMock(
+            return_value=[
+                {
+                    "cashPnl": 100.0,
+                    "initialValue": 1000,
+                    "currentValue": 1100,
+                    "conditionId": f"c{i}",
+                }
+                for i in range(50)
+            ]
+        )
         mock_data_client.get_wallet_trades = AsyncMock(
-            return_value=[{"pnl": 100.0} for _ in range(50)]
+            return_value=[{"side": "buy", "conditionId": f"c{i}"} for i in range(50)]
         )
 
         mock_db = AsyncMock()
@@ -579,6 +592,8 @@ class TestMktIntelE2EWithMocks:
         mock_db.get_wallets_needing_score_update = AsyncMock(return_value=["0xpro_trader"])
         mock_db.upsert_wallet_metrics = AsyncMock()
         mock_db.set_wallet_watched = AsyncMock()
+        mock_db.get_wallet_first_seen = AsyncMock(return_value=None)
+        mock_db.get_market_categories = AsyncMock(return_value={})
 
         tracker = WalletTracker(
             redis=mock_redis,

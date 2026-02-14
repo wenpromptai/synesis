@@ -250,7 +250,7 @@ class RedditRSSClient:
         while len(self._seen_ids) > 10000:
             self._seen_ids.popitem(last=False)  # Remove oldest entries
 
-        logger.info(
+        logger.debug(
             "reddit_poll_complete",
             total_posts=len(all_posts),
             new_posts=len(new_posts),
@@ -265,7 +265,7 @@ class RedditRSSClient:
             subreddits=self.subreddits,
             interval_hours=self.poll_interval / 3600,
         )
-        log.info("reddit_polling_started")
+        log.debug("reddit_polling_started")
 
         # Initial poll
         first_run = True
@@ -287,7 +287,7 @@ class RedditRSSClient:
                             )
 
                 if first_run:
-                    log.info(
+                    log.debug(
                         "reddit_initial_poll_complete",
                         seen_ids=len(self._seen_ids),
                         posts_processed=len(posts),
@@ -307,7 +307,7 @@ class RedditRSSClient:
 
         self._running = True
         self._poll_task = asyncio.create_task(self._poll_loop())
-        logger.info("reddit_client_started", subreddits=self.subreddits)
+        logger.debug("reddit_client_started", subreddits=self.subreddits)
 
     async def stop(self) -> None:
         """Stop the polling loop and cleanup."""
@@ -325,7 +325,7 @@ class RedditRSSClient:
             await self._client.aclose()
             self._client = None
 
-        logger.info("reddit_client_stopped")
+        logger.debug("reddit_client_stopped")
 
     async def __aenter__(self) -> "RedditRSSClient":
         """Async context manager entry."""

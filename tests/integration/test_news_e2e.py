@@ -98,7 +98,7 @@ class TestNewsE2E:
 
             signal = result.to_signal()
             if signal:
-                await mock_db.insert_signal(signal, prices=None)
+                await mock_db.insert_signal(signal)
                 await mock_redis.publish("synesis:signals", signal.model_dump_json())
 
                 # Send REAL Telegram notification

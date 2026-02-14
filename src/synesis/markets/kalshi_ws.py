@@ -21,7 +21,7 @@ import websockets.exceptions
 from websockets.asyncio.client import ClientConnection
 
 from synesis.config import get_settings
-from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX
+from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX, PRICE_UPDATE_CHANNEL
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -69,7 +69,7 @@ class KalshiWSClient:
             return
         self._running = True
         self._ws_task = asyncio.create_task(self._ws_loop())
-        logger.info("Kalshi WS started")
+        logger.debug("Kalshi WS started")
 
     async def stop(self) -> None:
         """Stop WebSocket."""
@@ -84,7 +84,7 @@ class KalshiWSClient:
             except asyncio.CancelledError:
                 pass
             self._ws_task = None
-        logger.info("Kalshi WS stopped")
+        logger.debug("Kalshi WS stopped")
 
     async def subscribe(self, market_tickers: list[str]) -> None:
         """Subscribe to market tickers."""
@@ -120,7 +120,7 @@ class KalshiWSClient:
                 logger.error("Kalshi WS error", error=str(e))
 
             if self._running:
-                logger.info("Kalshi WS reconnecting", delay=self._reconnect_delay)
+                logger.debug("Kalshi WS reconnecting", delay=self._reconnect_delay)
                 await asyncio.sleep(self._reconnect_delay)
                 self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
 
@@ -162,7 +162,7 @@ class KalshiWSClient:
             async with websockets.connect(url, additional_headers=extra_headers) as ws:
                 self._ws = ws
                 self._reconnect_delay = 1.0
-                logger.info(
+                logger.debug(
                     "Kalshi WS connected",
                     subscribed=len(self._subscribed_tickers),
                 )
@@ -240,6 +240,12 @@ class KalshiWSClient:
                 if mapping:
                     await self._redis.hset(key, mapping=mapping)  # type: ignore[misc]
                     await self._redis.expire(key, _PRICE_TTL)
+                    # Publish for real-time arb detection
+                    if "price" in mapping:
+                        await self._redis.publish(
+                            PRICE_UPDATE_CHANNEL,
+                            f"kalshi:{ticker}:{mapping['price']}",
+                        )
 
             elif msg_type == "trade":
                 msg_data = data.get("msg", {})
@@ -255,6 +261,11 @@ class KalshiWSClient:
                     key = f"{_PRICE_PREFIX}:{ticker}"
                     await self._redis.hset(key, mapping={"price": str(yes_price)})  # type: ignore[misc]
                     await self._redis.expire(key, _PRICE_TTL)
+                    # Publish for real-time arb detection
+                    await self._redis.publish(
+                        PRICE_UPDATE_CHANNEL,
+                        f"kalshi:{ticker}:{yes_price}",
+                    )
 
                 # Increment volume
                 if count > 0:

@@ -338,10 +338,11 @@ class TestFactSetIntegration:
 
             client = FactSetClient()
             provider = FactSetTickerProvider(client=client, redis=real_redis)
-            is_valid, name = await provider.verify_ticker(ticker)
+            is_valid, ticker_region, name = await provider.verify_ticker(ticker)
             assert is_valid is True
+            assert ticker_region is not None
             assert name is not None
-            print(f"  {ticker} verified: {name}")
+            print(f"  {ticker} verified: {ticker_region} ({name})")
         except Exception as exc:
             pytest.skip(f"FactSet not available: {exc}")
 
@@ -354,8 +355,9 @@ class TestFactSetIntegration:
 
             client = FactSetClient()
             provider = FactSetTickerProvider(client=client, redis=real_redis)
-            is_valid, name = await provider.verify_ticker("ZZZZXYZ")
+            is_valid, ticker_region, name = await provider.verify_ticker("ZZZZXYZ")
             assert is_valid is False
+            assert ticker_region is None
             assert name is None
         except Exception as exc:
             pytest.skip(f"FactSet not available: {exc}")

@@ -12,7 +12,6 @@ Redis Key Schema:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -94,8 +93,6 @@ class WatchlistManager:
         redis: Redis,
         db: Database | None = None,
         ttl_days: int = 7,
-        on_ticker_added: Callable[[str], Awaitable[None]] | None = None,
-        on_ticker_removed: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize watchlist manager.
 
@@ -103,17 +100,11 @@ class WatchlistManager:
             redis: Redis client instance for fast access
             db: Optional PostgreSQL database for persistence
             ttl_days: Days before a ticker expires from watchlist
-            on_ticker_added: Optional async callback invoked when a new ticker is added.
-                            Receives the ticker symbol (uppercase) as argument.
-            on_ticker_removed: Optional async callback invoked when a ticker is removed.
-                              Receives the ticker symbol (uppercase) as argument.
         """
         self.redis = redis
         self.db = db
         self.ttl_days = ttl_days
         self.ttl_seconds = ttl_days * 24 * 60 * 60
-        self._on_ticker_added = on_ticker_added
-        self._on_ticker_removed = on_ticker_removed
 
     async def add_ticker(
         self,
@@ -156,7 +147,7 @@ class WatchlistManager:
             await self.redis.hset(metadata_key, mapping=metadata.to_dict())  # type: ignore[misc]
             await self.redis.expire(metadata_key, self.ttl_seconds)
 
-            logger.info(
+            logger.debug(
                 "Ticker added to watchlist",
                 ticker=ticker,
                 source=source,
@@ -201,17 +192,6 @@ class WatchlistManager:
                     error=str(e),
                 )
 
-        # Invoke callback for new tickers (e.g., WebSocket subscription)
-        if is_new and self._on_ticker_added:
-            try:
-                await self._on_ticker_added(ticker)
-            except Exception as e:
-                logger.warning(
-                    "on_ticker_added callback failed",
-                    ticker=ticker,
-                    error=str(e),
-                )
-
         return is_new
 
     async def remove_ticker(self, ticker: str) -> bool:
@@ -234,18 +214,7 @@ class WatchlistManager:
             # Remove from set and delete keys
             await self.redis.srem(WATCHLIST_KEY, ticker)  # type: ignore[misc]
             await self.redis.delete(ttl_key, metadata_key)
-            logger.info("Ticker removed from watchlist", ticker=ticker)
-
-            # Invoke callback (e.g., WebSocket unsubscription)
-            if self._on_ticker_removed:
-                try:
-                    await self._on_ticker_removed(ticker)
-                except Exception as e:
-                    logger.warning(
-                        "on_ticker_removed callback failed",
-                        ticker=ticker,
-                        error=str(e),
-                    )
+            logger.debug("Ticker removed from watchlist", ticker=ticker)
 
         return bool(existed)
 
@@ -354,18 +323,7 @@ class WatchlistManager:
 
             if result == 1:
                 removed.append(ticker)
-                logger.info("Ticker expired and removed from watchlist", ticker=ticker)
-
-                # Invoke callback (e.g., WebSocket unsubscription)
-                if self._on_ticker_removed:
-                    try:
-                        await self._on_ticker_removed(ticker)
-                    except Exception as e:
-                        logger.warning(
-                            "on_ticker_removed callback failed",
-                            ticker=ticker,
-                            error=str(e),
-                        )
+                logger.debug("Ticker expired and removed from watchlist", ticker=ticker)
 
         # Also cleanup in PostgreSQL if available
         if self.db:

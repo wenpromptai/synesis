@@ -190,6 +190,71 @@ class TestWatchlistProcessor:
         assert intel.ticker == "AAPL"
         assert intel.company_name is None
 
+    @pytest.mark.asyncio
+    async def test_gather_intelligence_resolves_ticker_region(
+        self,
+        mock_watchlist: AsyncMock,
+        mock_factset: AsyncMock,
+    ) -> None:
+        """Test that ticker_provider resolves bare ticker to ticker-region for FactSet."""
+        mock_tp = AsyncMock()
+        mock_tp.verify_ticker = AsyncMock(return_value=(True, "AAPL-US", "Apple Inc."))
+
+        processor = WatchlistProcessor(
+            watchlist=mock_watchlist,
+            factset=mock_factset,
+            ticker_provider=mock_tp,
+        )
+        intel = await processor.gather_intelligence("AAPL")
+
+        # ticker_provider was called with bare ticker
+        mock_tp.verify_ticker.assert_awaited_once_with("AAPL")
+        # FactSet was called with resolved ticker-region
+        mock_factset.resolve_ticker.assert_awaited_once_with("AAPL-US")
+        mock_factset.get_market_cap.assert_awaited_once_with("AAPL-US")
+        assert intel.company_name == "Apple Inc."
+
+    @pytest.mark.asyncio
+    async def test_gather_intelligence_ticker_provider_failure_falls_back(
+        self,
+        mock_watchlist: AsyncMock,
+        mock_factset: AsyncMock,
+    ) -> None:
+        """Test that FactSet falls back to bare ticker when ticker_provider fails."""
+        mock_tp = AsyncMock()
+        mock_tp.verify_ticker = AsyncMock(side_effect=Exception("Provider down"))
+
+        processor = WatchlistProcessor(
+            watchlist=mock_watchlist,
+            factset=mock_factset,
+            ticker_provider=mock_tp,
+        )
+        intel = await processor.gather_intelligence("AAPL")
+
+        # FactSet should be called with bare ticker as fallback
+        mock_factset.resolve_ticker.assert_awaited_once_with("AAPL")
+        assert intel.company_name == "Apple Inc."
+
+    @pytest.mark.asyncio
+    async def test_gather_intelligence_ticker_provider_invalid_falls_back(
+        self,
+        mock_watchlist: AsyncMock,
+        mock_factset: AsyncMock,
+    ) -> None:
+        """Test that FactSet falls back to bare ticker when verify returns invalid."""
+        mock_tp = AsyncMock()
+        mock_tp.verify_ticker = AsyncMock(return_value=(False, None, None))
+
+        processor = WatchlistProcessor(
+            watchlist=mock_watchlist,
+            factset=mock_factset,
+            ticker_provider=mock_tp,
+        )
+        await processor.gather_intelligence("AAPL")
+
+        # FactSet should be called with bare ticker
+        mock_factset.resolve_ticker.assert_awaited_once_with("AAPL")
+
 
 class TestDetectAlerts:
     """Tests for rule-based alert detection."""

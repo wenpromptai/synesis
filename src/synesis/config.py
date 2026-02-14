@@ -165,17 +165,13 @@ class Settings(BaseSettings):
     )
 
     # Provider Selection (allows swapping data providers)
-    price_provider: Literal["finnhub"] = Field(
-        default="finnhub",
-        description="Price data provider (finnhub, polygon, yahoo in future)",
-    )
-    ticker_provider: Literal["finnhub", "factset"] = Field(
+    ticker_provider: Literal["factset", "finnhub"] = Field(
         default="factset",
-        description="Ticker validation provider (factset, finnhub)",
+        description="Ticker validation provider (factset or finnhub)",
     )
-    fundamentals_provider: Literal["finnhub", "sec_edgar", "none"] = Field(
+    fundamentals_provider: Literal["factset", "finnhub", "sec_edgar", "none"] = Field(
         default="sec_edgar",
-        description="Fundamentals data provider (sec_edgar, finnhub, none)",
+        description="Fundamentals data provider (factset, finnhub, sec_edgar, none)",
     )
 
     # SEC EDGAR (free, no key required)

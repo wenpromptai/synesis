@@ -14,7 +14,14 @@ from synesis.core.constants import (
     WALLET_RESCORE_INTERVAL_SECONDS,
 )
 from synesis.core.logging import get_logger
-from synesis.markets.models import InsiderAlert, ScanResult, UnifiedMarket, VolumeSpike
+from synesis.markets.models import (
+    CrossPlatformArb,
+    HighConvictionTrade,
+    InsiderAlert,
+    ScanResult,
+    UnifiedMarket,
+    VolumeSpike,
+)
 from synesis.processing.mkt_intel.models import (
     MarketIntelOpportunity,
     MarketIntelSignal,
@@ -53,16 +60,23 @@ class MarketIntelProcessor:
     async def run_scan(self) -> MarketIntelSignal:
         """Run a full scan cycle and generate signal.
 
-        1. scanner.scan() → trending + expiring + odds moves
+        Steps:
+        1. scanner.scan() → trending + expiring + odds + arbs
         2. wallet_tracker.check_wallet_activity() → insider alerts
-        3. Score opportunities
-        4. Build and return signal
+        3. detect_high_conviction_trades() → concentrated bets
+        4. Get wallet cluster info for scoring
+        5. Score opportunities with all triggers
+        6. Calculate aggregate metrics
+        7. Build signal
+        8. Persist to DB
+        9. Background: discover + score new wallets
+        10. Background: re-score watched wallets (every 24h)
         """
         now = datetime.now(UTC)
         log = logger.bind(scan_time=now.isoformat())
-        log.info("Market intel scan started")
+        log.debug("Market intel scan started")
 
-        # 1. Run market scan
+        # 1. Run market scan (includes cross-platform arb detection)
         scan_result = await self._scanner.scan()
 
         # 2. Check wallet activity on trending markets
@@ -74,17 +88,25 @@ class MarketIntelProcessor:
         )
         insider_alerts = await self._wallet_tracker.check_wallet_activity(all_markets)
 
-        # 3. Score opportunities
+        # 3. Detect high-conviction trades (Feature 2)
+        try:
+            high_conviction = await self._wallet_tracker.detect_high_conviction_trades(all_markets)
+        except Exception as e:
+            log.error("High-conviction detection failed", error=str(e))
+            high_conviction = []
+
+        # 4. Score opportunities
         opportunities = self._score_opportunities(
             scan_result=scan_result,
             insider_alerts=insider_alerts,
+            high_conviction=high_conviction,
         )
 
-        # 4. Calculate aggregate metrics
+        # 6. Calculate aggregate metrics
         uncertainty = self._calc_uncertainty_index(all_markets)
         informed_level = self._calc_informed_activity(insider_alerts)
 
-        # 5. Build signal
+        # 7. Build signal
         signal = MarketIntelSignal(
             timestamp=now,
             total_markets_scanned=scan_result.total_markets_scanned,
@@ -94,19 +116,21 @@ class MarketIntelProcessor:
             odds_movements=scan_result.odds_movements[:10],
             volume_spikes=scan_result.volume_spikes[:10],
             opportunities=opportunities[:10],
+            cross_platform_arbs=scan_result.cross_platform_arbs[:10],
+            high_conviction_trades=high_conviction[:10],
             market_uncertainty_index=uncertainty,
             informed_activity_level=informed_level,
             ws_connected=self._ws_manager.is_connected if self._ws_manager else False,
         )
 
-        # 6. Persist signal
+        # 8. Persist signal
         if self._db:
             try:
                 await self._db.insert_mkt_intel_signal(signal)
             except Exception as e:
                 log.error("Failed to persist mkt_intel signal", error=str(e))
 
-        # 7. Discover and score new wallets (background task)
+        # 9. Discover and score new wallets (background task)
         if self._discovery_task and not self._discovery_task.done():
             log.debug("Previous wallet discovery still running, skipping")
         else:
@@ -115,7 +139,7 @@ class MarketIntelProcessor:
                 name="wallet_discovery",
             )
 
-        # 8. Re-score watched wallets every 24h (background task)
+        # 10. Re-score watched wallets every 24h (background task)
         rescore_due = (
             self._last_rescore_time is None
             or (now - self._last_rescore_time).total_seconds() >= WALLET_RESCORE_INTERVAL_SECONDS
@@ -138,6 +162,8 @@ class MarketIntelProcessor:
             insider_alerts=len(signal.insider_activity),
             odds_movements=len(signal.odds_movements),
             opportunities=len(signal.opportunities),
+            cross_platform_arbs=len(signal.cross_platform_arbs),
+            high_conviction=len(signal.high_conviction_trades),
         )
 
         return signal
@@ -172,6 +198,7 @@ class MarketIntelProcessor:
         self,
         scan_result: ScanResult,
         insider_alerts: list[InsiderAlert],
+        high_conviction: list[HighConvictionTrade] | None = None,
     ) -> list[MarketIntelOpportunity]:
         """Combine triggers into scored opportunities."""
 
@@ -187,6 +214,15 @@ class MarketIntelProcessor:
         spike_by_id: dict[str, VolumeSpike] = {}
         for vs in scan_result.volume_spikes:
             spike_by_id[vs.market.external_id] = vs
+
+        arb_by_id: dict[str, CrossPlatformArb] = {}
+        for arb in scan_result.cross_platform_arbs:
+            arb_by_id[arb.polymarket.external_id] = arb
+            arb_by_id[arb.kalshi.external_id] = arb
+
+        hc_by_id: dict[str, HighConvictionTrade] = {}
+        for hc in high_conviction or []:
+            hc_by_id[hc.market.external_id] = hc
 
         expiring_ids = {m.external_id for m in scan_result.expiring_markets}
 
@@ -247,10 +283,15 @@ class MarketIntelProcessor:
                 # +0.15 at threshold (100%), up to +0.20 for 200%+
                 confidence += min(0.20, 0.15 + (spike.pct_change - 1.0) * 0.05)
 
-            # Extreme odds trigger — near-certain outcomes
-            if market.yes_price < 0.05 or market.yes_price > 0.95:
-                triggers.append("extreme_odds")
-                confidence += 0.10
+            # Cross-platform arb trigger (Feature 1)
+            if mid in arb_by_id:
+                triggers.append("cross_platform_arb")
+                confidence += 0.20
+
+            # High-conviction trade trigger (Feature 2)
+            if mid in hc_by_id:
+                triggers.append("high_conviction")
+                confidence += 0.25
 
             if not triggers:
                 continue
@@ -276,9 +317,15 @@ class MarketIntelProcessor:
                     f"Volume spike +{spike.pct_change:.0%} "
                     f"({spike.volume_previous:,.0f} → {spike.volume_current:,.0f})"
                 )
-            if "extreme_odds" in triggers:
-                reasoning_parts.append(f"Extreme odds ({market.yes_price:.0%} YES)")
-
+            if mid in arb_by_id:
+                arb = arb_by_id[mid]
+                reasoning_parts.append(f"Cross-platform arb gap ${arb.price_gap:.2f}")
+            if mid in hc_by_id:
+                hc = hc_by_id[mid]
+                reasoning_parts.append(
+                    f"High-conviction: {hc.concentration_pct:.0%} of portfolio, "
+                    f"{hc.total_positions} positions"
+                )
             opportunities.append(
                 MarketIntelOpportunity(
                     market=market,

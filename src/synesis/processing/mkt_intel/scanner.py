@@ -11,8 +11,15 @@ import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from synesis.core.constants import (
+    CROSS_PLATFORM_ARB_MIN_GAP,
+    CROSS_PLATFORM_MATCH_SIMILARITY,
+)
 from synesis.core.logging import get_logger
 from synesis.markets.models import (
+    CrossPlatformArb,
     OddsMovement,
     ScanResult,
     UnifiedMarket,
@@ -20,6 +27,8 @@ from synesis.markets.models import (
 )
 
 if TYPE_CHECKING:
+    from model2vec import StaticModel
+
     from synesis.markets.kalshi import KalshiClient, KalshiMarket
     from synesis.markets.polymarket import PolymarketClient, SimpleMarket
     from synesis.markets.ws_manager import MarketWSManager
@@ -46,6 +55,7 @@ def _poly_to_unified(m: SimpleMarket) -> UnifiedMarket:
         description=m.description,
         outcome_label=m.group_item_title,
         yes_outcome=m.yes_outcome,
+        yes_token_id=m.yes_token_id,
     )
 
 
@@ -86,6 +96,33 @@ class MarketScanner:
         self._db = db
         self._expiring_hours = expiring_hours
         self._volume_spike_threshold = volume_spike_threshold
+        # Cross-platform arb state
+        self._model: StaticModel | None = None
+        self._model_load_failed = False
+        self._cross_platform_matches: list[tuple[UnifiedMarket, UnifiedMarket]] = []
+        self._matches_version: int = 0
+
+    @property
+    def cross_platform_matches(self) -> list[tuple[UnifiedMarket, UnifiedMarket]]:
+        """Matched cross-platform market pairs (Polymarket, Kalshi)."""
+        return list(self._cross_platform_matches)
+
+    @property
+    def matches_version(self) -> int:
+        """Increments when cross_platform_matches changes."""
+        return self._matches_version
+
+    def _get_model(self) -> StaticModel | None:
+        """Lazy-load Model2Vec (same model as deduplication)."""
+        if self._model is None and not self._model_load_failed:
+            try:
+                from model2vec import StaticModel
+
+                self._model = StaticModel.from_pretrained("minishlab/potion-base-8M")
+            except Exception as e:
+                self._model_load_failed = True
+                logger.error("Model download failed, cross-platform arb detection disabled", error=str(e))
+        return self._model
 
     async def scan(self) -> ScanResult:
         """Run a full scan cycle.
@@ -100,7 +137,7 @@ class MarketScanner:
         """
         now = datetime.now(UTC)
         log = logger.bind(scan_time=now.isoformat())
-        log.info("Market scan started")
+        log.debug("Market scan started")
 
         # 1. Fetch from both platforms in parallel
         (
@@ -115,15 +152,23 @@ class MarketScanner:
             self._fetch_kalshi_expiring(),
         )
 
-        # Merge into unified lists
-        all_trending = poly_trending + kalshi_trending
-        all_expiring = poly_expiring + kalshi_expiring
+        # Filter out non-tradable markets (low volume, or settled prices)
+        def _is_tradable(m: UnifiedMarket) -> bool:
+            return m.volume_24h >= 10_000 and 0.02 < m.yes_price < 0.98 and 0.02 < m.no_price < 0.98
+
+        pre_filter_trending = poly_trending + kalshi_trending
+        pre_filter_expiring = poly_expiring + kalshi_expiring
+        all_trending = [m for m in pre_filter_trending if _is_tradable(m)]
+        all_expiring = [m for m in pre_filter_expiring if _is_tradable(m)]
+        filtered_count = (len(pre_filter_trending) - len(all_trending)) + (len(pre_filter_expiring) - len(all_expiring))
+        if filtered_count:
+            log.debug("Filtered non-tradable markets", removed=filtered_count)
         all_markets = {m.external_id: m for m in all_trending + all_expiring}
 
         # 2. Merge with real-time Redis data
         if self._ws_manager:
             for market in all_markets.values():
-                market_key = market.condition_id or market.ticker or market.external_id
+                market_key = market.yes_token_id or market.ticker or market.external_id
                 rt_price = await self._ws_manager.get_realtime_price(market.platform, market_key)
                 if rt_price:
                     market.yes_price = rt_price[0]
@@ -140,7 +185,7 @@ class MarketScanner:
         captured_volumes: dict[str, float] = {}
         if self._ws_manager:
             for market in all_markets.values():
-                market_key = market.condition_id or market.ticker or market.external_id
+                market_key = market.yes_token_id or market.ticker or market.external_id
                 try:
                     vol = await self._ws_manager.read_and_reset_volume(market.platform, market_key)
                     if vol is not None and vol > 0:
@@ -168,11 +213,23 @@ class MarketScanner:
             logger.error("Volume spike detection failed", error=str(e))
             volume_spikes = []
 
-        # 6. Update WebSocket subscriptions
+        # 6. Detect cross-platform arbitrage (use filtered markets only)
+        try:
+            filtered_poly = [m for m in all_trending + all_expiring if m.platform == "polymarket"]
+            filtered_kalshi = [m for m in all_trending + all_expiring if m.platform == "kalshi"]
+            cross_platform_arbs = self._detect_cross_platform_arbs(
+                filtered_poly,
+                filtered_kalshi,
+            )
+        except Exception as e:
+            logger.error("Cross-platform arb detection failed", error=str(e))
+            cross_platform_arbs = []
+
+        # 7. Update WebSocket subscriptions
         if self._ws_manager:
             await self._ws_manager.update_subscriptions(list(all_markets.values()))
 
-        # 7. Store snapshots (volumes already captured in step 3)
+        # 8. Store snapshots (volumes already captured in step 3)
         await self._store_snapshots(list(all_markets.values()), captured_volumes)
 
         log.info(
@@ -182,6 +239,7 @@ class MarketScanner:
             expiring=len(all_expiring),
             odds_movements=len(odds_movements),
             volume_spikes=len(volume_spikes),
+            cross_platform_arbs=len(cross_platform_arbs),
         )
 
         return ScanResult(
@@ -190,6 +248,7 @@ class MarketScanner:
             expiring_markets=all_expiring,
             odds_movements=odds_movements,
             volume_spikes=volume_spikes,
+            cross_platform_arbs=cross_platform_arbs,
             total_markets_scanned=total_scanned,
         )
 
@@ -269,6 +328,94 @@ class MarketScanner:
     # ─────────────────────────────────────────────────────────────
     # Detection Algorithms
     # ─────────────────────────────────────────────────────────────
+
+    def _detect_cross_platform_arbs(
+        self,
+        poly_markets: list[UnifiedMarket],
+        kalshi_markets: list[UnifiedMarket],
+        min_gap: float = CROSS_PLATFORM_ARB_MIN_GAP,
+        min_similarity: float = CROSS_PLATFORM_MATCH_SIMILARITY,
+    ) -> list[CrossPlatformArb]:
+        """Match Polymarket vs Kalshi questions by semantic similarity, find price gaps."""
+        if not poly_markets or not kalshi_markets:
+            return []
+
+        model = self._get_model()
+        if model is None:
+            return []
+
+        # Batch encode all questions
+        poly_questions = [m.question for m in poly_markets]
+        kalshi_questions = [m.question for m in kalshi_markets]
+
+        poly_emb = model.encode(poly_questions)
+        kalshi_emb = model.encode(kalshi_questions)
+
+        # Normalize for cosine similarity
+        poly_norm = poly_emb / (np.linalg.norm(poly_emb, axis=1, keepdims=True) + 1e-10)
+        kalshi_norm = kalshi_emb / (np.linalg.norm(kalshi_emb, axis=1, keepdims=True) + 1e-10)
+
+        # Pairwise cosine similarity matrix: (N_poly x N_kalshi)
+        sim_matrix = poly_norm @ kalshi_norm.T
+
+        # For each Poly market, find best Kalshi match
+        arbs: list[CrossPlatformArb] = []
+        matched_pairs: list[tuple[UnifiedMarket, UnifiedMarket]] = []
+
+        # Sort all candidate pairs by similarity descending so the best match
+        # always wins, preventing duplicate claims on the same market.
+        candidates = []
+        for i in range(len(poly_markets)):
+            for j in range(len(kalshi_markets)):
+                if float(sim_matrix[i, j]) >= min_similarity:
+                    candidates.append((float(sim_matrix[i, j]), i, j))
+        candidates.sort(reverse=True)
+
+        matched_poly: set[int] = set()
+        matched_kalshi: set[int] = set()
+
+        for best_sim, i, j in candidates:
+            if i in matched_poly or j in matched_kalshi:
+                continue
+            matched_poly.add(i)
+            matched_kalshi.add(j)
+
+            poly_mkt = poly_markets[i]
+            kalshi_mkt = kalshi_markets[j]
+            matched_pairs.append((poly_mkt, kalshi_mkt))
+
+            price_gap = abs(poly_mkt.yes_price - kalshi_mkt.yes_price)
+            if price_gap >= min_gap:
+                # Determine which platform is cheaper for YES
+                # v1: YES-side arbs only — NO is the complement
+                if poly_mkt.yes_price < kalshi_mkt.yes_price:
+                    buy_platform = "polymarket"
+                else:
+                    buy_platform = "kalshi"
+                side = "yes"
+
+                arbs.append(
+                    CrossPlatformArb(
+                        polymarket=poly_mkt,
+                        kalshi=kalshi_mkt,
+                        price_gap=price_gap,
+                        suggested_buy_platform=buy_platform,
+                        suggested_side=side,
+                        match_similarity=best_sim,
+                    )
+                )
+
+        # Store all matched pairs for real-time arb monitor
+        self._cross_platform_matches = matched_pairs
+        self._matches_version += 1
+
+        arbs.sort(key=lambda a: a.price_gap, reverse=True)
+        logger.debug(
+            "Cross-platform arb scan",
+            matched_pairs=len(matched_pairs),
+            arbs_found=len(arbs),
+        )
+        return arbs
 
     async def _detect_odds_movements(self, markets: list[UnifiedMarket]) -> list[OddsMovement]:
         """Compare current prices vs previous snapshot (~55 min ago) from market_snapshots."""
@@ -434,6 +581,7 @@ class MarketScanner:
                     time=now,
                     platform=market.platform,
                     market_external_id=market.external_id,
+                    question=market.question,
                     category=market.category,
                     yes_price=market.yes_price,
                     no_price=market.no_price,

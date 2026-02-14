@@ -27,6 +27,7 @@ from synesis.processing.watchlist.models import (
 
 if TYPE_CHECKING:
     from synesis.processing.common.watchlist import WatchlistManager
+    from synesis.providers.base import TickerProvider
     from synesis.providers.factset.provider import FactSetProvider
     from synesis.providers.nasdaq.client import NasdaqClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
@@ -110,12 +111,14 @@ class WatchlistProcessor:
         sec_edgar: SECEdgarClient | None = None,
         nasdaq: NasdaqClient | None = None,
         db: Database | None = None,
+        ticker_provider: TickerProvider | None = None,
     ) -> None:
         self._watchlist = watchlist
         self._factset = factset
         self._sec_edgar = sec_edgar
         self._nasdaq = nasdaq
         self._db = db
+        self._ticker_provider = ticker_provider
         self._agent: Agent[WatchlistDeps, WatchlistSynthesis] | None = None
 
     @property
@@ -180,21 +183,38 @@ class WatchlistProcessor:
         return agent
 
     async def gather_intelligence(self, ticker: str) -> TickerIntelligence:
-        """Fetch all provider data for one ticker (parallel)."""
+        """Fetch all provider data for one ticker (parallel).
+
+        Watchlist stores bare tickers (e.g. ``"AAPL"``).  FactSet needs
+        ``ticker-region`` format (e.g. ``"AAPL-US"``), so we resolve at
+        runtime via ``ticker_provider.verify_ticker()``.  SEC EDGAR and
+        NASDAQ work with bare tickers directly.
+        """
         intel = TickerIntelligence(ticker=ticker)
+
+        # Resolve bare ticker → ticker_region for FactSet
+        ticker_region: str | None = None
+        if self._ticker_provider:
+            try:
+                is_valid, region, _company = await self._ticker_provider.verify_ticker(ticker)
+                if is_valid and region:
+                    ticker_region = region
+            except Exception as e:
+                logger.warning("ticker_provider resolution failed, using bare ticker for FactSet", ticker=ticker, error=str(e))
 
         async def fetch_factset() -> None:
             if self._factset is None:
                 return
+            factset_ticker = ticker_region or ticker
             try:
-                security = await self._factset.resolve_ticker(ticker)
+                security = await self._factset.resolve_ticker(factset_ticker)
                 if security:
                     intel.company_name = security.name
 
-                market_cap = await self._factset.get_market_cap(ticker)
+                market_cap = await self._factset.get_market_cap(factset_ticker)
                 intel.market_cap = market_cap
 
-                fundamentals = await self._factset.get_fundamentals(ticker, "ltm", 1)
+                fundamentals = await self._factset.get_fundamentals(factset_ticker, "ltm", 1)
                 if fundamentals:
                     f = fundamentals[0]
                     intel.fundamentals = {
@@ -208,7 +228,7 @@ class WatchlistProcessor:
                         "debt_to_equity": f.debt_to_equity,
                     }
 
-                price = await self._factset.get_price(ticker)
+                price = await self._factset.get_price(factset_ticker)
                 if price:
                     intel.price_change_1d = price.one_day_pct
                     intel.price_change_1m = price.one_mth_pct
@@ -375,7 +395,7 @@ class WatchlistProcessor:
             logger.info("Watchlist empty, nothing to analyze")
             return WatchlistSignal(timestamp=now, summary="Watchlist is empty.")
 
-        logger.info("Watchlist intel starting", ticker_count=len(tickers))
+        logger.debug("Watchlist intel starting", ticker_count=len(tickers))
 
         # 2. Gather intelligence (parallel, batched)
         batch_size = WATCHLIST_INTEL_DEFAULT_BATCH_SIZE
