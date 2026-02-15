@@ -79,9 +79,14 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
 9. **urgency** + urgency_reasoning (1 sentence):
    - critical: Surprise Fed, breaking M&A, unexpected policy
    - high: Scheduled data release, earnings beat/miss
-   - normal: General news, routine announcements
-   - low: Opinions, commentary, promotional/spam content
-   Mark LOW if: promotional, giveaways, engagement bait, self-promotion, no market relevance
+   - normal: News with identifiable financial/market impact
+   - low: No financial relevance, opinions, social banter, promotional
+
+   ALWAYS mark LOW if ANY apply:
+   - No identifiable asset, sector, or economic impact
+   - Social banter, replies, or meta-commentary (not about markets)
+   - Pure opinion with no data or news event
+   - Promotional: giveaways, engagement bait, self-promotion
 
 ## DO NOT Extract (Stage 2)
 Tickers, sectors, sentiment - Stage 2 determines with research."""

@@ -330,7 +330,9 @@ def format_condensed_signal(
         msg += f"\n\n📜 <b>Context:</b> <i>{_escape_html(analysis.historical_context)}</i>"
 
     # Single most relevant Polymarket (best by relevance, show even without edge)
-    relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6]
+    relevant_markets = [
+        e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6
+    ]
     if relevant_markets:
         # Sort by confidence (most confident first), then by absolute edge
         relevant_markets.sort(key=lambda e: (e.confidence, abs(e.edge or 0)), reverse=True)
@@ -548,7 +550,9 @@ Sentiment: {sentiment_emoji.get(sentiment, sentiment)} {sentiment.upper()} ({ana
     # =========================================================================
     # POLYMARKET (all relevant markets, no edge filter)
     # =========================================================================
-    relevant_markets = [e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6]
+    relevant_markets = [
+        e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6
+    ]
     if relevant_markets:
         msg += f"""
 

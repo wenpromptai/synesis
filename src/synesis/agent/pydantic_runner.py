@@ -23,6 +23,7 @@ import asyncpg
 from redis.asyncio import Redis
 
 from synesis.config import get_settings
+from synesis.core.constants import MIN_THESIS_CONFIDENCE_FOR_ALERT
 from synesis.core.logging import get_logger
 from synesis.core.processor import NewsProcessor, ProcessingResult
 from synesis.processing.common.watchlist import WatchlistManager
@@ -263,8 +264,15 @@ async def emit_signal(
         await emit_prediction_to_db(evaluation, result.message)
 
     # 3. Send ONE combined Telegram message (signal + best polymarket edge if any)
-    # Note: Low urgency messages skip Stage 2 entirely (processor.py), so analysis=None
-    # and we return early at line 262-263 above. No need to filter here.
+    # Safety net: skip Telegram for low-confidence signals that slipped past Stage 1
+    if result.analysis.thesis_confidence < MIN_THESIS_CONFIDENCE_FOR_ALERT:
+        logger.info(
+            "Skipping Telegram alert (low confidence)",
+            message_id=result.message.external_id,
+            thesis_confidence=f"{result.analysis.thesis_confidence:.0%}",
+        )
+        return
+
     await emit_combined_telegram(result.message, result.extraction, result.analysis)
 
 

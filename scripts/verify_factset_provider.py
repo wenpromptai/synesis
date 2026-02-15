@@ -930,8 +930,8 @@ async def run_all_verifications() -> bool:
         for r in results:
             if not r.passed:
                 print(f"  - {r.name}")
-                for e in r.errors:
-                    print(f"      {e}")
+                for err in r.errors:
+                    print(f"      {err}")
     print("=" * 70)
 
     return failed == 0

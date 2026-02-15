@@ -51,7 +51,6 @@ class TestUnifiedMessage:
         assert msg.external_id == "12345"
         assert msg.source_platform == SourcePlatform.twitter
         assert msg.source_type == SourceType.news
-        assert msg.urgency == "high"
 
     def test_create_analysis_message(self) -> None:
         msg = UnifiedMessage(
@@ -64,7 +63,6 @@ class TestUnifiedMessage:
         )
 
         assert msg.source_type == SourceType.analysis
-        assert msg.urgency == "normal"
 
     def test_telegram_message(self) -> None:
         msg = UnifiedMessage(
@@ -77,7 +75,6 @@ class TestUnifiedMessage:
         )
 
         assert msg.source_platform == SourcePlatform.telegram
-        assert msg.urgency == "high"
 
 
 class TestMarketOpportunity:
@@ -147,45 +144,11 @@ class TestNewsSignal:
             watchlist_sectors=["financials"],
         )
 
-        assert signal.urgency == "high"
         assert signal.extraction.event_type == EventType.macro
         assert "SPY" in signal.watchlist_tickers
         # Tickers/sectors now come from analysis
         assert signal.tickers == ["SPY"]
         assert signal.sectors == ["financials"]
-
-    def test_signal_urgency_from_source_type(self) -> None:
-        """Test that urgency is derived from source_type, not LLM."""
-        extraction = LightClassification(
-            event_type=EventType.other,
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
-        )
-
-        # News source = high urgency
-        news_signal = NewsSignal(
-            timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
-            source_account="@news",
-            source_type=SourceType.news,
-            raw_text="Test",
-            external_id="1",
-            extraction=extraction,
-        )
-        assert news_signal.urgency == "high"
-
-        # Analysis source = normal urgency
-        analysis_signal = NewsSignal(
-            timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
-            source_account="@analyst",
-            source_type=SourceType.analysis,
-            raw_text="Test",
-            external_id="2",
-            extraction=extraction,
-        )
-        assert analysis_signal.urgency == "normal"
 
     def test_signal_serialization(self) -> None:
         """Test JSON serialization of NewsSignal."""
