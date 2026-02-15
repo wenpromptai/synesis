@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from synesis.providers.factset.client import FactSetClient
+from synesis.providers.factset.client import FactSetClient  # noqa: E402
 
 
-async def main():
+async def main() -> None:
     client = FactSetClient()
 
     # Test tickers: US + SG + HK

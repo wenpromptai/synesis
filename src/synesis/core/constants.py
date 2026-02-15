@@ -92,6 +92,11 @@ CONSISTENT_INSIDER_MIN_PNL_PER_POSITION = 10_000  # Consistent Insider: min PnL 
 FRESH_INSIDER_MIN_POSITION = 50_000  # Fresh Insider: min open position size (USDC)
 
 # ─────────────────────────────────────────────────────────────
+# News Processing (Flow 1)
+# ─────────────────────────────────────────────────────────────
+MIN_THESIS_CONFIDENCE_FOR_ALERT = 0.30  # Skip Telegram alerts below this confidence
+
+# ─────────────────────────────────────────────────────────────
 # Watchlist Intelligence (Flow 4)
 # ─────────────────────────────────────────────────────────────
 WATCHLIST_INTEL_REDIS_PREFIX = "synesis:watchlist_intel"

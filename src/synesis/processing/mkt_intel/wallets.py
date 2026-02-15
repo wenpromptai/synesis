@@ -621,7 +621,10 @@ class WalletTracker:
                 result = await self.update_wallet_metrics(address)
 
                 if result is None:
-                    log.warning("Wallet re-score returned no data, keeping watched", address=address[:10] + "...")
+                    log.warning(
+                        "Wallet re-score returned no data, keeping watched",
+                        address=address[:10] + "...",
+                    )
                 elif result.insider_score < unwatch_threshold:
                     await self._db.set_wallet_watched(address, "polymarket", False)
                     demoted += 1

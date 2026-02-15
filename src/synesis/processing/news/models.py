@@ -27,10 +27,10 @@ class SourcePlatform(str, Enum):
 
 
 class SourceType(str, Enum):
-    """Type of source - determines urgency."""
+    """Type of source — news wire vs. analysis/commentary."""
 
-    news = "news"  # High urgency - act fast (e.g., @DeItaone, @marketfeed)
-    analysis = "analysis"  # Normal urgency - consider (e.g., @elonmusk, analysts)
+    news = "news"  # Wire services, breaking news (e.g., @DeItaone, @marketfeed)
+    analysis = "analysis"  # Commentary, opinions (e.g., @elonmusk, analysts)
 
 
 class NewsCategory(str, Enum):
@@ -66,11 +66,6 @@ class UnifiedMessage(BaseModel):
 
     # Raw data for debugging
     raw: dict[str, Any] = Field(default_factory=dict)
-
-    @property
-    def urgency(self) -> str:
-        """Urgency level derived from source type."""
-        return "high" if self.source_type == SourceType.news else "normal"
 
 
 # =============================================================================
@@ -654,12 +649,6 @@ class NewsSignal(BaseModel):
 
     # News category (from classification or rule-based)
     news_category: NewsCategory = Field(default=NewsCategory.other)
-
-    # Derived urgency
-    @property
-    def urgency(self) -> str:
-        """Urgency derived from source_type, not LLM."""
-        return "high" if self.source_type == SourceType.news else "normal"
 
     # Stage 1: Entity extraction (fast, no judgment calls)
     extraction: LightClassification

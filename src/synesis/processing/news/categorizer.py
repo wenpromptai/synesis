@@ -193,6 +193,8 @@ LOW_PATTERNS = [
     r"\bTHREAD\b",
     r"\bIMO\b",
     r"\bI\s+THINK\b",
+    # Social replies with no financial content
+    r"^@\w+\s+(?!.*(\b(stock|market|price|trade|earning|GDP|CPI|rate|fed|inflation|tariff|billion|million|percent|%)\b|\$))",
     # Promotional/spam content
     r"\bBOOST\s+(THIS|THE|OUR)\b",  # Telegram boost requests
     r"\bSUBSCRIBE\b",

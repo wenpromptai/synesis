@@ -121,7 +121,9 @@ class MarketScanner:
                 self._model = StaticModel.from_pretrained("minishlab/potion-base-8M")
             except Exception as e:
                 self._model_load_failed = True
-                logger.error("Model download failed, cross-platform arb detection disabled", error=str(e))
+                logger.error(
+                    "Model download failed, cross-platform arb detection disabled", error=str(e)
+                )
         return self._model
 
     async def scan(self) -> ScanResult:
@@ -160,7 +162,9 @@ class MarketScanner:
         pre_filter_expiring = poly_expiring + kalshi_expiring
         all_trending = [m for m in pre_filter_trending if _is_tradable(m)]
         all_expiring = [m for m in pre_filter_expiring if _is_tradable(m)]
-        filtered_count = (len(pre_filter_trending) - len(all_trending)) + (len(pre_filter_expiring) - len(all_expiring))
+        filtered_count = (len(pre_filter_trending) - len(all_trending)) + (
+            len(pre_filter_expiring) - len(all_expiring)
+        )
         if filtered_count:
             log.debug("Filtered non-tradable markets", removed=filtered_count)
         all_markets = {m.external_id: m for m in all_trending + all_expiring}

@@ -5308,9 +5308,7 @@ class TestHighConvictionDetection:
         mock_data_client = AsyncMock()
 
         mock_db.get_watched_wallets = AsyncMock(
-            return_value=[
-                {"address": "0xabc", "platform": "polymarket", "insider_score": 0.8}
-            ]
+            return_value=[{"address": "0xabc", "platform": "polymarket", "insider_score": 0.8}]
         )
         mock_data_client.get_top_holders = AsyncMock(
             return_value=[{"address": "0xabc", "amount": "99999", "outcome": "yes"}]
@@ -5442,9 +5440,7 @@ class TestTokenToUsdConversion:
         mock_data_client = AsyncMock()
 
         mock_db.get_watched_wallets = AsyncMock(
-            return_value=[
-                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
-            ]
+            return_value=[{"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}]
         )
         mock_data_client.get_top_holders = AsyncMock(
             return_value=[{"address": "0xw1", "amount": 10000, "outcome": "yes"}]
@@ -5472,9 +5468,7 @@ class TestTokenToUsdConversion:
         mock_data_client = AsyncMock()
 
         mock_db.get_watched_wallets = AsyncMock(
-            return_value=[
-                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
-            ]
+            return_value=[{"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}]
         )
         mock_data_client.get_top_holders = AsyncMock(
             return_value=[{"address": "0xw1", "amount": 20000, "outcome": "no"}]
@@ -5501,9 +5495,7 @@ class TestTokenToUsdConversion:
         mock_data_client = AsyncMock()
 
         mock_db.get_watched_wallets = AsyncMock(
-            return_value=[
-                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
-            ]
+            return_value=[{"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}]
         )
         # No outcome field
         mock_data_client.get_top_holders = AsyncMock(
@@ -5531,9 +5523,7 @@ class TestTokenToUsdConversion:
         mock_data_client = AsyncMock()
 
         mock_db.get_watched_wallets = AsyncMock(
-            return_value=[
-                {"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}
-            ]
+            return_value=[{"address": "0xw1", "platform": "polymarket", "insider_score": 0.9}]
         )
         # Holders shows 100,000 tokens — but this should NOT be used for sizing
         mock_data_client.get_top_holders = AsyncMock(
@@ -5780,6 +5770,7 @@ class TestProcessorNewTriggers:
         hc_opps = [o for o in opps if "high_conviction" in o.triggers]
         assert len(hc_opps) == 1
         assert hc_opps[0].confidence >= 0.25
+
 
 class TestSignalNewFields:
     """Test MarketIntelSignal includes new fields."""

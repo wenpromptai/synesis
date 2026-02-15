@@ -665,7 +665,10 @@ async def agent_lifespan(
             try:
                 ticker_provider = await create_ticker_provider(redis)
             except Exception as e:
-                logger.error("Ticker provider not available, sentiment will use LLM-only validation", error=str(e))
+                logger.error(
+                    "Ticker provider not available, sentiment will use LLM-only validation",
+                    error=str(e),
+                )
 
             # Initialize sentiment processor (with shared watchlist)
             sentiment_processor = SentimentProcessor(

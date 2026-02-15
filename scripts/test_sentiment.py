@@ -212,7 +212,7 @@ async def test_full_pipeline(subreddit: str, limit: int, with_db: bool = False) 
                 )
                 print(
                     f"  {sentiment} {ticker.ticker} ({ticker.company_name}): "
-                    f"{ticker.avg_sentiment:+.2f}, {ticker.mention_count} mentions, "
+                    f"{ticker.avg_sentiment:+.2f}, "
                     f"confidence: {ticker.confidence:.0%}"
                 )
                 if ticker.key_catalysts:
@@ -221,10 +221,20 @@ async def test_full_pipeline(subreddit: str, limit: int, with_db: bool = False) 
         if refinement.rejected_tickers:
             print(f"\nRejected (false positives): {', '.join(refinement.rejected_tickers[:20])}")
 
-        if refinement.extreme_bullish_tickers:
-            print(f"\n🚀 Extreme Bullish: {', '.join(refinement.extreme_bullish_tickers)}")
-        if refinement.extreme_bearish_tickers:
-            print(f"💀 Extreme Bearish: {', '.join(refinement.extreme_bearish_tickers)}")
+        bullish_tickers = [
+            t.ticker
+            for t in refinement.validated_tickers
+            if t.sentiment_label == "bullish" and t.avg_sentiment > 0.5
+        ]
+        bearish_tickers = [
+            t.ticker
+            for t in refinement.validated_tickers
+            if t.sentiment_label == "bearish" and t.avg_sentiment < -0.5
+        ]
+        if bullish_tickers:
+            print(f"\n🚀 Extreme Bullish: {', '.join(bullish_tickers)}")
+        if bearish_tickers:
+            print(f"💀 Extreme Bearish: {', '.join(bearish_tickers)}")
 
         print(f"\nNarrative Summary:\n{refinement.narrative_summary}")
 
@@ -307,12 +317,7 @@ async def test_database_operations() -> None:
             snapshot_time=datetime.now(UTC),
             bullish_ratio=0.65,
             bearish_ratio=0.20,
-            neutral_ratio=0.15,
             mention_count=42,
-            dominant_emotion="bullish",
-            sentiment_delta_6h=0.05,
-            is_extreme_bullish=False,
-            is_extreme_bearish=False,
         )
         print(f"✓ Inserted sentiment snapshot for {test_ticker}")
 

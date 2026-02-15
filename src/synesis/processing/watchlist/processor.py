@@ -200,7 +200,11 @@ class WatchlistProcessor:
                 if is_valid and region:
                     ticker_region = region
             except Exception as e:
-                logger.warning("ticker_provider resolution failed, using bare ticker for FactSet", ticker=ticker, error=str(e))
+                logger.warning(
+                    "ticker_provider resolution failed, using bare ticker for FactSet",
+                    ticker=ticker,
+                    error=str(e),
+                )
 
         async def fetch_factset() -> None:
             if self._factset is None:

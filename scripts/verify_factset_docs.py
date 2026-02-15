@@ -5,7 +5,7 @@ from datetime import date
 from synesis.providers.factset import FactSetProvider
 
 
-async def verify_documentation_examples():
+async def verify_documentation_examples() -> bool:
     """Verify all examples from factset_context.md work correctly."""
     p = FactSetProvider()
     errors = []
@@ -95,11 +95,11 @@ async def verify_documentation_examples():
     # 7. get_latest_prices - Line 283
     print("\n[7/17] get_latest_prices(['AAPL-US', 'MSFT-US', 'NVDA-US'])...")
     try:
-        prices = await p.get_latest_prices(["AAPL-US", "MSFT-US", "NVDA-US"])
-        assert "AAPL-US" in prices, "AAPL-US missing"
-        assert "MSFT-US" in prices, "MSFT-US missing"
-        assert "NVDA-US" in prices, "NVDA-US missing"
-        print(f"  ✓ Got prices for: {list(prices.keys())}")
+        latest_prices = await p.get_latest_prices(["AAPL-US", "MSFT-US", "NVDA-US"])
+        assert "AAPL-US" in latest_prices, "AAPL-US missing"
+        assert "MSFT-US" in latest_prices, "MSFT-US missing"
+        assert "NVDA-US" in latest_prices, "NVDA-US missing"
+        print(f"  ✓ Got prices for: {list(latest_prices.keys())}")
     except Exception as e:
         errors.append(f"get_latest_prices: {e}")
         print(f"  ✗ ERROR: {e}")
@@ -153,13 +153,21 @@ async def verify_documentation_examples():
         split_2020 = next((s for s in splits if s.effective_date == date(2020, 8, 31)), None)
         split_2014 = next((s for s in splits if s.effective_date == date(2014, 6, 9)), None)
         if split_2020:
-            assert abs(split_2020.split_factor - 4.0) < 0.1, (
-                f"2020 split wrong: {split_2020.split_factor}"
-            )
+            if split_2020.split_factor is None:
+                errors.append("get_splits: 2020 split has split_factor=None (expected 4.0)")
+                print("  ⚠ 2020 split has split_factor=None")
+            else:
+                assert abs(split_2020.split_factor - 4.0) < 0.1, (
+                    f"2020 split wrong: {split_2020.split_factor}"
+                )
         if split_2014:
-            assert abs(split_2014.split_factor - 7.0) < 0.1, (
-                f"2014 split wrong: {split_2014.split_factor}"
-            )
+            if split_2014.split_factor is None:
+                errors.append("get_splits: 2014 split has split_factor=None (expected 7.0)")
+                print("  ⚠ 2014 split has split_factor=None")
+            else:
+                assert abs(split_2014.split_factor - 7.0) < 0.1, (
+                    f"2014 split wrong: {split_2014.split_factor}"
+                )
         print("  ✓ Split factors verified")
     except Exception as e:
         errors.append(f"get_splits: {e}")
@@ -250,8 +258,8 @@ async def verify_documentation_examples():
     print("\n" + "=" * 60)
     if errors:
         print(f"VERIFICATION FAILED: {len(errors)} errors")
-        for e in errors:
-            print(f"  ✗ {e}")
+        for err in errors:
+            print(f"  ✗ {err}")
         return False
     else:
         print("✓ ALL DOCUMENTATION EXAMPLES VERIFIED")
