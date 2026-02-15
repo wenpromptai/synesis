@@ -220,9 +220,9 @@ class MarketIntelProcessor:
             arb_by_id[arb.polymarket.external_id] = arb
             arb_by_id[arb.kalshi.external_id] = arb
 
-        hc_by_id: dict[str, HighConvictionTrade] = {}
+        hc_by_market: dict[str, list[HighConvictionTrade]] = {}
         for hc in high_conviction or []:
-            hc_by_id[hc.market.external_id] = hc
+            hc_by_market.setdefault(hc.market.external_id, []).append(hc)
 
         expiring_ids = {m.external_id for m in scan_result.expiring_markets}
 
@@ -289,7 +289,7 @@ class MarketIntelProcessor:
                 confidence += 0.20
 
             # High-conviction trade trigger (Feature 2)
-            if mid in hc_by_id:
+            if mid in hc_by_market:
                 triggers.append("high_conviction")
                 confidence += 0.25
 
@@ -320,11 +320,12 @@ class MarketIntelProcessor:
             if mid in arb_by_id:
                 arb = arb_by_id[mid]
                 reasoning_parts.append(f"Cross-platform arb gap ${arb.price_gap:.2f}")
-            if mid in hc_by_id:
-                hc = hc_by_id[mid]
+            if mid in hc_by_market:
+                hc_list = hc_by_market[mid]
+                top_hc = max(hc_list, key=lambda h: h.concentration_pct)
                 reasoning_parts.append(
-                    f"High-conviction: {hc.concentration_pct:.0%} of portfolio, "
-                    f"{hc.total_positions} positions"
+                    f"High-conviction: {len(hc_list)} wallet(s), "
+                    f"top {top_hc.concentration_pct:.0%} of portfolio"
                 )
             opportunities.append(
                 MarketIntelOpportunity(
