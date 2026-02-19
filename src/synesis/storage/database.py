@@ -174,7 +174,7 @@ class Database:
             query,
             message.source_platform.value,
             message.source_account,
-            message.source_type.value,
+            "news",
             message.external_id,
             message.text,
             message.timestamp,

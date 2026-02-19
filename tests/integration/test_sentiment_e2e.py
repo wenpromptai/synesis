@@ -90,12 +90,13 @@ class TestSentimentE2E:
             # Send REAL Telegram notification
             from synesis.notifications.telegram import (
                 format_sentiment_signal,
-                send_telegram,
+                send_long_telegram,
             )
 
             print(f"\n{'=' * 60}")
-            print("TELEGRAM (sending...):")
-            sent = await send_telegram(format_sentiment_signal(signal))
+            msg = format_sentiment_signal(signal)
+            print(f"TELEGRAM (sending {len(msg)} chars...):")
+            sent = await send_long_telegram(msg)
             print(f"  Sent: {sent}")
 
             # Verify mock storage

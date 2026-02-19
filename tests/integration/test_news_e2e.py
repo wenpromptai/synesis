@@ -17,7 +17,6 @@ from synesis.core.processor import NewsProcessor
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import (
     SourcePlatform,
-    SourceType,
     UnifiedMessage,
 )
 
@@ -31,11 +30,10 @@ class TestNewsE2E:
         """Breaking news: Fed rate decision."""
         return UnifiedMessage(
             external_id=f"test_e2e_{datetime.now().timestamp()}",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@DeItaone",
             text="*FED CUTS RATES BY 25BPS - Fed funds rate now 4.00-4.25%, as expected",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
     @pytest.mark.anyio
@@ -104,7 +102,7 @@ class TestNewsE2E:
                 # Send REAL Telegram notification
                 from synesis.notifications.telegram import (
                     format_condensed_signal,
-                    send_telegram,
+                    send_long_telegram,
                 )
 
                 if result.analysis:
@@ -113,8 +111,8 @@ class TestNewsE2E:
                         result.analysis,
                     )
                     print(f"\n{'=' * 60}")
-                    print("TELEGRAM (sending...):")
-                    sent = await send_telegram(telegram_msg)
+                    print(f"TELEGRAM (sending {len(telegram_msg)} chars...):")
+                    sent = await send_long_telegram(telegram_msg)
                     print(f"  Sent: {sent}")
 
             # Verify mock storage

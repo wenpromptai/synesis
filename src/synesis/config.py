@@ -126,11 +126,6 @@ class Settings(BaseSettings):
             return "news"
         return "analysis"
 
-    def get_telegram_source_type(self, channel: str) -> str:
-        """Get source type for a Telegram channel. All Telegram channels are news by default."""
-        # All configured Telegram channels are treated as breaking news
-        return "news"
-
     # Polymarket
     polymarket_api_key: SecretStr | None = Field(default=None)
     polymarket_api_secret: SecretStr | None = Field(default=None)
@@ -169,9 +164,9 @@ class Settings(BaseSettings):
         default="factset",
         description="Ticker validation provider (factset or finnhub)",
     )
-    fundamentals_provider: Literal["factset", "finnhub", "sec_edgar", "none"] = Field(
-        default="sec_edgar",
-        description="Fundamentals data provider (factset, finnhub, sec_edgar, none)",
+    fundamentals_provider: Literal["factset", "finnhub", "none"] = Field(
+        default="factset",
+        description="Fundamentals data provider for watchlist (factset, finnhub, none)",
     )
 
     # SEC EDGAR (free, no key required)
@@ -330,9 +325,9 @@ class Settings(BaseSettings):
     # Market Intelligence (Flow 3: mkt_intel)
     mkt_intel_enabled: bool = Field(default=True)
     mkt_intel_interval: int = Field(
-        default=3600,
+        default=7200,
         gt=0,
-        description="Market intelligence scan interval in seconds (1 hour)",
+        description="Market intelligence scan interval in seconds (2 hours)",
     )
     mkt_intel_volume_spike_threshold: float = Field(
         default=1.0,
@@ -369,10 +364,11 @@ class Settings(BaseSettings):
 
     # Watchlist Intelligence (Flow 4)
     watchlist_intel_enabled: bool = Field(default=False)
-    watchlist_intel_interval: int = Field(
-        default=21600,
-        gt=0,
-        description="Watchlist analysis interval in seconds (default 6h)",
+    watchlist_intel_hour_sgt: int = Field(
+        default=8,
+        ge=0,
+        le=23,
+        description="Hour (0-23) in SGT (UTC+8) to run daily watchlist analysis",
     )
     watchlist_intel_earnings_alert_days: int = Field(
         default=7,

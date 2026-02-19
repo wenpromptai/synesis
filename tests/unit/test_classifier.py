@@ -16,7 +16,6 @@ from synesis.processing.news import (
     LightClassification,
     NewsCategory,
     SourcePlatform,
-    SourceType,
     UnifiedMessage,
 )
 
@@ -25,11 +24,10 @@ def create_test_message(text: str) -> UnifiedMessage:
     """Create a test message."""
     return UnifiedMessage(
         external_id="test_123",
-        source_platform=SourcePlatform.twitter,
+        source_platform=SourcePlatform.telegram,
         source_account="@DeItaone",
         text=text,
         timestamp=datetime.now(timezone.utc),
-        source_type=SourceType.news,
     )
 
 
@@ -122,7 +120,7 @@ class TestNewsClassifier:
         prompt = call_args[0][0]
         assert "Test message content" in prompt
         assert "@DeItaone" in prompt
-        assert "twitter" in prompt
+        assert "telegram" in prompt
 
     def test_build_prompt_includes_source_info(self) -> None:
         """Test that _build_prompt includes source information."""
@@ -132,8 +130,7 @@ class TestNewsClassifier:
         prompt = classifier._build_prompt(message)
 
         assert "@DeItaone" in prompt
-        assert "twitter" in prompt
-        assert "news" in prompt
+        assert "telegram" in prompt
         assert "Fed cuts rates" in prompt
 
 

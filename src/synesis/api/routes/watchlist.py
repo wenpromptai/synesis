@@ -9,7 +9,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from synesis.core.dependencies import DbDep, RedisDep
+from synesis.core.dependencies import AgentStateDep, DbDep, RedisDep
 from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
 
 router = APIRouter()
@@ -115,7 +115,13 @@ async def cleanup_expired(redis: RedisDep, db: DbDep) -> list[str]:
 
 
 @router.post("/analyze", status_code=202)
-async def trigger_analysis(redis: RedisDep) -> dict[str, str]:
+async def trigger_analysis(state: AgentStateDep) -> dict[str, str]:
     """Trigger a manual watchlist intelligence scan."""
-    await redis.set("synesis:watchlist_intel:trigger", "1")
-    return {"status": "triggered"}
+    if state.scheduler and "watchlist_intel" in state.trigger_fns:
+        state.scheduler.add_job(
+            state.trigger_fns["watchlist_intel"],
+            id="watchlist_intel_manual",
+            replace_existing=True,
+        )
+        return {"status": "triggered"}
+    raise HTTPException(status_code=503, detail="Watchlist intelligence not enabled")

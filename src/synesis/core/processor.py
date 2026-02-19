@@ -35,7 +35,6 @@ from synesis.processing.news import (
     NewsClassifier,
     SmartAnalysis,
     SmartAnalyzer,
-    SourceType,
     UnifiedMessage,
     UrgencyLevel,
     create_deduplicator,
@@ -89,16 +88,11 @@ class ProcessingResult:
             timestamp=self.message.timestamp,
             source_platform=self.message.source_platform,
             source_account=self.message.source_account,
-            source_type=self.message.source_type,
             raw_text=self.message.text,
             external_id=self.message.external_id,
             news_category=self.extraction.news_category,
             extraction=self.extraction,
             analysis=self.analysis,
-            # Legacy fields for backwards compatibility
-            classification=self.extraction,
-            watchlist_tickers=self.analysis.tickers if self.analysis else [],
-            watchlist_sectors=self.analysis.sectors if self.analysis else [],
             is_duplicate=self.is_duplicate,
             duplicate_of=self.duplicate_of,
             processing_time_ms=self.processing_time_ms,
@@ -311,16 +305,11 @@ class NewsProcessor:
             urgency=extraction.urgency.value,
         )
 
-        # 3. Early exit based on source type + urgency
-        if message.source_type == SourceType.analysis:
-            # Analysis sources (X/Twitter): only skip spam/promo
-            should_skip_stage2 = extraction.urgency == UrgencyLevel.low
-        else:
-            # News sources (Telegram): only critical/high pass
-            should_skip_stage2 = extraction.urgency in (
-                UrgencyLevel.low,
-                UrgencyLevel.normal,
-            )
+        # 3. Early exit based on urgency (only critical/high pass to Stage 2)
+        should_skip_stage2 = extraction.urgency in (
+            UrgencyLevel.low,
+            UrgencyLevel.normal,
+        )
 
         if should_skip_stage2:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
@@ -341,24 +330,17 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 4. Pre-fetch context (parallel)
+        # 4. Pre-fetch context (web search + Polymarket in parallel)
         log.debug(
             "Pre-fetching context",
-            source_type=message.source_type.value,
             search_keywords=extraction.search_keywords[:2],
             polymarket_keywords=extraction.polymarket_keywords,
         )
 
-        if message.source_type == SourceType.analysis:
-            # Analysis sources: web search only, no Polymarket
-            web_results = await self._fetch_web_results(extraction.search_keywords)
-            markets_text = ""
-        else:
-            # News sources: both web search + Polymarket in parallel
-            web_results, markets_text = await asyncio.gather(
-                self._fetch_web_results(extraction.search_keywords),
-                self.analyzer.search_polymarket(extraction.polymarket_keywords),
-            )
+        web_results, markets_text = await asyncio.gather(
+            self._fetch_web_results(extraction.search_keywords),
+            self.analyzer.search_polymarket(extraction.polymarket_keywords),
+        )
 
         # 5. Stage 2: Smart analysis (all informed judgments)
         log.debug("Stage 2: Smart analysis with context")
@@ -428,37 +410,3 @@ class NewsProcessor:
         )
 
         return result
-
-    async def check_duplicate(self, message: UnifiedMessage) -> bool:
-        """Quick check if a message is a duplicate.
-
-        This is useful for pre-filtering without full processing.
-
-        Args:
-            message: The message to check
-
-        Returns:
-            True if the message is a duplicate
-        """
-        result = await self.deduplicator.check_duplicate(message)
-        return result.is_duplicate
-
-
-# Module-level instance for convenience
-_processor: NewsProcessor | None = None
-
-
-async def get_processor(redis: Redis) -> NewsProcessor:
-    """Get or create the shared processor instance.
-
-    Args:
-        redis: Redis client
-
-    Returns:
-        Initialized NewsProcessor
-    """
-    global _processor
-    if _processor is None:
-        _processor = NewsProcessor(redis)
-        await _processor.initialize()
-    return _processor

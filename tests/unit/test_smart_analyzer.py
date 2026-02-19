@@ -12,7 +12,6 @@ from synesis.processing.news import (
     NewsCategory,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     TickerAnalysis,
     UnifiedMessage,
 )
@@ -20,7 +19,6 @@ from synesis.processing.news.analyzer import (
     AnalyzerDeps,
     SMART_ANALYZER_SYSTEM_PROMPT,
     SmartAnalyzer,
-    get_smart_analyzer,
 )
 
 
@@ -31,11 +29,10 @@ class TestAnalyzerDeps:
         """Test creating AnalyzerDeps with required fields."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test message",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             event_type=EventType.macro,
@@ -61,11 +58,10 @@ class TestAnalyzerDeps:
         """Test creating deps with HTTP client."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             event_type=EventType.other,
@@ -229,11 +225,10 @@ class TestSmartAnalyzer:
         """Test that analyze returns SmartAnalysis."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Fed cuts rates",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             news_category=NewsCategory.economic_calendar,
@@ -290,11 +285,10 @@ class TestSmartAnalyzer:
         """Test that analyze handles exceptions and returns None."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             event_type=EventType.other,
@@ -317,17 +311,3 @@ class TestSmartAnalyzer:
         )
 
         assert result is None
-
-
-class TestGetSmartAnalyzer:
-    """Tests for get_smart_analyzer singleton."""
-
-    def test_returns_same_instance(self) -> None:
-        """Test that get_smart_analyzer returns singleton."""
-        # Clear cache first
-        get_smart_analyzer.cache_clear()
-
-        analyzer1 = get_smart_analyzer()
-        analyzer2 = get_smart_analyzer()
-
-        assert analyzer1 is analyzer2

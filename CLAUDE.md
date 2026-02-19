@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Real-time financial news analysis and prediction market trading system. Transforms social signals (X/Twitter, Telegram) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
+Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
 
 ## Tech Stack
 
@@ -41,7 +41,7 @@ docker compose up -d
 ```
 src/synesis/
 ├── core/              # Logging, constants, dependencies
-├── ingestion/         # Twitter, Telegram, Reddit listeners
+├── ingestion/         # Telegram, Reddit listeners
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
 │   ├── sentiment/     # Flow 2: Reddit sentiment (Gate 1 lexicon + Gate 2 LLM)
@@ -57,7 +57,7 @@ src/synesis/
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram notifications
 ├── storage/           # PostgreSQL + Redis clients
-├── agent/             # Agent runner, lifespan, PydanticAI
+├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
 └── api/               # HTTP/WebSocket endpoints
 
 tests/                 # Test files
@@ -86,7 +86,7 @@ scripts/               # Utility scripts
 
 - `docs/PRD.md` - Product requirements document
 - `docs/Architecture/` - System architecture documentation
-- `docs/Sources/` - Data source documentation (X accounts, Telegram)
+- `docs/Sources/` - Data source documentation (Telegram)
 - `docs/Implementation/` - Technical implementation details
 - `.claude/skills/fastapi-developing/` - FastAPI patterns
 

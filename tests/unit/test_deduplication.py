@@ -11,13 +11,13 @@ from synesis.processing.news.deduplication import (
     MessageDeduplicator,
     SIMILARITY_THRESHOLD,
 )
-from synesis.processing.news import SourcePlatform, SourceType, UnifiedMessage
+from synesis.processing.news import SourcePlatform, UnifiedMessage
 
 
 def create_test_message(
     text: str,
     external_id: str = "test_123",
-    platform: SourcePlatform = SourcePlatform.twitter,
+    platform: SourcePlatform = SourcePlatform.telegram,
 ) -> UnifiedMessage:
     """Create a test message."""
     return UnifiedMessage(
@@ -26,7 +26,6 @@ def create_test_message(
         source_account="@test",
         text=text,
         timestamp=datetime.now(timezone.utc),
-        source_type=SourceType.news,
     )
 
 
@@ -126,7 +125,7 @@ class TestMessageDeduplicator:
         # Check that set was called (with nx=True for race condition safety)
         mock_redis.set.assert_called_once()
         call_args = mock_redis.set.call_args
-        assert "dedup:emb:twitter:msg_123" in call_args[0][0]
+        assert "dedup:emb:telegram:msg_123" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_process_message_stores_unique(self, mock_redis: AsyncMock) -> None:

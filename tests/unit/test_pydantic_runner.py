@@ -27,7 +27,6 @@ from synesis.processing.news import (
     NewsCategory,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     UnifiedMessage,
 )
 
@@ -59,9 +58,8 @@ class TestStoreSignal:
         )
         return NewsSignal(
             timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
-            source_type=SourceType.news,
             raw_text="Fed cuts rates",
             external_id="test_123",
             extraction=extraction,
@@ -135,11 +133,10 @@ class TestEmitSignalToDb:
         """Test that signal is stored to database."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             news_category=NewsCategory.breaking,
@@ -170,11 +167,10 @@ class TestEmitSignalToDb:
         """Test that missing database is handled gracefully."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             event_type=EventType.other,
@@ -218,11 +214,10 @@ class TestEmitPredictionToDb:
         )
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         mock_db = MagicMock()
@@ -242,11 +237,10 @@ class TestEmitRawMessageToDb:
         """Test that raw message is stored."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test message",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         mock_db = MagicMock()
@@ -262,11 +256,10 @@ class TestEmitRawMessageToDb:
         """Test that missing database is handled gracefully."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         with patch(
@@ -285,17 +278,10 @@ class TestEmitCombinedTelegram:
         """Test that all signals are sent to Telegram (no confidence threshold)."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
-        )
-        extraction = LightClassification(
-            event_type=EventType.other,
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
         )
         analysis = SmartAnalysis(
             tickers=[],
@@ -309,7 +295,7 @@ class TestEmitCombinedTelegram:
         with patch(
             "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
         ) as mock_send:
-            await emit_combined_telegram(message, extraction, analysis)
+            await emit_combined_telegram(message, analysis)
 
         # All signals are sent to Telegram (no threshold)
         mock_send.assert_called_once()
@@ -319,17 +305,10 @@ class TestEmitCombinedTelegram:
         """Test that high confidence signals are sent."""
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
-        )
-        extraction = LightClassification(
-            event_type=EventType.macro,
-            summary="Fed cuts rates",
-            confidence=0.9,
-            primary_entity="Fed",
         )
         analysis = SmartAnalysis(
             tickers=["SPY"],
@@ -343,7 +322,7 @@ class TestEmitCombinedTelegram:
         with patch(
             "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
         ) as mock_send:
-            await emit_combined_telegram(message, extraction, analysis)
+            await emit_combined_telegram(message, analysis)
 
         mock_send.assert_called_once()
 
@@ -392,11 +371,10 @@ class TestEmitSignal:
 
         message = UnifiedMessage(
             external_id="123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
         extraction = LightClassification(
             event_type=EventType.other,

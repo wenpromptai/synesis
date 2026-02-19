@@ -96,6 +96,36 @@ async def search_market_impact(
     )
 
 
+async def search_ticker_analysis(
+    ticker: str,
+    company_name: str | None = None,
+    count: int = 3,
+) -> list[dict[str, Any]]:
+    """Search for recent analyst ratings, price targets, and news for a ticker.
+
+    Uses the same SearXNG → Exa → Brave fallback chain but with a
+    financial-research-optimized query and news-specific parameters.
+
+    Args:
+        ticker: Stock ticker symbol (e.g., "AAPL")
+        company_name: Optional company name for better search results
+        count: Number of results to return
+
+    Returns:
+        List of dicts with 'title', 'snippet', and 'url' keys.
+        Returns empty list if all providers fail (non-fatal).
+    """
+    year = date.today().year
+    name_part = f" {company_name}" if company_name else ""
+    query = f"{ticker}{name_part} analyst rating price target upgrade downgrade forecast {year}"
+
+    try:
+        return await search_market_impact(query, count=count, recency="month")
+    except SearchProvidersExhaustedError:
+        logger.warning("News search: all providers exhausted", ticker=ticker)
+        return []
+
+
 def _get_date_range(recency: Recency) -> tuple[date | None, date]:
     """Get start date based on recency setting."""
     today = date.today()
@@ -140,6 +170,7 @@ async def _search_searxng(
                     "title": r.get("title", ""),
                     "snippet": r.get("content", "")[:300] if r.get("content") else "",
                     "url": r.get("url", ""),
+                    "published_date": r.get("publishedDate", ""),
                 }
             )
         return results
@@ -177,6 +208,7 @@ async def _search_exa(
                 "title": r.get("title", ""),
                 "snippet": r.get("text", "")[:300],
                 "url": r.get("url", ""),
+                "published_date": r.get("publishedDate", ""),
             }
             for r in data.get("results", [])
         ]
@@ -210,6 +242,7 @@ async def _search_brave(
                 "title": r.get("title", ""),
                 "snippet": r.get("description", ""),
                 "url": r.get("url", ""),
+                "published_date": r.get("page_age", r.get("age", "")),
             }
             for r in data.get("web", {}).get("results", [])
         ]

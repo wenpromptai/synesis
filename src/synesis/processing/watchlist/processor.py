@@ -18,6 +18,7 @@ from pydantic_ai.output import PromptedOutput
 from synesis.core.constants import WATCHLIST_INTEL_DEFAULT_BATCH_SIZE
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
+from synesis.processing.common.web_search import search_ticker_analysis
 from synesis.processing.watchlist.models import (
     CatalystAlert,
     TickerIntelligence,
@@ -27,8 +28,7 @@ from synesis.processing.watchlist.models import (
 
 if TYPE_CHECKING:
     from synesis.processing.common.watchlist import WatchlistManager
-    from synesis.providers.base import TickerProvider
-    from synesis.providers.factset.provider import FactSetProvider
+    from synesis.providers.base import TickerProvider, WatchlistDataProvider
     from synesis.providers.nasdaq.client import NasdaqClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
     from synesis.storage.database import Database
@@ -89,7 +89,12 @@ A 2-3 sentence narrative covering the watchlist as a whole:
 - Be concise — this is a monitoring report, not a deep dive
 - Flag actionable catalysts (earnings within 7 days, material insider activity)
 - If data is missing for a ticker, note it and skip that section
-- Confidence should reflect data completeness — low data = low confidence"""
+- Factor in recent analyst ratings, price targets, and news coverage when forming your outlook
+- Note any analyst upgrades/downgrades or significant price target changes
+- Confidence should reflect data completeness — low data = low confidence
+- Weight recent data more heavily than older data — a filing from today is more significant than one from 3 weeks ago
+- Note the dates on news/analyst coverage — a rating from this week matters more than one from last month
+- If fundamentals are from an older period, note this and flag that the picture may have changed"""
 
 
 # =============================================================================
@@ -107,14 +112,14 @@ class WatchlistProcessor:
     def __init__(
         self,
         watchlist: WatchlistManager,
-        factset: FactSetProvider | None = None,
+        fundamentals: WatchlistDataProvider | None = None,
         sec_edgar: SECEdgarClient | None = None,
         nasdaq: NasdaqClient | None = None,
         db: Database | None = None,
         ticker_provider: TickerProvider | None = None,
     ) -> None:
         self._watchlist = watchlist
-        self._factset = factset
+        self._fundamentals = fundamentals
         self._sec_edgar = sec_edgar
         self._nasdaq = nasdaq
         self._db = db
@@ -144,18 +149,24 @@ class WatchlistProcessor:
             # Ticker intelligence
             for intel in ctx.deps.intelligence:
                 lines = [f"## {intel.ticker}"]
+                if intel.data_as_of:
+                    lines.append(
+                        f"Data gathered: {intel.data_as_of.strftime('%Y-%m-%d %H:%M UTC')}"
+                    )
                 if intel.company_name:
                     lines.append(f"Company: {intel.company_name}")
                 if intel.market_cap is not None:
                     lines.append(f"Market Cap: ${intel.market_cap / 1e9:,.1f}B")
                 if intel.fundamentals:
                     lines.append(f"Fundamentals: {intel.fundamentals}")
+                if intel.fundamentals_period:
+                    lines.append(f"Fundamentals Period: {intel.fundamentals_period}")
                 if intel.price_change_1d is not None:
                     lines.append(f"Price Change 1D: {intel.price_change_1d:+.2f}%")
-                if intel.price_change_1w is not None:
-                    lines.append(f"Price Change 1W: {intel.price_change_1w:+.2f}%")
                 if intel.price_change_1m is not None:
                     lines.append(f"Price Change 1M: {intel.price_change_1m:+.2f}%")
+                if intel.price_as_of:
+                    lines.append(f"Price Data As Of: {intel.price_as_of}")
                 if intel.recent_filings:
                     lines.append(f"Recent Filings: {intel.recent_filings}")
                 if intel.insider_sentiment:
@@ -166,6 +177,11 @@ class WatchlistProcessor:
                     lines.append(f"EPS History: {intel.eps_history}")
                 if intel.next_earnings:
                     lines.append(f"Next Earnings: {intel.next_earnings}")
+                if intel.recent_news:
+                    lines.append("Recent Analyst/News Coverage:")
+                    for n in intel.recent_news:
+                        date_str = f" ({n['published_date']})" if n.get("published_date") else ""
+                        lines.append(f"  - {n.get('title', '')}{date_str}: {n.get('snippet', '')}")
                 sections.append("\n".join(lines))
 
             # Alerts
@@ -190,9 +206,9 @@ class WatchlistProcessor:
         runtime via ``ticker_provider.verify_ticker()``.  SEC EDGAR and
         NASDAQ work with bare tickers directly.
         """
-        intel = TickerIntelligence(ticker=ticker)
+        intel = TickerIntelligence(ticker=ticker, data_as_of=datetime.now(UTC))
 
-        # Resolve bare ticker → ticker_region for FactSet
+        # Resolve bare ticker → ticker_region for FactSet-backed providers
         ticker_region: str | None = None
         if self._ticker_provider:
             try:
@@ -201,43 +217,48 @@ class WatchlistProcessor:
                     ticker_region = region
             except Exception as e:
                 logger.warning(
-                    "ticker_provider resolution failed, using bare ticker for FactSet",
+                    "ticker_provider resolution failed, using bare ticker",
                     ticker=ticker,
                     error=str(e),
                 )
 
-        async def fetch_factset() -> None:
-            if self._factset is None:
+        async def fetch_fundamentals() -> None:
+            if self._fundamentals is None:
                 return
-            factset_ticker = ticker_region or ticker
+            fund_ticker = ticker_region or ticker
             try:
-                security = await self._factset.resolve_ticker(factset_ticker)
-                if security:
-                    intel.company_name = security.name
+                company = await self._fundamentals.resolve_company(fund_ticker)
+                if company:
+                    intel.company_name = company.name
 
-                market_cap = await self._factset.get_market_cap(factset_ticker)
+                market_cap = await self._fundamentals.get_market_cap(fund_ticker)
                 intel.market_cap = market_cap
 
-                fundamentals = await self._factset.get_fundamentals(factset_ticker, "ltm", 1)
-                if fundamentals:
-                    f = fundamentals[0]
+                snap = await self._fundamentals.get_fundamentals(fund_ticker)
+                if snap:
                     intel.fundamentals = {
-                        "eps_diluted": f.eps_diluted,
-                        "price_to_book": f.price_to_book,
-                        "price_to_sales": f.price_to_sales,
-                        "ev_to_ebitda": f.ev_to_ebitda,
-                        "roe": f.roe,
-                        "net_margin": f.net_margin,
-                        "gross_margin": f.gross_margin,
-                        "debt_to_equity": f.debt_to_equity,
+                        "eps_diluted": snap.eps_diluted,
+                        "price_to_book": snap.price_to_book,
+                        "price_to_sales": snap.price_to_sales,
+                        "ev_to_ebitda": snap.ev_to_ebitda,
+                        "roe": snap.roe,
+                        "net_margin": snap.net_margin,
+                        "gross_margin": snap.gross_margin,
+                        "debt_to_equity": snap.debt_to_equity,
                     }
+                    if snap.period_end:
+                        intel.fundamentals_period = (
+                            f"{snap.period_type} ending {snap.period_end.isoformat()}"
+                        )
 
-                price = await self._factset.get_price(factset_ticker)
+                price = await self._fundamentals.get_price(fund_ticker)
                 if price:
                     intel.price_change_1d = price.one_day_pct
                     intel.price_change_1m = price.one_mth_pct
+                    if price.price_date:
+                        intel.price_as_of = price.price_date.isoformat()
             except Exception as e:
-                logger.warning("FactSet fetch failed", ticker=ticker, error=str(e))
+                logger.warning("Fundamentals fetch failed", ticker=ticker, error=str(e))
 
         async def fetch_sec_edgar() -> None:
             if self._sec_edgar is None:
@@ -255,7 +276,8 @@ class WatchlistProcessor:
                         "code": t.transaction_code,
                         "shares": t.shares,
                         "price": t.price_per_share,
-                        "date": t.filing_date.isoformat(),
+                        "transaction_date": t.transaction_date.isoformat(),
+                        "filing_date": t.filing_date.isoformat(),
                     }
                     for t in txns
                 ]
@@ -283,7 +305,16 @@ class WatchlistProcessor:
             except Exception as e:
                 logger.warning("NASDAQ fetch failed", ticker=ticker, error=str(e))
 
-        await asyncio.gather(fetch_factset(), fetch_sec_edgar(), fetch_nasdaq())
+        async def fetch_news() -> None:
+            try:
+                results = await search_ticker_analysis(
+                    ticker, company_name=intel.company_name, count=3
+                )
+                intel.recent_news = results
+            except Exception as e:
+                logger.warning("News search failed", ticker=ticker, error=str(e))
+
+        await asyncio.gather(fetch_fundamentals(), fetch_sec_edgar(), fetch_nasdaq(), fetch_news())
         return intel
 
     def detect_alerts(

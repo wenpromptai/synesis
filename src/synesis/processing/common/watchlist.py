@@ -48,7 +48,7 @@ class TickerMetadata:
     """Metadata for a watchlist ticker."""
 
     ticker: str
-    source: str  # "twitter", "telegram", "reddit", etc.
+    source: str  # "telegram", "reddit", etc.
     subreddit: str | None = None  # For Reddit source
     added_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_seen_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -117,7 +117,7 @@ class WatchlistManager:
 
         Args:
             ticker: Stock ticker symbol (e.g., "AAPL")
-            source: Source platform ("twitter", "telegram", "reddit", etc.)
+            source: Source platform ("telegram", "reddit", etc.)
             subreddit: Subreddit name if source is Reddit
             company_name: Full company name if known
 

@@ -5,64 +5,54 @@ from datetime import datetime, timezone
 
 from synesis.processing.news import (
     Direction,
-    EvaluatorOutput,
     EventType,
-    NewsSignal,
-    InvestmentAnalysis,
     LightClassification,
     MarketEvaluation,
-    MarketOpportunity,
     NewsCategory,
+    NewsSignal,
     ResearchQuality,
     SectorImplication,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     TickerAnalysis,
     UnifiedMessage,
 )
 
 
 class TestSourceEnums:
-    """Tests for source type enums."""
+    """Tests for source platform enum."""
 
     def test_source_platform_values(self) -> None:
-        assert SourcePlatform.twitter.value == "twitter"
         assert SourcePlatform.telegram.value == "telegram"
-
-    def test_source_type_values(self) -> None:
-        assert SourceType.news.value == "news"
-        assert SourceType.analysis.value == "analysis"
+        assert SourcePlatform.reddit.value == "reddit"
 
 
 class TestUnifiedMessage:
     """Tests for UnifiedMessage model."""
 
-    def test_create_twitter_message(self) -> None:
+    def test_create_telegram_message(self) -> None:
         msg = UnifiedMessage(
             external_id="12345",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@DeItaone",
             text="Breaking: Fed announces rate cut",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         assert msg.external_id == "12345"
-        assert msg.source_platform == SourcePlatform.twitter
-        assert msg.source_type == SourceType.news
+        assert msg.source_platform == SourcePlatform.telegram
 
-    def test_create_analysis_message(self) -> None:
+    def test_message_with_raw_data(self) -> None:
         msg = UnifiedMessage(
             external_id="67890",
-            source_platform=SourcePlatform.twitter,
-            source_account="@analyst",
-            text="My analysis on the market",
+            source_platform=SourcePlatform.telegram,
+            source_account="marketfeed",
+            text="Market update",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.analysis,
+            raw={"channel": "news"},
         )
 
-        assert msg.source_type == SourceType.analysis
+        assert msg.raw == {"channel": "news"}
 
     def test_telegram_message(self) -> None:
         msg = UnifiedMessage(
@@ -71,32 +61,9 @@ class TestUnifiedMessage:
             source_account="marketfeed",
             text="Market update",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         assert msg.source_platform == SourcePlatform.telegram
-
-
-class TestMarketOpportunity:
-    """Tests for MarketOpportunity model."""
-
-    def test_create_opportunity(self) -> None:
-        opp = MarketOpportunity(
-            market_id="market_123",
-            platform="polymarket",
-            question="Will the Fed cut rates in March?",
-            slug="fed-rate-cut-march",
-            yes_price=0.35,
-            no_price=0.65,
-            volume_24h=100000.0,
-            suggested_direction="yes",
-            reason="News indicates rate cut likely",
-            end_date=datetime(2025, 3, 15, tzinfo=timezone.utc),
-        )
-
-        assert opp.market_id == "market_123"
-        assert opp.yes_price == 0.35
-        assert opp.suggested_direction == "yes"
 
 
 class TestNewsSignal:
@@ -133,20 +100,16 @@ class TestNewsSignal:
 
         signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@DeItaone",
-            source_type=SourceType.news,
             raw_text="Breaking: Fed announces rate cut",
             external_id="12345",
             extraction=extraction,
             analysis=analysis,
-            watchlist_tickers=["SPY"],
-            watchlist_sectors=["financials"],
         )
 
         assert signal.extraction.event_type == EventType.macro
-        assert "SPY" in signal.watchlist_tickers
-        # Tickers/sectors now come from analysis
+        # Tickers/sectors come from analysis (Stage 2)
         assert signal.tickers == ["SPY"]
         assert signal.sectors == ["financials"]
 
@@ -162,9 +125,8 @@ class TestNewsSignal:
 
         signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
-            source_type=SourceType.news,
             raw_text="Test message",
             external_id="123",
             extraction=extraction,
@@ -173,7 +135,7 @@ class TestNewsSignal:
         # Should be serializable to JSON
         data = signal.model_dump(mode="json")
         assert isinstance(data, dict)
-        assert data["source_platform"] == "twitter"
+        assert data["source_platform"] == "telegram"
         assert data["extraction"]["event_type"] == "macro"
 
     def test_signal_without_analysis(self) -> None:
@@ -187,9 +149,8 @@ class TestNewsSignal:
 
         signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
-            source_type=SourceType.news,
             raw_text="Test",
             external_id="1",
             extraction=extraction,
@@ -299,127 +260,6 @@ class TestResearchQuality:
         assert ResearchQuality.low.value == "low"
 
 
-class TestInvestmentAnalysis:
-    """Tests for InvestmentAnalysis model."""
-
-    def test_create_investment_analysis(self) -> None:
-        analysis = InvestmentAnalysis(
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="SPY",
-                    bull_thesis="Rate cuts bullish",
-                    bear_thesis="Recession risk",
-                    net_direction=Direction.bullish,
-                    conviction=0.8,
-                    time_horizon="days",
-                ),
-            ],
-            sector_implications=[
-                SectorImplication(
-                    sector="financials",
-                    direction=Direction.bearish,
-                    reasoning="NIM compression",
-                ),
-            ],
-            historical_precedent="2019 cuts led to rally",
-            similar_events=["2019 rate cuts"],
-            typical_market_reaction="Initial rally",
-            actionable_insights=["Buy SPY calls"],
-            primary_thesis="Fed dovish pivot",
-            thesis_confidence=0.75,
-            research_quality=ResearchQuality.high,
-        )
-
-        assert len(analysis.ticker_analyses) == 1
-        assert len(analysis.sector_implications) == 1
-        assert analysis.thesis_confidence == 0.75
-        assert analysis.research_quality == ResearchQuality.high
-
-    def test_has_tradable_tickers_high_conviction(self) -> None:
-        analysis = InvestmentAnalysis(
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="HIGH",
-                    bull_thesis="Strong",
-                    bear_thesis="Weak",
-                    net_direction=Direction.bullish,
-                    conviction=0.85,  # >= 0.7
-                    time_horizon="days",
-                ),
-            ],
-            primary_thesis="Test",
-        )
-
-        assert analysis.has_tradable_tickers is True
-
-    def test_has_tradable_tickers_low_conviction(self) -> None:
-        analysis = InvestmentAnalysis(
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="LOW",
-                    bull_thesis="Weak",
-                    bear_thesis="Strong",
-                    net_direction=Direction.neutral,
-                    conviction=0.5,  # < 0.7
-                    time_horizon="days",
-                ),
-            ],
-            primary_thesis="Test",
-        )
-
-        assert analysis.has_tradable_tickers is False
-
-    def test_top_ticker(self) -> None:
-        analysis = InvestmentAnalysis(
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="LOW",
-                    bull_thesis="A",
-                    bear_thesis="B",
-                    net_direction=Direction.neutral,
-                    conviction=0.3,
-                    time_horizon="days",
-                ),
-                TickerAnalysis(
-                    ticker="HIGH",
-                    bull_thesis="A",
-                    bear_thesis="B",
-                    net_direction=Direction.bullish,
-                    conviction=0.9,
-                    time_horizon="days",
-                ),
-                TickerAnalysis(
-                    ticker="MID",
-                    bull_thesis="A",
-                    bear_thesis="B",
-                    net_direction=Direction.bearish,
-                    conviction=0.6,
-                    time_horizon="days",
-                ),
-            ],
-            primary_thesis="Test",
-        )
-
-        assert analysis.top_ticker is not None
-        assert analysis.top_ticker.ticker == "HIGH"
-
-    def test_top_ticker_empty(self) -> None:
-        analysis = InvestmentAnalysis(primary_thesis="Test")
-        assert analysis.top_ticker is None
-
-    def test_defaults(self) -> None:
-        analysis = InvestmentAnalysis(primary_thesis="Test thesis")
-
-        assert analysis.ticker_analyses == []
-        assert analysis.sector_implications == []
-        assert analysis.similar_events == []
-        assert analysis.actionable_insights == []
-        assert analysis.historical_precedent == ""
-        assert analysis.typical_market_reaction == ""
-        assert analysis.thesis_confidence == 0.5
-        assert analysis.research_quality == ResearchQuality.medium
-
-
 class TestMarketEvaluation:
     """Tests for MarketEvaluation model."""
 
@@ -461,121 +301,6 @@ class TestMarketEvaluation:
         assert eval.is_relevant is False
         assert eval.edge is None
         assert eval.verdict == "skip"
-
-
-class TestEvaluatorOutput:
-    """Tests for EvaluatorOutput model."""
-
-    def test_create_evaluator_output(self) -> None:
-        eval1 = MarketEvaluation(
-            market_id="m1",
-            market_question="Q1",
-            is_relevant=True,
-            relevance_reasoning="Relevant",
-            current_price=0.4,
-            estimated_fair_price=0.6,
-            edge=0.2,
-            verdict="undervalued",
-            confidence=0.8,
-            reasoning="Strong edge",
-            recommended_side="yes",
-        )
-        eval2 = MarketEvaluation(
-            market_id="m2",
-            market_question="Q2",
-            is_relevant=False,
-            relevance_reasoning="Not relevant",
-            current_price=0.5,
-            verdict="skip",
-            confidence=0.0,
-            reasoning="Skip",
-            recommended_side="skip",
-        )
-
-        output = EvaluatorOutput(
-            markets_found=2,
-            markets_relevant=1,
-            evaluations=[eval1, eval2],
-            has_tradable_edge=True,
-            best_opportunity=eval1,
-        )
-
-        assert output.markets_found == 2
-        assert output.markets_relevant == 1
-        assert output.has_tradable_edge is True
-        assert output.best_opportunity == eval1
-
-    def test_relevant_evaluations_property(self) -> None:
-        eval_relevant = MarketEvaluation(
-            market_id="m1",
-            market_question="Q1",
-            is_relevant=True,
-            relevance_reasoning="Relevant",
-            current_price=0.5,
-            verdict="fair",
-            confidence=0.5,
-            reasoning="Fair",
-            recommended_side="skip",
-        )
-        eval_irrelevant = MarketEvaluation(
-            market_id="m2",
-            market_question="Q2",
-            is_relevant=False,
-            relevance_reasoning="Not relevant",
-            current_price=0.5,
-            verdict="skip",
-            confidence=0.0,
-            reasoning="Skip",
-            recommended_side="skip",
-        )
-
-        output = EvaluatorOutput(
-            markets_found=2,
-            markets_relevant=1,
-            evaluations=[eval_relevant, eval_irrelevant],
-        )
-
-        relevant = output.relevant_evaluations
-        assert len(relevant) == 1
-        assert relevant[0].market_id == "m1"
-
-    def test_opportunities_with_edge_property(self) -> None:
-        eval_with_edge = MarketEvaluation(
-            market_id="m1",
-            market_question="Q1",
-            is_relevant=True,
-            relevance_reasoning="Relevant",
-            current_price=0.3,
-            estimated_fair_price=0.5,
-            edge=0.2,  # > 0.05
-            verdict="undervalued",
-            confidence=0.8,
-            reasoning="Good edge",
-            recommended_side="yes",
-        )
-        eval_no_edge = MarketEvaluation(
-            market_id="m2",
-            market_question="Q2",
-            is_relevant=True,
-            relevance_reasoning="Relevant",
-            current_price=0.5,
-            estimated_fair_price=0.52,
-            edge=0.02,  # < 0.05
-            verdict="fair",
-            confidence=0.6,
-            reasoning="No edge",
-            recommended_side="skip",
-        )
-
-        output = EvaluatorOutput(
-            markets_found=2,
-            markets_relevant=2,
-            evaluations=[eval_with_edge, eval_no_edge],
-        )
-
-        opps = output.opportunities_with_edge
-        assert len(opps) == 1
-        assert opps[0].market_id == "m1"
 
 
 class TestSmartAnalysisEdgeBoundaries:

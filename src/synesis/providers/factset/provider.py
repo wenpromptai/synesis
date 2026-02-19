@@ -10,6 +10,7 @@ from synesis.providers.factset.client import (
     FactSetClient,
     get_cached_max_price_date,
 )
+from synesis.providers.base import CompanyInfo, FundamentalsSnapshot, PriceSnapshot
 from synesis.providers.factset.models import (
     FactSetCorporateAction,
     FactSetFundamentals,
@@ -846,3 +847,48 @@ class FactSetProvider:
     async def close(self) -> None:
         """Close database connection."""
         await self._client.close()
+
+
+class FactSetWatchlistAdapter:
+    """Adapts FactSetProvider to the WatchlistDataProvider protocol."""
+
+    def __init__(self, provider: FactSetProvider) -> None:
+        self._provider = provider
+
+    async def resolve_company(self, ticker: str) -> CompanyInfo | None:
+        security = await self._provider.resolve_ticker(ticker)
+        return CompanyInfo(name=security.name) if security else None
+
+    async def get_market_cap(self, ticker: str) -> float | None:
+        return await self._provider.get_market_cap(ticker)
+
+    async def get_fundamentals(self, ticker: str) -> FundamentalsSnapshot | None:
+        results = await self._provider.get_fundamentals(ticker, "ltm", 1)
+        if not results:
+            return None
+        f = results[0]
+        return FundamentalsSnapshot(
+            eps_diluted=f.eps_diluted,
+            price_to_book=f.price_to_book,
+            price_to_sales=f.price_to_sales,
+            ev_to_ebitda=f.ev_to_ebitda,
+            roe=f.roe,
+            net_margin=f.net_margin,
+            gross_margin=f.gross_margin,
+            debt_to_equity=f.debt_to_equity,
+            period_type=f.period_type,
+            period_end=f.period_end,
+        )
+
+    async def get_price(self, ticker: str) -> PriceSnapshot | None:
+        price = await self._provider.get_price(ticker)
+        if not price:
+            return None
+        return PriceSnapshot(
+            one_day_pct=price.one_day_pct,
+            one_mth_pct=price.one_mth_pct,
+            price_date=price.price_date,
+        )
+
+    async def close(self) -> None:
+        await self._provider.close()

@@ -11,6 +11,7 @@ from synesis.processing.common.web_search import (
     _get_date_range,
     format_search_results,
     search_market_impact,
+    search_ticker_analysis,
 )
 
 
@@ -190,6 +191,71 @@ class TestSearchMarketImpact:
                 assert len(results) == 1
                 # Verify get was called with params
                 mock_client.get.assert_called_once()
+
+
+class TestSearchTickerAnalysis:
+    """Tests for search_ticker_analysis function."""
+
+    @pytest.mark.anyio
+    async def test_returns_results(self) -> None:
+        """Test successful ticker analysis search."""
+        expected = [
+            {"title": "AAPL upgrade", "snippet": "Analyst upgrades", "url": "https://ex.com"}
+        ]
+        with patch(
+            "synesis.processing.common.web_search.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as mock_search:
+            results = await search_ticker_analysis("AAPL", company_name="Apple Inc.")
+
+        assert results == expected
+        # Verify the query includes ticker, company name, and keywords
+        call_args = mock_search.call_args
+        query = call_args[0][0]
+        assert "AAPL" in query
+        assert "Apple Inc." in query
+        assert "analyst" in query
+        # Verify recency is set to month
+        assert call_args[1]["recency"] == "month"
+
+    @pytest.mark.anyio
+    async def test_without_company_name(self) -> None:
+        """Test ticker analysis search without company name."""
+        with patch(
+            "synesis.processing.common.web_search.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_search:
+            results = await search_ticker_analysis("NVDA")
+
+        assert results == []
+        query = mock_search.call_args[0][0]
+        assert "NVDA" in query
+
+    @pytest.mark.anyio
+    async def test_returns_empty_on_exhausted(self) -> None:
+        """Test returns empty list when all search providers fail."""
+        with patch(
+            "synesis.processing.common.web_search.search_market_impact",
+            new_callable=AsyncMock,
+            side_effect=SearchProvidersExhaustedError("All providers failed"),
+        ):
+            results = await search_ticker_analysis("AAPL")
+
+        assert results == []
+
+    @pytest.mark.anyio
+    async def test_custom_count(self) -> None:
+        """Test custom count parameter is passed through."""
+        with patch(
+            "synesis.processing.common.web_search.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_search:
+            await search_ticker_analysis("AAPL", count=5)
+
+        assert mock_search.call_args[1]["count"] == 5
 
 
 class TestSearchProvidersExhaustedError:

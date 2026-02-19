@@ -14,6 +14,7 @@ from synesis.processing.common.web_search import (
     SearchProvidersExhaustedError,
     format_search_results,
     search_market_impact,
+    search_ticker_analysis,
 )
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "create_model",
     "format_search_results",
     "search_market_impact",
+    "search_ticker_analysis",
     "verify_ticker",
 ]

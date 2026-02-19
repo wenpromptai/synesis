@@ -201,7 +201,6 @@ class NewsClassifier:
 
 Source: {message.source_account} ({message.source_platform.value})
 Timestamp: {message.timestamp.isoformat()}
-Type: {message.source_type.value}
 
 Message:
 {message.text}

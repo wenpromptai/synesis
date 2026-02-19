@@ -47,12 +47,14 @@ async def trigger_manual_scan(state: AgentStateDep) -> dict[str, str]:
 
     The scan runs asynchronously; check /latest for results.
     """
-    try:
-        await state.redis.set(f"{MARKET_INTEL_REDIS_PREFIX}:trigger_scan", "1", ex=60)
+    if state.scheduler and "mkt_intel" in state.trigger_fns:
+        state.scheduler.add_job(
+            state.trigger_fns["mkt_intel"],
+            id="mkt_intel_manual",
+            replace_existing=True,
+        )
         return {"status": "scan_triggered"}
-    except Exception as e:
-        logger.error("Failed to trigger manual scan", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to trigger scan") from e
+    raise HTTPException(status_code=503, detail="Market intelligence not enabled")
 
 
 @router.get("/opportunities")

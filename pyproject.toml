@@ -46,6 +46,7 @@ dependencies = [
     "finnhub-python>=2.4.0",
     "pymssql>=2.3.11",
     "defusedxml>=0.7.1",
+    "apscheduler>=3.11,<4",
 ]
 
 [project.scripts]
@@ -82,6 +83,7 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = [
+    "apscheduler.*",
     "asyncpg.*",
     "telethon.*",
     "py_clob_client.*",

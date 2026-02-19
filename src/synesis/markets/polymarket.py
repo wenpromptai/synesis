@@ -19,7 +19,6 @@ import httpx
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
-from synesis.processing.news import MarketOpportunity
 
 logger = get_logger(__name__)
 
@@ -774,64 +773,3 @@ class PolymarketDataClient:
                 error=str(e),
             )
             return None
-
-
-async def find_market_opportunities(
-    keywords: list[str],
-    client: PolymarketClient | None = None,
-) -> list[MarketOpportunity]:
-    """Search Polymarket for opportunities based on keywords.
-
-    Args:
-        keywords: List of search keywords
-        client: Optional client (creates one if not provided)
-
-    Returns:
-        List of market opportunities
-    """
-    if client is None:
-        active_client = PolymarketClient()
-        own_client = True
-    else:
-        active_client = client
-        own_client = False
-
-    opportunities = []
-
-    try:
-        for keyword in keywords[:5]:  # Limit to 5 keywords to avoid rate limits
-            markets = await active_client.search_markets(keyword, limit=5)
-
-            for market in markets:
-                # Skip closed or inactive markets
-                if market.is_closed or not market.is_active:
-                    continue
-
-                # Create opportunity
-                opportunity = MarketOpportunity(
-                    market_id=market.id,
-                    platform="polymarket",
-                    question=market.question,
-                    slug=market.slug,
-                    yes_price=market.yes_price,
-                    no_price=market.no_price,
-                    volume_24h=market.volume_24h,
-                    suggested_direction="yes" if market.yes_price < 0.5 else "no",
-                    reason=f"Found via keyword: {keyword}",
-                    end_date=market.end_date,
-                )
-                opportunities.append(opportunity)
-
-    finally:
-        if own_client:
-            await active_client.close()
-
-    # Deduplicate by market_id
-    seen = set()
-    unique_opportunities = []
-    for opp in opportunities:
-        if opp.market_id not in seen:
-            seen.add(opp.market_id)
-            unique_opportunities.append(opp)
-
-    return unique_opportunities

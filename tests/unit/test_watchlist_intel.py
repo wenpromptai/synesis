@@ -12,6 +12,7 @@ from synesis.processing.watchlist.models import (
     WatchlistSignal,
 )
 from synesis.processing.watchlist.processor import WatchlistProcessor
+from synesis.providers.base import CompanyInfo, FundamentalsSnapshot, PriceSnapshot
 
 
 # =============================================================================
@@ -77,27 +78,33 @@ class TestWatchlistProcessor:
         return wl
 
     @pytest.fixture
-    def mock_factset(self) -> AsyncMock:
-        fs = AsyncMock()
-        security = MagicMock()
-        security.configure_mock(name="Apple Inc.")
-        fs.resolve_ticker = AsyncMock(return_value=security)
-        fs.get_market_cap = AsyncMock(return_value=3_000_000_000_000.0)
-        fundamentals_obj = MagicMock(
-            eps_diluted=6.5,
-            price_to_book=45.0,
-            price_to_sales=8.0,
-            ev_to_ebitda=25.0,
-            roe=150.0,
-            net_margin=25.0,
-            gross_margin=45.0,
-            debt_to_equity=1.5,
+    def mock_fundamentals(self) -> AsyncMock:
+        fund = AsyncMock()
+        fund.resolve_company = AsyncMock(return_value=CompanyInfo(name="Apple Inc."))
+        fund.get_market_cap = AsyncMock(return_value=3_000_000_000_000.0)
+        fund.get_fundamentals = AsyncMock(
+            return_value=FundamentalsSnapshot(
+                eps_diluted=6.5,
+                price_to_book=45.0,
+                price_to_sales=8.0,
+                ev_to_ebitda=25.0,
+                roe=150.0,
+                net_margin=25.0,
+                gross_margin=45.0,
+                debt_to_equity=1.5,
+                period_type="ltm",
+                period_end=datetime.now(UTC).date(),
+            )
         )
-        fs.get_fundamentals = AsyncMock(return_value=[fundamentals_obj])
-        price = MagicMock(one_day_pct=1.2, one_mth_pct=5.5)
-        fs.get_price = AsyncMock(return_value=price)
-        fs.close = AsyncMock()
-        return fs
+        fund.get_price = AsyncMock(
+            return_value=PriceSnapshot(
+                one_day_pct=1.2,
+                one_mth_pct=5.5,
+                price_date=datetime.now(UTC).date(),
+            )
+        )
+        fund.close = AsyncMock()
+        return fund
 
     @pytest.fixture
     def mock_sec_edgar(self) -> AsyncMock:
@@ -111,6 +118,7 @@ class TestWatchlistProcessor:
         txn.transaction_code = "S"
         txn.shares = 50000
         txn.price_per_share = 190.0
+        txn.transaction_date = datetime.now(UTC).date()
         txn.filing_date = datetime.now(UTC).date()
         sec.get_insider_transactions = AsyncMock(return_value=[txn])
         sec.get_insider_sentiment = AsyncMock(return_value={"mspr": -0.10, "change": -50000})
@@ -135,13 +143,13 @@ class TestWatchlistProcessor:
     def processor(
         self,
         mock_watchlist: AsyncMock,
-        mock_factset: AsyncMock,
+        mock_fundamentals: AsyncMock,
         mock_sec_edgar: AsyncMock,
         mock_nasdaq: AsyncMock,
     ) -> WatchlistProcessor:
         return WatchlistProcessor(
             watchlist=mock_watchlist,
-            factset=mock_factset,
+            fundamentals=mock_fundamentals,
             sec_edgar=mock_sec_edgar,
             nasdaq=mock_nasdaq,
         )
@@ -177,13 +185,13 @@ class TestWatchlistProcessor:
     @pytest.mark.asyncio
     async def test_gather_intelligence_provider_errors(self, mock_watchlist: AsyncMock) -> None:
         """Test that provider errors are handled gracefully."""
-        bad_factset = AsyncMock()
-        bad_factset.resolve_ticker = AsyncMock(side_effect=Exception("DB down"))
-        bad_factset.get_market_cap = AsyncMock(side_effect=Exception("DB down"))
-        bad_factset.get_fundamentals = AsyncMock(side_effect=Exception("DB down"))
-        bad_factset.get_price = AsyncMock(side_effect=Exception("DB down"))
+        bad_fundamentals = AsyncMock()
+        bad_fundamentals.resolve_company = AsyncMock(side_effect=Exception("DB down"))
+        bad_fundamentals.get_market_cap = AsyncMock(side_effect=Exception("DB down"))
+        bad_fundamentals.get_fundamentals = AsyncMock(side_effect=Exception("DB down"))
+        bad_fundamentals.get_price = AsyncMock(side_effect=Exception("DB down"))
 
-        processor = WatchlistProcessor(watchlist=mock_watchlist, factset=bad_factset)
+        processor = WatchlistProcessor(watchlist=mock_watchlist, fundamentals=bad_fundamentals)
         intel = await processor.gather_intelligence("AAPL")
 
         # Should not crash, just return empty intel
@@ -194,66 +202,66 @@ class TestWatchlistProcessor:
     async def test_gather_intelligence_resolves_ticker_region(
         self,
         mock_watchlist: AsyncMock,
-        mock_factset: AsyncMock,
+        mock_fundamentals: AsyncMock,
     ) -> None:
-        """Test that ticker_provider resolves bare ticker to ticker-region for FactSet."""
+        """Test that ticker_provider resolves bare ticker to ticker-region."""
         mock_tp = AsyncMock()
         mock_tp.verify_ticker = AsyncMock(return_value=(True, "AAPL-US", "Apple Inc."))
 
         processor = WatchlistProcessor(
             watchlist=mock_watchlist,
-            factset=mock_factset,
+            fundamentals=mock_fundamentals,
             ticker_provider=mock_tp,
         )
         intel = await processor.gather_intelligence("AAPL")
 
         # ticker_provider was called with bare ticker
         mock_tp.verify_ticker.assert_awaited_once_with("AAPL")
-        # FactSet was called with resolved ticker-region
-        mock_factset.resolve_ticker.assert_awaited_once_with("AAPL-US")
-        mock_factset.get_market_cap.assert_awaited_once_with("AAPL-US")
+        # Fundamentals was called with resolved ticker-region
+        mock_fundamentals.resolve_company.assert_awaited_once_with("AAPL-US")
+        mock_fundamentals.get_market_cap.assert_awaited_once_with("AAPL-US")
         assert intel.company_name == "Apple Inc."
 
     @pytest.mark.asyncio
     async def test_gather_intelligence_ticker_provider_failure_falls_back(
         self,
         mock_watchlist: AsyncMock,
-        mock_factset: AsyncMock,
+        mock_fundamentals: AsyncMock,
     ) -> None:
-        """Test that FactSet falls back to bare ticker when ticker_provider fails."""
+        """Test that fundamentals falls back to bare ticker when ticker_provider fails."""
         mock_tp = AsyncMock()
         mock_tp.verify_ticker = AsyncMock(side_effect=Exception("Provider down"))
 
         processor = WatchlistProcessor(
             watchlist=mock_watchlist,
-            factset=mock_factset,
+            fundamentals=mock_fundamentals,
             ticker_provider=mock_tp,
         )
         intel = await processor.gather_intelligence("AAPL")
 
-        # FactSet should be called with bare ticker as fallback
-        mock_factset.resolve_ticker.assert_awaited_once_with("AAPL")
+        # Fundamentals should be called with bare ticker as fallback
+        mock_fundamentals.resolve_company.assert_awaited_once_with("AAPL")
         assert intel.company_name == "Apple Inc."
 
     @pytest.mark.asyncio
     async def test_gather_intelligence_ticker_provider_invalid_falls_back(
         self,
         mock_watchlist: AsyncMock,
-        mock_factset: AsyncMock,
+        mock_fundamentals: AsyncMock,
     ) -> None:
-        """Test that FactSet falls back to bare ticker when verify returns invalid."""
+        """Test that fundamentals falls back to bare ticker when verify returns invalid."""
         mock_tp = AsyncMock()
         mock_tp.verify_ticker = AsyncMock(return_value=(False, None, None))
 
         processor = WatchlistProcessor(
             watchlist=mock_watchlist,
-            factset=mock_factset,
+            fundamentals=mock_fundamentals,
             ticker_provider=mock_tp,
         )
         await processor.gather_intelligence("AAPL")
 
-        # FactSet should be called with bare ticker
-        mock_factset.resolve_ticker.assert_awaited_once_with("AAPL")
+        # Fundamentals should be called with bare ticker
+        mock_fundamentals.resolve_company.assert_awaited_once_with("AAPL")
 
 
 class TestDetectAlerts:

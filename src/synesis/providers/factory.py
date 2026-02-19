@@ -22,6 +22,7 @@ from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.providers.base import (
     TickerProvider,
+    WatchlistDataProvider,
 )
 
 if TYPE_CHECKING:
@@ -69,3 +70,42 @@ async def create_ticker_provider(
         return FinnhubTickerProvider(api_key=key, redis=redis)
 
     raise ValueError(f"Unsupported ticker provider: {provider_type}")
+
+
+async def create_fundamentals_provider(redis: Redis) -> WatchlistDataProvider | None:
+    """Create a fundamentals provider for the watchlist processor.
+
+    Args:
+        redis: Redis client for caching
+
+    Returns:
+        WatchlistDataProvider implementation based on settings.fundamentals_provider,
+        or None if provider is "none".
+
+    Raises:
+        ValueError: If the configured provider is not supported or API key is missing
+    """
+    settings = get_settings()
+    provider_type = settings.fundamentals_provider
+
+    if provider_type == "none":
+        return None
+
+    if provider_type == "factset":
+        from synesis.providers.factset.client import FactSetClient
+        from synesis.providers.factset.provider import FactSetProvider, FactSetWatchlistAdapter
+
+        logger.debug("Creating FactSetWatchlistAdapter")
+        return FactSetWatchlistAdapter(FactSetProvider(client=FactSetClient()))
+
+    if provider_type == "finnhub":
+        from synesis.providers.finnhub.fundamentals import FinnhubWatchlistAdapter
+
+        key = settings.finnhub_api_key.get_secret_value() if settings.finnhub_api_key else None
+        if not key:
+            raise ValueError("Finnhub API key required for finnhub fundamentals provider")
+
+        logger.debug("Creating FinnhubWatchlistAdapter")
+        return FinnhubWatchlistAdapter(api_key=key, redis=redis)
+
+    raise ValueError(f"Unsupported fundamentals provider: {provider_type}")

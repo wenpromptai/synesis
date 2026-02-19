@@ -8,7 +8,10 @@ This module exports the Finnhub implementations of the provider protocols:
 Also exports backwards-compatible aliases and utility functions.
 """
 
-from synesis.providers.finnhub.fundamentals import FinnhubFundamentalsProvider
+from synesis.providers.finnhub.fundamentals import (
+    FinnhubFundamentalsProvider,
+    FinnhubWatchlistAdapter,
+)
 from synesis.providers.finnhub.prices import (
     FinnhubPriceProvider,
     PriceService,  # Backwards compat alias
@@ -33,4 +36,6 @@ __all__ = [
     "FinnhubTickerProvider",
     # Fundamentals provider
     "FinnhubFundamentalsProvider",
+    # Watchlist adapter
+    "FinnhubWatchlistAdapter",
 ]

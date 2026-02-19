@@ -349,9 +349,9 @@ class TestMktIntelE2EWithMocks:
         poly_ws.subscribe.assert_called()
 
     @pytest.mark.asyncio
-    async def test_run_mkt_intel_loop_single_cycle(self, mock_redis: AsyncMock) -> None:
-        """Test the main loop runs one cycle and handles shutdown."""
-        from synesis.agent.__main__ import run_mkt_intel_loop
+    async def test_mkt_intel_job_single_run(self, mock_redis: AsyncMock) -> None:
+        """Test the mkt_intel_job runs scan and publishes signal."""
+        from synesis.agent.scheduler import mkt_intel_job
 
         mock_processor = AsyncMock()
         mock_signal = MarketIntelSignal(
@@ -360,35 +360,20 @@ class TestMktIntelE2EWithMocks:
         )
         mock_processor.run_scan = AsyncMock(return_value=mock_signal)
 
-        shutdown_event = asyncio.Event()
-
-        async def trigger_shutdown() -> None:
-            await asyncio.sleep(0.3)
-            shutdown_event.set()
-
         with (
             patch(
-                "synesis.agent.__main__.format_mkt_intel_signal",
+                "synesis.agent.scheduler.format_mkt_intel_signal",
                 return_value="test message",
             ),
             patch(
-                "synesis.agent.__main__.send_long_telegram",
+                "synesis.agent.scheduler.send_long_telegram",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
         ):
-            await asyncio.gather(
-                run_mkt_intel_loop(
-                    mock_processor,
-                    mock_redis,
-                    interval_seconds=1,
-                    shutdown_event=shutdown_event,
-                    startup_delay=0,
-                ),
-                trigger_shutdown(),
-            )
+            await mkt_intel_job(mock_processor, mock_redis)
 
-        assert mock_processor.run_scan.call_count >= 1
+        mock_processor.run_scan.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_api_routes_work_with_signal_data(
@@ -417,6 +402,8 @@ class TestMktIntelE2EWithMocks:
 
         state = MagicMock()
         state.redis = mock_redis
+        state.scheduler = MagicMock()
+        state.trigger_fns = {"mkt_intel": AsyncMock()}
 
         # Test /latest
         with patch("synesis.api.routes.mkt_intel.get_database", return_value=mock_db):

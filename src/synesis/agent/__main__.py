@@ -1,11 +1,10 @@
 """Agent lifecycle module used by the FastAPI server.
 
 Provides `agent_lifespan()` — an async context manager that starts and stops
-the full ingestion + processing pipeline (Twitter, Telegram, Reddit, sentiment,
+the full ingestion + processing pipeline (Telegram, Reddit, sentiment,
 PydanticAI agent workers). The FastAPI app calls this from its own lifespan.
 
 Configuration (set in .env):
-    - TWITTERAPI_API_KEY: For Twitter stream
     - TELEGRAM_API_ID, TELEGRAM_API_HASH: For Telegram
     - REDDIT_SUBREDDITS: For Reddit RSS (default: wallstreetbets,stocks,options)
 """
@@ -18,32 +17,36 @@ import time as _time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
 if TYPE_CHECKING:
-    from synesis.processing.mkt_intel.processor import MarketIntelProcessor
-    from synesis.processing.watchlist.processor import WatchlistProcessor
     from synesis.providers.finnhub.prices import FinnhubPriceProvider
 
 from redis.asyncio import Redis
 
+from synesis.agent.scheduler import (
+    create_scheduler,
+    mkt_intel_job,
+    sentiment_signal_job,
+    watchlist_cleanup_job,
+    watchlist_intel_job,
+)
 from synesis.config import Settings
 from synesis.core.logging import get_logger
-from synesis.providers.factory import create_ticker_provider
-from synesis.providers.finnhub.prices import close_price_service, init_price_service
 from synesis.ingestion.reddit import RedditPost, RedditRSSClient
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
-from synesis.ingestion.twitterapi import Tweet, TwitterStreamClient
-from synesis.notifications.telegram import (
-    format_arb_alert,
-    format_mkt_intel_signal,
-    format_sentiment_signal,
-    format_watchlist_signal,
-    send_long_telegram,
-)
+from synesis.notifications.telegram import format_arb_alert, send_long_telegram
 from synesis.processing.common.watchlist import WatchlistManager
+from synesis.processing.news import SourcePlatform, UnifiedMessage
 from synesis.processing.sentiment import SentimentProcessor
-from synesis.processing.news import SourcePlatform, SourceType, UnifiedMessage
+from synesis.providers.factory import create_fundamentals_provider, create_ticker_provider
+from synesis.providers.finnhub.prices import close_price_service, init_price_service
 from synesis.storage.database import Database, close_database, init_database
 from synesis.storage.redis import close_redis, init_redis
 
@@ -61,11 +64,12 @@ class AgentState:
     db: Database | None
     settings: Settings
     agent_task: asyncio.Task[None] | None
-    twitter_enabled: bool
     telegram_enabled: bool
     reddit_enabled: bool
     sentiment_enabled: bool
     db_enabled: bool
+    scheduler: AsyncIOScheduler | None = None
+    trigger_fns: dict[str, Any] = field(default_factory=dict)
     _background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
 
@@ -79,52 +83,18 @@ async def push_to_queue(redis: Redis, message: UnifiedMessage) -> None:
     )
 
 
-def create_tweet_to_queue_callback(
-    redis: Redis, settings: Settings
-) -> Callable[[Tweet], Coroutine[Any, Any, None]]:
-    """Create callback that pushes tweets to Redis queue."""
-
-    async def callback(tweet: Tweet) -> None:
-        source_type_str = settings.get_twitter_source_type(tweet.username)
-        source_type = SourceType.news if source_type_str == "news" else SourceType.analysis
-
-        message = UnifiedMessage(
-            external_id=tweet.tweet_id,
-            source_platform=SourcePlatform.twitter,
-            source_account=f"@{tweet.username}",
-            text=tweet.text,
-            timestamp=tweet.timestamp,
-            source_type=source_type,
-            raw=tweet.raw,
-        )
-
-        await push_to_queue(redis, message)
-        logger.debug(
-            "Tweet received and queued",
-            tweet_id=tweet.tweet_id,
-            username=tweet.username,
-            text_preview=tweet.text[:80] if tweet.text else "",
-        )
-
-    return callback
-
-
 def create_telegram_to_queue_callback(
-    redis: Redis, settings: Settings
+    redis: Redis,
 ) -> Callable[[TelegramMessage], Coroutine[Any, Any, None]]:
     """Create callback that pushes Telegram messages to Redis queue."""
 
     async def callback(telegram_msg: TelegramMessage) -> None:
-        source_type_str = settings.get_telegram_source_type(telegram_msg.channel_name)
-        source_type = SourceType.news if source_type_str == "news" else SourceType.analysis
-
         message = UnifiedMessage(
             external_id=str(telegram_msg.message_id),
             source_platform=SourcePlatform.telegram,
             source_account=telegram_msg.channel_name,
             text=telegram_msg.text,
             timestamp=telegram_msg.timestamp,
-            source_type=source_type,
             raw=telegram_msg.raw,
         )
 
@@ -144,7 +114,7 @@ def create_reddit_to_sentiment_callback(
 ) -> Callable[[RedditPost], Coroutine[Any, Any, None]]:
     """Create callback that processes Reddit posts through sentiment pipeline.
 
-    Unlike Twitter/Telegram which go to the main queue for news processing,
+    Unlike Telegram which goes to the main queue for news processing,
     Reddit posts go directly to the sentiment pipeline.
     """
 
@@ -162,235 +132,6 @@ def create_reddit_to_sentiment_callback(
         )
 
     return callback
-
-
-async def run_sentiment_signal_loop(
-    sentiment_processor: SentimentProcessor,
-    redis: Redis,
-    interval_seconds: int,
-    shutdown_event: asyncio.Event,
-    startup_delay: int = 60,  # Wait 60s on startup for Reddit to fetch posts
-) -> None:
-    """Run the sentiment signal generation loop.
-
-    On startup, waits briefly for Reddit to fetch initial posts, then generates
-    the first signal. After that, generates signals at the configured interval.
-    Also publishes signals to Redis pub/sub.
-    """
-    signal_channel = "synesis:sentiment:signals"
-    first_run = True
-
-    while not shutdown_event.is_set():
-        try:
-            # Determine wait time: short delay on first run, full interval after
-            wait_time = startup_delay if first_run else interval_seconds
-
-            # Wait for interval or shutdown
-            try:
-                await asyncio.wait_for(
-                    shutdown_event.wait(),
-                    timeout=wait_time,
-                )
-                # Shutdown event was set
-                break
-            except TimeoutError:
-                # Wait elapsed, generate signal
-                pass
-
-            first_run = False
-            logger.debug("Generating sentiment signal")
-            signal = await sentiment_processor.generate_signal()
-
-            # Publish signal to Redis for subscribers
-            signal_json = signal.model_dump_json()
-            await redis.publish(signal_channel, signal_json)
-
-            # Send to Telegram
-            telegram_message = format_sentiment_signal(signal)
-            sent = await send_long_telegram(telegram_message)
-            if not sent:
-                logger.error(
-                    "Failed to send sentiment signal to Telegram",
-                    watchlist_size=len(signal.watchlist),
-                    message_length=len(telegram_message),
-                )
-
-            logger.info(
-                "Sentiment signal generated and published",
-                watchlist_size=len(signal.watchlist),
-                posts_analyzed=signal.total_posts_analyzed,
-                overall_sentiment=signal.overall_sentiment,
-            )
-
-        except Exception as e:
-            logger.exception("Sentiment signal generation failed", error=str(e))
-            # Continue running, don't crash the loop
-
-
-async def run_watchlist_cleanup_loop(
-    db: Database,
-    shutdown_event: asyncio.Event,
-    watchlist: WatchlistManager | None = None,
-    check_interval: int = 300,  # 5 minutes
-) -> None:
-    """Periodically cleanup expired watchlist tickers.
-
-    Handles watchlist expiration cleanup for both PostgreSQL and Redis.
-
-    Args:
-        db: Database instance
-        shutdown_event: Event to signal shutdown
-        watchlist: Optional WatchlistManager for Redis cleanup
-        check_interval: Seconds between checks (default 5 minutes)
-    """
-    while not shutdown_event.is_set():
-        try:
-            # Wait for interval or shutdown
-            try:
-                await asyncio.wait_for(shutdown_event.wait(), timeout=check_interval)
-                break
-            except TimeoutError:
-                pass
-
-            # Cleanup expired watchlist tickers in PostgreSQL
-            expired_pg = await db.deactivate_expired_watchlist()
-            if expired_pg:
-                logger.info(
-                    "Deactivated expired watchlist tickers (PostgreSQL)", tickers=expired_pg
-                )
-
-            # Cleanup expired watchlist tickers in Redis (if watchlist provided)
-            if watchlist:
-                expired_redis = await watchlist.cleanup_expired()
-                if expired_redis:
-                    logger.info("Removed expired watchlist tickers (Redis)", tickers=expired_redis)
-
-        except Exception as e:
-            logger.exception("Watchlist cleanup failed", error=str(e))
-            # Continue running, don't crash the loop
-
-
-async def run_mkt_intel_loop(
-    processor: "MarketIntelProcessor",
-    redis: Redis,
-    interval_seconds: int,
-    shutdown_event: asyncio.Event,
-    startup_delay: int = 30,
-) -> None:
-    """Run the market intelligence signal generation loop.
-
-    Scans markets every interval, generates signals, sends Telegram notifications.
-    Also publishes signals to Redis pub/sub.
-    """
-    from synesis.core.constants import MARKET_INTEL_REDIS_PREFIX
-
-    signal_channel = "synesis:mkt_intel:signals"
-    trigger_key = f"{MARKET_INTEL_REDIS_PREFIX}:trigger_scan"
-    first_run = True
-
-    while not shutdown_event.is_set():
-        try:
-            wait_time = startup_delay if first_run else interval_seconds
-
-            # Wait for interval, shutdown, or manual trigger
-            try:
-                await asyncio.wait_for(shutdown_event.wait(), timeout=wait_time)
-                break
-            except TimeoutError:
-                pass
-
-            # Check for manual trigger
-            triggered = await redis.get(trigger_key)
-            if triggered:
-                await redis.delete(trigger_key)
-                logger.info("Manual mkt_intel scan triggered")
-
-            first_run = False
-            logger.debug("Running mkt_intel scan")
-            signal = await processor.run_scan()
-
-            # Publish to Redis
-            signal_json = signal.model_dump_json()
-            await redis.publish(signal_channel, signal_json)
-
-            # Send Telegram
-            telegram_message = format_mkt_intel_signal(signal)
-            sent = await send_long_telegram(telegram_message)
-            if not sent:
-                logger.error(
-                    "Failed to send mkt_intel signal to Telegram",
-                    opportunities=len(signal.opportunities),
-                )
-
-            logger.info(
-                "Mkt_intel signal generated and published",
-                markets_scanned=signal.total_markets_scanned,
-                opportunities=len(signal.opportunities),
-            )
-
-        except Exception as e:
-            logger.exception("Mkt_intel signal generation failed", error=str(e))
-
-
-async def run_watchlist_intel_loop(
-    processor: "WatchlistProcessor",
-    redis: Redis,
-    interval_seconds: int,
-    shutdown_event: asyncio.Event,
-    startup_delay: int = 120,
-) -> None:
-    """Run the watchlist intelligence analysis loop.
-
-    Periodically sweeps watchlist tickers with fundamental providers.
-    """
-    from synesis.core.constants import WATCHLIST_INTEL_REDIS_PREFIX
-
-    signal_channel = "synesis:watchlist_intel:signals"
-    trigger_key = f"{WATCHLIST_INTEL_REDIS_PREFIX}:trigger"
-    first_run = True
-
-    while not shutdown_event.is_set():
-        try:
-            wait_time = startup_delay if first_run else interval_seconds
-
-            # Wait for interval, shutdown, or manual trigger
-            try:
-                await asyncio.wait_for(shutdown_event.wait(), timeout=wait_time)
-                break
-            except TimeoutError:
-                pass
-
-            # Check for manual trigger
-            triggered = await redis.get(trigger_key)
-            if triggered:
-                await redis.delete(trigger_key)
-                logger.info("Manual watchlist intel scan triggered")
-
-            first_run = False
-            logger.debug("Running watchlist intel scan")
-            signal = await processor.run_analysis()
-
-            # Publish to Redis
-            signal_json = signal.model_dump_json()
-            await redis.publish(signal_channel, signal_json)
-
-            # Send Telegram
-            telegram_message = format_watchlist_signal(signal)
-            sent = await send_long_telegram(telegram_message)
-            if not sent:
-                logger.error(
-                    "Failed to send watchlist intel signal to Telegram",
-                    tickers=signal.tickers_analyzed,
-                )
-
-            logger.info(
-                "Watchlist intel signal generated and published",
-                tickers_analyzed=signal.tickers_analyzed,
-                alerts=len(signal.alerts),
-            )
-
-        except Exception as e:
-            logger.exception("Watchlist intel generation failed", error=str(e))
 
 
 async def run_arb_monitor(
@@ -567,24 +308,21 @@ async def agent_lifespan(
     db: Database | None = None
     db_initialized = False
     price_service: FinnhubPriceProvider | None = None
-    twitter_client: TwitterStreamClient | None = None
     telegram_listener: TelegramListener | None = None
     reddit_client: RedditRSSClient | None = None
     sentiment_processor: SentimentProcessor | None = None
     agent_task: asyncio.Task[None] | None = None
-    sentiment_signal_task: asyncio.Task[None] | None = None
-    watchlist_cleanup_task: asyncio.Task[None] | None = None
-    mkt_intel_task: asyncio.Task[None] | None = None
     mkt_intel_ws_manager = None
     mkt_intel_kalshi_client = None
     mkt_intel_poly_client = None
     mkt_intel_data_client = None
     arb_monitor_task: asyncio.Task[None] | None = None
-    watchlist_intel_task: asyncio.Task[None] | None = None
     ticker_provider = None
-    watchlist_intel_factset = None
+    watchlist_fundamentals = None
     watchlist_intel_sec_edgar = None
     watchlist_intel_nasdaq = None
+    scheduler: AsyncIOScheduler | None = None
+    trigger_fns: dict[str, Any] = {}
 
     try:
         # 1. Connect to Redis (also sets the module-level global for get_redis())
@@ -627,22 +365,7 @@ async def agent_lifespan(
         if db:
             await watchlist.sync_from_db()
 
-        # 3. Start Twitter stream (if configured)
-        if settings.twitterapi_api_key:
-            twitter_client = TwitterStreamClient(
-                api_key=settings.twitterapi_api_key.get_secret_value(),
-            )
-            twitter_client.on_tweet(create_tweet_to_queue_callback(redis, settings))
-            await twitter_client.start()
-            logger.info(
-                "Twitter stream started",
-                news_accounts=settings.twitter_news_accounts,
-                analysis_accounts=settings.twitter_analysis_accounts,
-            )
-        else:
-            logger.warning("TWITTERAPI_API_KEY not set, Twitter stream disabled")
-
-        # 4. Start Telegram listener (if configured)
+        # 3. Start Telegram listener (if configured)
         if settings.telegram_api_id and settings.telegram_api_hash:
             telegram_listener = TelegramListener(
                 api_id=settings.telegram_api_id,
@@ -650,7 +373,7 @@ async def agent_lifespan(
                 session_name=settings.telegram_session_name,
                 channels=settings.telegram_channels,
             )
-            telegram_listener.on_message(create_telegram_to_queue_callback(redis, settings))
+            telegram_listener.on_message(create_telegram_to_queue_callback(redis))
             await telegram_listener.start()
             logger.info(
                 "Telegram listener started",
@@ -693,15 +416,7 @@ async def agent_lifespan(
                 poll_interval_hours=settings.reddit_poll_interval // 3600,
             )
 
-            # Start sentiment signal generation loop
-            sentiment_signal_task = asyncio.create_task(
-                run_sentiment_signal_loop(
-                    sentiment_processor,
-                    redis,
-                    interval_seconds=settings.reddit_poll_interval,
-                    shutdown_event=shutdown_event,
-                )
-            )
+            # Sentiment signal generation is scheduled below with APScheduler
         else:
             logger.info("No Reddit subreddits configured, sentiment disabled")
 
@@ -765,15 +480,7 @@ async def agent_lifespan(
                 db=db,
             )
 
-            # Start 15-min aggregation loop
-            mkt_intel_task = asyncio.create_task(
-                run_mkt_intel_loop(
-                    mkt_intel_processor,
-                    redis,
-                    settings.mkt_intel_interval,
-                    shutdown_event,
-                )
-            )
+            # Mkt intel scan is scheduled below with APScheduler
 
             # Start real-time arb monitor (if WebSocket enabled)
             if ws_manager:
@@ -801,18 +508,18 @@ async def agent_lifespan(
                 WatchlistProcessor as WatchlistProc,
             )
 
-            # Initialize fundamental providers for watchlist only
+            # Initialize fundamentals provider (FactSet or Finnhub based on config)
             try:
-                from synesis.providers.factset.client import FactSetClient as FSClient
-                from synesis.providers.factset.provider import (
-                    FactSetProvider as FSProvider,
-                )
-
-                fs_client = FSClient()
-                watchlist_intel_factset = FSProvider(client=fs_client)
-                logger.debug("Watchlist intel: FactSet provider initialized")
+                watchlist_fundamentals = await create_fundamentals_provider(redis)
+                if watchlist_fundamentals:
+                    logger.debug(
+                        "Watchlist intel: fundamentals provider initialized",
+                        provider=settings.fundamentals_provider,
+                    )
+                else:
+                    logger.info("Watchlist intel: fundamentals provider set to 'none'")
             except Exception as e:
-                logger.warning("Watchlist intel: FactSet not available", error=str(e))
+                logger.warning("Watchlist intel: fundamentals provider not available", error=str(e))
 
             try:
                 from synesis.providers.nasdaq.client import NasdaqClient as NQClient
@@ -828,24 +535,17 @@ async def agent_lifespan(
 
             watchlist_intel_processor = WatchlistProc(
                 watchlist=watchlist,
-                factset=watchlist_intel_factset,
+                fundamentals=watchlist_fundamentals,
                 sec_edgar=watchlist_intel_sec_edgar,
                 nasdaq=watchlist_intel_nasdaq,
                 db=db,
                 ticker_provider=ticker_provider,
             )
 
-            watchlist_intel_task = asyncio.create_task(
-                run_watchlist_intel_loop(
-                    watchlist_intel_processor,
-                    redis,
-                    settings.watchlist_intel_interval,
-                    shutdown_event,
-                )
-            )
+            # Watchlist intel is scheduled below with APScheduler
             logger.info(
                 "Watchlist intelligence started",
-                interval=settings.watchlist_intel_interval,
+                daily_hour_sgt=settings.watchlist_intel_hour_sgt,
             )
         else:
             logger.info("Watchlist intelligence disabled (watchlist_intel_enabled=False)")
@@ -858,21 +558,68 @@ async def agent_lifespan(
             )
 
         # Check we have at least one source (news or sentiment)
-        has_news_source = twitter_client is not None or telegram_listener is not None
+        has_news_source = telegram_listener is not None
         has_sentiment_source = reddit_client is not None
         if not has_news_source and not has_sentiment_source:
             logger.error(
-                "No data sources configured! Set TWITTERAPI_API_KEY, "
+                "No data sources configured! Set "
                 "TELEGRAM_API_ID/TELEGRAM_API_HASH, or REDDIT_SUBREDDITS in .env"
             )
             sys.exit(1)
 
-        # 5b. Start watchlist cleanup loop (if DB available)
-        if db:
-            watchlist_cleanup_task = asyncio.create_task(
-                run_watchlist_cleanup_loop(db, shutdown_event, watchlist=watchlist)
+        # 5b. Set up APScheduler for all periodic jobs
+        scheduler = create_scheduler()
+
+        # Sentiment signal (Flow 2)
+        if sentiment_processor and reddit_client:
+            scheduler.add_job(
+                sentiment_signal_job,
+                IntervalTrigger(seconds=settings.reddit_poll_interval),
+                args=[sentiment_processor, redis],
+                id="sentiment_signal",
+                max_instances=1,
+                misfire_grace_time=None,
+                next_run_time=datetime.now(UTC) + timedelta(seconds=60),
             )
-            logger.debug("Watchlist cleanup loop started")
+
+        # Watchlist cleanup
+        if db:
+            scheduler.add_job(
+                watchlist_cleanup_job,
+                IntervalTrigger(minutes=5),
+                args=[db, watchlist],
+                id="watchlist_cleanup",
+                max_instances=1,
+            )
+
+        # Market intel (Flow 3)
+        if settings.mkt_intel_enabled:
+            scheduler.add_job(
+                mkt_intel_job,
+                IntervalTrigger(seconds=settings.mkt_intel_interval),
+                args=[mkt_intel_processor, redis],
+                id="mkt_intel_scan",
+                max_instances=1,
+                misfire_grace_time=None,
+                next_run_time=datetime.now(UTC) + timedelta(seconds=30),
+            )
+            trigger_fns["mkt_intel"] = partial(mkt_intel_job, mkt_intel_processor, redis)
+
+        # Watchlist intel (Flow 4)
+        if settings.watchlist_intel_enabled and redis:
+            scheduler.add_job(
+                watchlist_intel_job,
+                CronTrigger(hour=settings.watchlist_intel_hour_sgt, timezone="Asia/Singapore"),
+                args=[watchlist_intel_processor, redis],
+                id="watchlist_intel",
+                max_instances=1,
+                misfire_grace_time=None,
+            )
+            trigger_fns["watchlist_intel"] = partial(
+                watchlist_intel_job, watchlist_intel_processor, redis
+            )
+
+        scheduler.start()
 
         # 6. Start agent processing loop
         def agent_exception_handler(task: asyncio.Task[None]) -> None:
@@ -908,40 +655,31 @@ async def agent_lifespan(
             "Agent ready",
             llm_provider=settings.llm_provider,
             llm_model=settings.llm_model,
-            twitter_enabled=twitter_client is not None,
             telegram_enabled=telegram_listener is not None,
             reddit_enabled=reddit_client is not None,
             sentiment_enabled=sentiment_processor is not None,
-            mkt_intel_enabled=mkt_intel_task is not None,
-            watchlist_intel_enabled=watchlist_intel_task is not None,
-            watchlist_cleanup_enabled=watchlist_cleanup_task is not None,
+            mkt_intel_enabled=settings.mkt_intel_enabled,
+            watchlist_intel_enabled=settings.watchlist_intel_enabled,
             db_enabled=db_initialized,
             queue=INCOMING_QUEUE,
         )
 
-        # Build background tasks list for the state
+        # Build background tasks list (only arb monitor — rest are scheduler jobs)
         background_tasks: list[asyncio.Task[None]] = []
-        if sentiment_signal_task:
-            background_tasks.append(sentiment_signal_task)
-        if watchlist_cleanup_task:
-            background_tasks.append(watchlist_cleanup_task)
-        if mkt_intel_task:
-            background_tasks.append(mkt_intel_task)
         if arb_monitor_task:
             background_tasks.append(arb_monitor_task)
-        if watchlist_intel_task:
-            background_tasks.append(watchlist_intel_task)
 
         yield AgentState(
             redis=redis,
             db=db,
             settings=settings,
             agent_task=agent_task,
-            twitter_enabled=twitter_client is not None,
             telegram_enabled=telegram_listener is not None,
             reddit_enabled=reddit_client is not None,
             sentiment_enabled=sentiment_processor is not None,
             db_enabled=db_initialized,
+            scheduler=scheduler,
+            trigger_fns=trigger_fns,
             _background_tasks=background_tasks,
         )
 
@@ -949,28 +687,17 @@ async def agent_lifespan(
         # Graceful shutdown
         logger.info("Shutting down agent...")
 
+        # Stop scheduler (all periodic jobs)
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=False)
+            logger.debug("Scheduler stopped")
+
         if agent_task:
             agent_task.cancel()
             try:
                 await agent_task
             except asyncio.CancelledError:
                 pass
-
-        if sentiment_signal_task:
-            sentiment_signal_task.cancel()
-            try:
-                await sentiment_signal_task
-            except asyncio.CancelledError:
-                pass
-            logger.debug("Sentiment signal loop stopped")
-
-        if watchlist_cleanup_task:
-            watchlist_cleanup_task.cancel()
-            try:
-                await watchlist_cleanup_task
-            except asyncio.CancelledError:
-                pass
-            logger.debug("Watchlist cleanup loop stopped")
 
         if arb_monitor_task:
             arb_monitor_task.cancel()
@@ -980,24 +707,8 @@ async def agent_lifespan(
                 pass
             logger.debug("Arb monitor stopped")
 
-        if mkt_intel_task:
-            mkt_intel_task.cancel()
-            try:
-                await mkt_intel_task
-            except asyncio.CancelledError:
-                pass
-            logger.debug("Mkt_intel signal loop stopped")
-
-        if watchlist_intel_task:
-            watchlist_intel_task.cancel()
-            try:
-                await watchlist_intel_task
-            except asyncio.CancelledError:
-                pass
-            logger.debug("Watchlist intel loop stopped")
-
         for wl_client, wl_name in [
-            (watchlist_intel_factset, "Watchlist FactSet"),
+            (watchlist_fundamentals, "Watchlist Fundamentals"),
             (watchlist_intel_sec_edgar, "Watchlist SEC EDGAR"),
             (watchlist_intel_nasdaq, "Watchlist NASDAQ"),
         ]:
@@ -1024,10 +735,6 @@ async def agent_lifespan(
                     await client.close()
                 except Exception as e:
                     logger.error(f"Failed to close {name} client", error=str(e))
-
-        if twitter_client:
-            await twitter_client.stop()
-            logger.debug("Twitter stream stopped")
 
         if telegram_listener:
             await telegram_listener.stop()

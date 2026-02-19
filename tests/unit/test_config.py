@@ -130,15 +130,6 @@ class TestGetTwitterSourceType:
         assert s.get_twitter_source_type("@DeItaone") == "news"
 
 
-class TestGetTelegramSourceType:
-    """Tests for get_telegram_source_type method."""
-
-    def test_always_returns_news(self) -> None:
-        s = Settings.model_construct()
-        assert s.get_telegram_source_type("any_channel") == "news"
-        assert s.get_telegram_source_type("another") == "news"
-
-
 class TestValidateSearxngUrl:
     """Tests for validate_searxng_url validator."""
 
@@ -249,7 +240,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("finnhub_api_key", "FINNHUB_API_KEY", "fhkey", "fhkey"),  # SecretStr
     # --- Providers ---
     ("ticker_provider", "TICKER_PROVIDER", "factset", "factset"),
-    ("fundamentals_provider", "FUNDAMENTALS_PROVIDER", "sec_edgar", "sec_edgar"),
+    ("fundamentals_provider", "FUNDAMENTALS_PROVIDER", "finnhub", "finnhub"),
     # --- SEC EDGAR ---
     ("sec_edgar_user_agent", "SEC_EDGAR_USER_AGENT", "Test test@test.com", "Test test@test.com"),
     ("sec_edgar_cache_ttl_submissions", "SEC_EDGAR_CACHE_TTL_SUBMISSIONS", "7200", 7200),
@@ -292,7 +283,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("mkt_intel_unwatch_threshold", "MKT_INTEL_UNWATCH_THRESHOLD", "0.2", 0.2),
     # --- Watchlist Intelligence (Flow 4) ---
     ("watchlist_intel_enabled", "WATCHLIST_INTEL_ENABLED", "true", True),
-    ("watchlist_intel_interval", "WATCHLIST_INTEL_INTERVAL", "10800", 10800),
+    ("watchlist_intel_hour_sgt", "WATCHLIST_INTEL_HOUR_SGT", "10", 10),
     ("watchlist_intel_earnings_alert_days", "WATCHLIST_INTEL_EARNINGS_ALERT_DAYS", "3", 3),
     ("watchlist_intel_max_tickers", "WATCHLIST_INTEL_MAX_TICKERS", "50", 50),
     # --- Trading ---
