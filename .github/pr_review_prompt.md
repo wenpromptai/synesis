@@ -5,16 +5,17 @@
 You are performing a CODE REVIEW ONLY. The GitHub CLI (`gh`) may be available and authenticated via `GH_TOKEN` - if so, use it to fetch PR details and post your review as a comment. If `gh` is not available or you don't have network access, write your review to the output file and the GitHub Actions workflow will post it as a comment on the pull request.
 
 ## Your Role
-You are reviewing code for the PydanticAI Research Agent.
+You are reviewing code for Synesis. Follow CLAUDE.md (in the project root) for development principles and standards.
 
 ## Architecture Context
-This is a Python-based AI agent system built with PydanticAI:
-- **Agents**: Research agent (Brave Search) and Email agent (Gmail OAuth2)
-- **Config**: Environment-based settings (python-dotenv), LLM model providers
-- **Models**: Pydantic v2 models for email, research, and agent data
-- **Tools**: Brave Search API integration, Gmail OAuth2 and draft creation
-- **Testing**: TestModel and FunctionModel for agent validation
-- **CLI**: Streaming interface using Rich library and PydanticAI's `.iter()` method
+This is a Python-based financial intelligence system built with FastAPI and PydanticAI:
+- **Processing**: 4 analysis flows — news (Flow 1), sentiment (Flow 2), market intel (Flow 3), watchlist (Flow 4)
+- **Providers**: SEC EDGAR, NASDAQ, Finnhub, FactSet for market data
+- **Markets**: Polymarket CLOB API integration for prediction markets
+- **Agent**: PydanticAI agent with APScheduler for periodic jobs
+- **Storage**: PostgreSQL (TimescaleDB) + Redis
+- **Config**: pydantic-settings `BaseSettings` with `.env` files
+- **Testing**: Unit tests in `tests/unit/`, integration tests (real APIs) in `tests/integration/` with `@pytest.mark.integration`
 
 ## Review Process
 
@@ -44,47 +45,40 @@ Use git commands or file reading to understand the changes in the repository.
 
 ## Review Focus Areas
 
-### 1. PydanticAI Agent Development Standards
-- Agent structure follows patterns: `agent.py`, `tools.py`, `models.py`, `dependencies.py`
-- Use `@agent.tool` decorator for context-aware tools with RunContext[DepsType]
-- Use `@agent.tool_plain` decorator for simple tools without context
-- Proper dependency injection with `deps_type`
-- System prompts are comprehensive (both static and dynamic)
-- No `result_type` unless structured output is specifically needed (default to string)
-- Model-agnostic design supporting multiple providers (OpenAI, Anthropic, Gemini)
+### 1. Architecture & Patterns
+- Dataclass-based clients (e.g., `PolymarketClient`, `KalshiClient`) with `_get_client()` returning httpx.AsyncClient
+- Pipeline pattern: `scanner.scan()` → `processor.run_scan()` → Signal model
+- pydantic-settings `BaseSettings` with `Field(default=...)` for configuration
+- asyncpg via `Database` wrapper in `storage/database.py`
+- PydanticAI agents with structured output models for LLM analysis
 
 ### 2. Environment Configuration & Security
-- Use `python-dotenv` and `load_dotenv()` following `examples/main_agent_reference/settings.py`
 - Use `pydantic-settings` with `BaseSettings` for configuration management
 - No hardcoded API keys or sensitive information
-- Proper `.env` file usage with `.env.example` provided
-- API key management and secure error messages (no sensitive data exposure)
+- Proper `.env` file usage
+- API key management via `SecretStr` fields
+- Error messages don't expose sensitive data
 
-### 3. Code Quality - Python & PydanticAI
-- Type hints on all functions and classes
-- Pydantic v2 models for validation (`ConfigDict` not `class Config`, `model_dump()` not `dict()`)
-- Proper error handling with retry mechanisms and graceful degradation
-- Tool parameter validation using Pydantic models
-- Following PEP 8 standards
+### 3. Code Quality
+- Type hints on all functions and classes (mypy strict)
+- Pydantic v2 models for validation
+- Proper error handling with structured logging (structlog)
 - Async/await patterns consistent throughout
-- Google style docstrings where appropriate
+- Ruff for linting and formatting
 
-### 4. Testing Standards for AI Agents
-- Use `TestModel` for development without API calls
-- Use `FunctionModel` for custom behavior in tests
-- Use `Agent.override()` for testing with different models
-- Test both sync and async patterns
-- Test tool validation (parameter schemas and error handling)
+### 4. Testing Standards
+- Unit tests in `tests/unit/` with mocked dependencies
+- Integration tests (real APIs) in `tests/integration/` with `@pytest.mark.integration`
+- Mock-based e2e tests go in `tests/unit/` (not integration)
 - Edge cases and external service failures covered
-- Tests in `tests/` directory with pytest
+- Tests use pytest with anyio for async
 
-### 5. Production-Ready AI Development Principles (from AGENTS.md, be sure to read this file)
-- Comprehensive error handling for tool failures and model errors
-- Input validation to prevent prompt injection
-- Rate limiting for external API calls
-- Proper context state management
-- Files kept under 500 lines (split into modules when approaching limit)
-- Clear separation of concerns across agent modules
+### 5. Production-Ready Principles
+- Comprehensive error handling for API failures and model errors
+- Rate limiting for external API calls (e.g., Finnhub 60/min)
+- Redis caching with TTLs for expensive API calls
+- Graceful degradation when providers are unavailable
+- Structured logging with structlog for observability
 
 ## Required Output Format
 
@@ -116,21 +110,21 @@ Total: [X critical, Y important, Z minor]
   [Brief description and why it would help]
 
 ## Security Assessment
-Security focus for this AI agent system should be on:
-- Input validation to prevent prompt injection attacks
-- OAuth2 token security (Gmail credentials, token refresh)
-- No hardcoded API keys or sensitive information
+Security focus for this system should be on:
+- No hardcoded API keys or sensitive information (use `SecretStr`)
 - Environment variable management (proper .env usage)
-- Error messages don't expose sensitive information
+- Error messages don't expose sensitive data
 - External API calls include proper timeout and rate limiting
+- SSRF prevention for configurable URLs (see `validate_searxng_url`)
+- Trading safety: no trades without `TRADING_ENABLED=true`
 [List any security issues found or state "No security issues found"]
 
 ## Performance Considerations
-- Agent execution efficiency (token usage, model calls)
-- Tool call optimization (minimize redundant API calls)
-- Async/await usage in Python for concurrent operations
-- Streaming output implementation (proper use of `.iter()` method)
-- External API rate limiting and timeout handling
+- LLM call efficiency (token usage, model selection: haiku vs sonnet)
+- Redis caching for expensive API calls (Finnhub, FactSet, SEC EDGAR)
+- Async/await usage for concurrent operations
+- Rate limiting compliance (Finnhub 60/min, SEC EDGAR fair use)
+- WebSocket connection management and reconnection
 [List any performance issues or state "No performance concerns"]
 
 ## Good Practices Observed
@@ -170,7 +164,7 @@ Security focus for this AI agent system should be on:
 [Brief explanation rationale for above recommendations, considering this is a production-ready AI agent project]
 
 ---
-*Review based on PydanticAI Research Agent guidelines and AGENTS.md principles*
+*Review based on Synesis guidelines and CLAUDE.md principles*
 
 ## POST YOUR REVIEW
 

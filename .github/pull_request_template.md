@@ -41,7 +41,7 @@
 uv run pytest
 
 # Type checking
-uv run mypy .
+uv run mypy src/
 
 # Linting
 uv run ruff check .

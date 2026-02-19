@@ -314,7 +314,9 @@ class WatchlistProcessor:
             except Exception as e:
                 logger.warning("News search failed", ticker=ticker, error=str(e))
 
-        await asyncio.gather(fetch_fundamentals(), fetch_sec_edgar(), fetch_nasdaq(), fetch_news())
+        # Resolve company name first so fetch_news can include it in search queries
+        await fetch_fundamentals()
+        await asyncio.gather(fetch_sec_edgar(), fetch_nasdaq(), fetch_news())
         return intel
 
     def detect_alerts(

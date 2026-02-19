@@ -5,16 +5,17 @@
 Git is available and configured. You have write access to repository contents. The GitHub CLI (`gh`) may be available and authenticated via `GH_TOKEN` - if so, use it to create branches, commits, pull requests, and comment on issues. If `gh` is not available or you don't have network access, just make the file changes and the GitHub Actions workflow will handle creating the branch, commit, and pull request automatically.
 
 ## Your Role
-You are fixing issues in the PydanticAI Research Agent. Follow AGENTS.md (in the project root) for PydanticAI development principles and standards.
+You are fixing issues in Synesis. Follow CLAUDE.md (in the project root) for development principles and standards.
 
 ## Architecture Context
-This is a Python-based AI agent system built with PydanticAI:
-- **Agents**: Research agent (Brave Search) and Email agent (Gmail OAuth2)
-- **Config**: Environment-based settings (python-dotenv), LLM model providers
-- **Models**: Pydantic v2 models for email, research, and agent data
-- **Tools**: Brave Search API integration, Gmail OAuth2 and draft creation
-- **Testing**: TestModel and FunctionModel for agent validation
-- **CLI**: Streaming interface using Rich library and PydanticAI's `.iter()` method
+This is a Python-based financial intelligence system built with FastAPI and PydanticAI:
+- **Processing**: 4 analysis flows — news (Flow 1), sentiment (Flow 2), market intel (Flow 3), watchlist (Flow 4)
+- **Providers**: SEC EDGAR, NASDAQ, Finnhub, FactSet for market data
+- **Markets**: Polymarket CLOB API integration for prediction markets
+- **Agent**: PydanticAI agent with APScheduler for periodic jobs
+- **Storage**: PostgreSQL (TimescaleDB) + Redis
+- **Config**: pydantic-settings `BaseSettings` with `.env` files
+- **Testing**: Unit tests in `tests/unit/`, integration tests (real APIs) in `tests/integration/` with `@pytest.mark.integration`
 
 ## Fix Workflow - FAST AND MINIMAL
 
@@ -77,7 +78,7 @@ Just make the file changes. The GitHub Actions workflow will automatically creat
 
 ## Remember
 - The person triggering this workflow wants a FAST fix - deliver one or explain why you can't
-- Follow AGENTS.md for PydanticAI development principles and agent patterns
+- Follow CLAUDE.md for development principles and project standards
 - Prefer ripgrep over grep for searching
 - Keep changes minimal - resist urge to refactor
 - Focus on making the code changes - the workflow handles git operations if needed

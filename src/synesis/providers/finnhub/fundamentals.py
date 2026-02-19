@@ -122,6 +122,7 @@ class FinnhubWatchlistAdapter:
                 return orjson.loads(cached)
             except Exception:
                 logger.warning("Corrupt cache entry, refetching", cache_key=cache_key)
+                await self._redis.delete(cache_key)
 
         from synesis.config import get_settings
 

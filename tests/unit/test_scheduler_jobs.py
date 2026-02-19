@@ -6,6 +6,7 @@ import pytest
 
 from synesis.agent.scheduler import (
     create_scheduler,
+    mkt_intel_job,
     sentiment_signal_job,
     watchlist_cleanup_job,
     watchlist_intel_job,
@@ -78,6 +79,38 @@ class TestSentimentSignalJob:
         ):
             # Should not raise
             await sentiment_signal_job(mock_processor, mock_redis)
+
+
+class TestMktIntelJob:
+    """Tests for mkt_intel_job."""
+
+    @pytest.mark.asyncio
+    async def test_runs_scan_and_publishes(self) -> None:
+        mock_processor = AsyncMock()
+        mock_signal = MagicMock()
+        mock_signal.model_dump_json.return_value = '{"markets": 50}'
+        mock_signal.total_markets_scanned = 50
+        mock_signal.opportunities = []
+        mock_processor.run_scan.return_value = mock_signal
+
+        mock_redis = AsyncMock()
+
+        with (
+            patch(
+                "synesis.agent.scheduler.format_mkt_intel_signal",
+                return_value="formatted",
+            ),
+            patch(
+                "synesis.agent.scheduler.send_long_telegram",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_send,
+        ):
+            await mkt_intel_job(mock_processor, mock_redis)
+
+        mock_processor.run_scan.assert_awaited_once()
+        mock_redis.publish.assert_awaited_once_with("synesis:mkt_intel:signals", '{"markets": 50}')
+        mock_send.assert_awaited_once_with("formatted")
 
 
 class TestWatchlistIntelJob:
