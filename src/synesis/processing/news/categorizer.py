@@ -125,7 +125,7 @@ def _looks_like_analysis(text: str) -> bool:
         r"\bCOMMENTARY\b",
         r"\bOPINION\b",
         r"\bTHREAD\b",
-        r"^RT\s+@",  # Retweet
+        r"^RT\s+@",  # Forwarded repost
         r"\bIMO\b",
         r"\bIMHO\b",
     ]
@@ -189,7 +189,7 @@ LOW_PATTERNS = [
     r"\bOPINION\b",
     r"\bANALYSIS\b",
     r"\bCOMMENTARY\b",
-    r"^RT\s+@",  # Retweets
+    r"^RT\s+@",  # Forwarded reposts
     r"\bTHREAD\b",
     r"\bIMO\b",
     r"\bI\s+THINK\b",

@@ -19,7 +19,6 @@ Architecture follows PydanticAI best practices:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import TYPE_CHECKING, Literal
 
 import httpx
@@ -404,7 +403,6 @@ class SmartAnalyzer:
 ## Breaking News (Current Analysis Subject)
 Source: {msg.source_account} ({msg.source_platform.value})
 Timestamp: {msg.timestamp.isoformat()}
-Type: {msg.source_type.value}
 
 Message:
 {msg.text}
@@ -420,7 +418,7 @@ Summary: {ext.summary}
 {web_section}
 
 ## Polymarket Markets (Pre-Searched)
-{ctx.deps.markets_text or "No prediction markets searched (analysis post)."}"""
+{ctx.deps.markets_text or "No prediction markets found."}"""
 
         # Tool: Check Relevance (structured thinking tool)
         @agent.tool
@@ -700,46 +698,3 @@ Focus on DIRECT impacts. Be conservative with confidence scores."""
             log.exception("Stage 2 analysis failed", error=str(e))
             # Return None to signal failure - callers must handle this
             return None
-
-
-@lru_cache(maxsize=1)
-def get_smart_analyzer() -> SmartAnalyzer:
-    """Get the singleton smart analyzer instance."""
-    return SmartAnalyzer()
-
-
-async def analyze_with_context(
-    message: UnifiedMessage,
-    extraction: LightClassification,
-    web_results: list[str],
-    markets_text: str,
-    polymarket_client: "PolymarketClient | None" = None,
-    http_client: httpx.AsyncClient | None = None,
-    ticker_provider: "TickerProvider | None" = None,
-) -> SmartAnalysis | None:
-    """Convenience function for Stage 2 smart analysis.
-
-    Args:
-        message: The news message
-        extraction: Stage 1 extraction result
-        web_results: Pre-fetched web search results
-        markets_text: Pre-fetched Polymarket search results
-        polymarket_client: Optional Polymarket client
-        http_client: Optional HTTP client for additional searches
-        ticker_provider: Optional TickerProvider for ticker verification
-
-    Returns:
-        SmartAnalysis with all informed judgments
-    """
-    analyzer = SmartAnalyzer(polymarket_client=polymarket_client)
-    try:
-        return await analyzer.analyze(
-            message,
-            extraction,
-            web_results,
-            markets_text,
-            http_client=http_client,
-            ticker_provider=ticker_provider,
-        )
-    finally:
-        await analyzer.close()

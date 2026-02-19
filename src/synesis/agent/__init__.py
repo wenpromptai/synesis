@@ -8,5 +8,6 @@ Usage:
 """
 
 from synesis.agent.__main__ import AgentState, agent_lifespan
+from synesis.agent.scheduler import create_scheduler
 
-__all__ = ["AgentState", "agent_lifespan"]
+__all__ = ["AgentState", "agent_lifespan", "create_scheduler"]

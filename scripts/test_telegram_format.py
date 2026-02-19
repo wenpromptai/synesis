@@ -6,24 +6,16 @@ Run: uv run python scripts/test_telegram_format.py
 
 from datetime import datetime, timezone
 
-from synesis.notifications.telegram import format_combined_signal
+from synesis.notifications.telegram import format_condensed_signal
 from synesis.processing.news import (
-    BeatMissStatus,
     Direction,
-    EventType,
-    LightClassification,
     MarketEvaluation,
-    MetricReading,
-    NewsCategory,
-    NumericExtraction,
     ResearchQuality,
     SectorImplication,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     TickerAnalysis,
     UnifiedMessage,
-    UrgencyLevel,
 )
 
 
@@ -31,54 +23,11 @@ def create_sample_message() -> UnifiedMessage:
     """Create a sample unified message."""
     return UnifiedMessage(
         external_id="test_12345",
-        source_platform=SourcePlatform.twitter,
+        source_platform=SourcePlatform.telegram,
         source_account="@DeItaone",
         text="*FED CUTS RATES BY 25BPS, AS EXPECTED - Fed funds rate now at 4.00-4.25%\n\nFOMC statement notes continued progress on inflation",
         timestamp=datetime.now(timezone.utc),
-        source_type=SourceType.news,
         raw={},
-    )
-
-
-def create_sample_extraction() -> LightClassification:
-    """Create a sample Stage 1 extraction."""
-    return LightClassification(
-        news_category=NewsCategory.economic_calendar,
-        event_type=EventType.macro,
-        summary="Federal Reserve cut interest rates by 25 basis points as expected, bringing the fed funds rate to 4.00-4.25%",
-        confidence=0.95,
-        primary_entity="Federal Reserve",
-        all_entities=["Federal Reserve", "FOMC", "Jerome Powell", "Treasury Department"],
-        search_keywords=["Fed rate cut", "FOMC decision", "interest rates"],
-        polymarket_keywords=["Fed rate cut", "interest rates December"],
-        numeric_data=NumericExtraction(
-            metrics=[
-                MetricReading(
-                    metric_name="Fed Funds Rate",
-                    actual=4.125,
-                    estimate=4.125,
-                    previous=4.375,
-                    unit="%",
-                    period="December 2024",
-                    beat_miss=BeatMissStatus.inline,
-                    surprise_magnitude=0.0,
-                ),
-                MetricReading(
-                    metric_name="Rate Cut",
-                    actual=25,
-                    estimate=25,
-                    previous=25,
-                    unit="bps",
-                    period="December 2024",
-                    beat_miss=BeatMissStatus.inline,
-                    surprise_magnitude=0,
-                ),
-            ],
-            headline_metric="Fed Funds Rate",
-            overall_beat_miss=BeatMissStatus.inline,
-        ),
-        urgency=UrgencyLevel.high,
-        urgency_reasoning="Scheduled FOMC rate decision with immediate market implications",
     )
 
 
@@ -200,10 +149,9 @@ def create_sample_analysis() -> SmartAnalysis:
 def main() -> None:
     """Run the test to display formatted output."""
     message = create_sample_message()
-    extraction = create_sample_extraction()
     analysis = create_sample_analysis()
 
-    formatted = format_combined_signal(message, extraction, analysis)
+    formatted = format_condensed_signal(message, analysis)
 
     print("=" * 60)
     print("FORMATTED TELEGRAM MESSAGE")

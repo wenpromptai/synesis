@@ -134,7 +134,6 @@ class PostQualityAssessment(BaseModel):
     is_dd: bool = Field(default=False, description="True if this is a Due Diligence post")
     is_yolo: bool = Field(default=False, description="True if this is a YOLO/gain/loss porn post")
     has_thesis: bool = Field(default=False, description="True if post contains investment thesis")
-    key_insight: str | None = Field(default=None, description="Key insight from the post (if any)")
 
 
 class SentimentRefinement(BaseModel):
@@ -150,11 +149,6 @@ class SentimentRefinement(BaseModel):
         default_factory=list,
         description="Tickers validated as real, tradable symbols",
     )
-    rejected_tickers: list[str] = Field(
-        default_factory=list,
-        description="False positives like WEEK, WHAT, DD, etc.",
-    )
-
     # Post quality assessments
     post_assessments: list[PostQualityAssessment] = Field(
         default_factory=list,
@@ -186,18 +180,6 @@ class SentimentRefinement(BaseModel):
 # =============================================================================
 
 
-class PostSentiment(BaseModel):
-    """Sentiment data for a single post."""
-
-    post_id: str
-    subreddit: str
-    title: str
-    sentiment: float  # -1.0 to 1.0
-    sentiment_label: Literal["bullish", "bearish", "neutral"]
-    quality: Literal["high", "medium", "low", "spam"]
-    url: str
-
-
 class TickerSentimentSummary(BaseModel):
     """Sentiment summary for a single ticker over the signal period."""
 
@@ -214,20 +196,6 @@ class TickerSentimentSummary(BaseModel):
     )
     avg_sentiment: float = Field(default=0.0, description="Average sentiment score (-1.0 to 1.0)")
 
-    # Derived fields
-    volume_zscore: float = Field(
-        default=0.0,
-        description="Z-score of mention volume vs historical average",
-    )
-
-    # Flags
-    is_volume_spike: bool = Field(default=False, description="True if volume z-score > 2")
-
-    # Supporting posts
-    top_posts: list[PostSentiment] = Field(
-        default_factory=list,
-        description="Top posts for this ticker (by quality)",
-    )
     key_catalysts: list[str] = Field(
         default_factory=list,
         description="Key catalysts identified",
@@ -238,7 +206,7 @@ class SentimentSignal(BaseModel):
     """Sentiment signal output: 6-hour sentiment intelligence summary.
 
     This is emitted every 6 hours with aggregated sentiment data
-    from Reddit (and eventually Twitter).
+    from Reddit.
     """
 
     # Timing
@@ -283,7 +251,7 @@ class SentimentSignal(BaseModel):
     # Source breakdown
     sources: dict[str, int] = Field(
         default_factory=dict,
-        description="Post count by source (reddit, twitter, etc.)",
+        description="Post count by source (reddit, telegram, etc.)",
     )
     subreddits: dict[str, int] = Field(
         default_factory=dict,

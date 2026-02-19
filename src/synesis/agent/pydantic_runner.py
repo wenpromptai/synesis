@@ -37,7 +37,6 @@ from synesis.processing.news import (
     MarketEvaluation,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     UnifiedMessage,
 )
 from synesis.storage.database import Database, get_database
@@ -94,7 +93,6 @@ async def store_signal(signal: NewsSignal, redis: Redis) -> None:
         "Signal stored",
         file=str(output_file),
         message_id=signal.external_id,
-        has_opportunities=len(signal.opportunities) > 0,
     )
 
 
@@ -116,15 +114,11 @@ async def emit_signal_to_db(
             timestamp=message.timestamp,
             source_platform=message.source_platform,
             source_account=message.source_account,
-            source_type=message.source_type,
             raw_text=message.text,
             external_id=message.external_id,
             news_category=extraction.news_category,
             extraction=extraction,
             analysis=analysis,
-            classification=extraction,  # Legacy field
-            watchlist_tickers=analysis.tickers,
-            watchlist_sectors=analysis.sectors,
         )
         await db.insert_signal(signal)
         logger.debug(
@@ -174,14 +168,12 @@ async def emit_prediction_to_db(evaluation: MarketEvaluation, message: UnifiedMe
 
 async def emit_combined_telegram(
     message: UnifiedMessage,
-    extraction: LightClassification,
     analysis: SmartAnalysis,
 ) -> None:
     """Send ONE condensed Telegram message with signal + top polymarket.
 
     Args:
         message: Original message
-        extraction: Stage 1 entity extraction (unused, kept for API compatibility)
         analysis: Stage 2 smart analysis
     """
     # Format condensed message (single message, ~900-2000 chars)
@@ -273,7 +265,7 @@ async def emit_signal(
         )
         return
 
-    await emit_combined_telegram(result.message, result.extraction, result.analysis)
+    await emit_combined_telegram(result.message, result.analysis)
 
 
 async def process_worker(
@@ -508,11 +500,10 @@ async def enqueue_test_message(redis_client: Redis | None = None) -> None:
         # Create a test message
         test_message = UnifiedMessage(
             external_id=f"test_{datetime.now(timezone.utc).timestamp():.0f}",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="test_account",
             text="*FED CUTS RATES BY 25BPS, AS EXPECTED - Fed funds rate now at 4.00-4.25%",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
             raw={},
         )
 

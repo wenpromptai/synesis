@@ -10,7 +10,6 @@ This module contains:
 from synesis.processing.sentiment.analyzer import SentimentAnalyzer
 from synesis.processing.sentiment.models import (
     PostQualityAssessment,
-    PostSentiment,
     SentimentRefinement,
     SentimentRefinementDeps,
     SentimentResult,
@@ -33,7 +32,6 @@ __all__ = [
     "SentimentResult",
     # Models
     "PostQualityAssessment",
-    "PostSentiment",
     "SentimentRefinement",
     "SentimentRefinementDeps",
     "SentimentSignal",

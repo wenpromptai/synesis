@@ -43,7 +43,7 @@ class TestTickerMetadata:
         now = datetime.now(UTC)
         meta = TickerMetadata(
             ticker="AAPL",
-            source="twitter",
+            source="telegram",
             subreddit="wsb",
             added_at=now,
             last_seen_at=now,
@@ -52,7 +52,7 @@ class TestTickerMetadata:
         d = meta.to_dict()
         restored = TickerMetadata.from_dict(d)
         assert restored.ticker == "AAPL"
-        assert restored.source == "twitter"
+        assert restored.source == "telegram"
         assert restored.subreddit == "wsb"
         assert restored.mention_count == 5
 
@@ -78,7 +78,7 @@ class TestWatchlistAddTicker:
         self, manager: WatchlistManager, mock_redis: AsyncMock
     ) -> None:
         mock_redis.sismember.return_value = False
-        result = await manager.add_ticker("aapl", "twitter")
+        result = await manager.add_ticker("aapl", "telegram")
         assert result is True
         mock_redis.sadd.assert_called_once_with(WATCHLIST_KEY, "AAPL")
 
@@ -87,7 +87,7 @@ class TestWatchlistAddTicker:
         self, manager: WatchlistManager, mock_redis: AsyncMock
     ) -> None:
         mock_redis.sismember.return_value = True
-        result = await manager.add_ticker("AAPL", "twitter")
+        result = await manager.add_ticker("AAPL", "telegram")
         assert result is False
 
     @pytest.mark.asyncio
@@ -103,7 +103,7 @@ class TestWatchlistAddTicker:
         self, manager: WatchlistManager, mock_redis: AsyncMock
     ) -> None:
         mock_redis.sismember.return_value = True
-        await manager.add_ticker("AAPL", "twitter")
+        await manager.add_ticker("AAPL", "telegram")
         # Should still set TTL key even for existing
         mock_redis.set.assert_called_once()
         mock_redis.hincrby.assert_called_once()
@@ -165,7 +165,7 @@ class TestWatchlistGetMetadata:
         now = datetime.now(UTC)
         mock_redis.hgetall.return_value = {
             "ticker": "AAPL",
-            "source": "twitter",
+            "source": "telegram",
             "subreddit": "",
             "added_at": now.isoformat(),
             "last_seen_at": now.isoformat(),

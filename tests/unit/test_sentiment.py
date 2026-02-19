@@ -308,7 +308,6 @@ class TestMentionCountFromRealData:
                     confidence=0.7,
                 ),
             ],
-            rejected_tickers=[],
             overall_sentiment="bullish",
             narrative_summary="Test narrative",
         )

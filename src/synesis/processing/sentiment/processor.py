@@ -482,9 +482,6 @@ Also:
             agent_result = await self.refiner_agent.run(user_prompt, deps=deps)
             refinement = agent_result.output
 
-            # Append NOT FOUND tickers to LLM's rejected list
-            refinement.rejected_tickers.extend(not_found_tickers)
-
             # Update watchlist with validated tickers
             for validated_ticker in refinement.validated_tickers:
                 if validated_ticker.is_valid_ticker and validated_ticker.confidence >= 0.6:
@@ -500,7 +497,6 @@ Also:
                 validated_tickers=len(
                     [t for t in refinement.validated_tickers if t.is_valid_ticker]
                 ),
-                rejected_tickers=len(refinement.rejected_tickers),
                 overall_sentiment=refinement.overall_sentiment,
                 narrative_length=len(refinement.narrative_summary),
             )
@@ -509,10 +505,8 @@ Also:
 
         except Exception as e:
             log.exception("Gate 2 refinement failed", error=str(e))
-            # Return empty validated + all raw tickers as rejected
             return SentimentRefinement(
                 validated_tickers=[],
-                rejected_tickers=list(raw_tickers.keys()),
                 narrative_summary=f"Gate 2 analysis failed: {e}",
             )
 

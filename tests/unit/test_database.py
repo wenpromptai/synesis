@@ -164,7 +164,6 @@ class TestDatabaseSignalOperations:
             LightClassification,
             SmartAnalysis,
             SourcePlatform,
-            SourceType,
             Direction,
         )
 
@@ -197,9 +196,8 @@ class TestDatabaseSignalOperations:
         )
         signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
-            source_type=SourceType.news,
             raw_text="Fed cuts rates",
             external_id="123",
             extraction=extraction,
@@ -220,7 +218,6 @@ class TestDatabaseSignalOperations:
             NewsSignal,
             SmartAnalysis,
             SourcePlatform,
-            SourceType,
         )
 
         db = Database(dsn="postgresql://localhost/db")
@@ -251,9 +248,8 @@ class TestDatabaseSignalOperations:
         )
         signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
-            source_type=SourceType.news,
             raw_text="AAPL beats",
             external_id="456",
             extraction=extraction,
@@ -273,7 +269,6 @@ class TestDatabaseSignalOperations:
         """Test inserting a raw message."""
         from synesis.processing.news import (
             SourcePlatform,
-            SourceType,
             UnifiedMessage,
         )
 
@@ -293,11 +288,10 @@ class TestDatabaseSignalOperations:
 
         message = UnifiedMessage(
             external_id="ext_123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test message",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         result = await db.insert_raw_message(message)
@@ -309,7 +303,6 @@ class TestDatabaseSignalOperations:
         """Test inserting duplicate message returns existing ID."""
         from synesis.processing.news import (
             SourcePlatform,
-            SourceType,
             UnifiedMessage,
         )
 
@@ -330,11 +323,10 @@ class TestDatabaseSignalOperations:
 
         message = UnifiedMessage(
             external_id="ext_123",
-            source_platform=SourcePlatform.twitter,
+            source_platform=SourcePlatform.telegram,
             source_account="@test",
             text="Test message",
             timestamp=datetime.now(timezone.utc),
-            source_type=SourceType.news,
         )
 
         result = await db.insert_raw_message(message)

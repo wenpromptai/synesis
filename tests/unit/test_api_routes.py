@@ -114,11 +114,12 @@ class _MockAgentState:
     db: Any = None
     settings: Any = None
     agent_task: asyncio.Task[None] | None = None
-    twitter_enabled: bool = True
     telegram_enabled: bool = False
     reddit_enabled: bool = True
     sentiment_enabled: bool = False
     db_enabled: bool = True
+    scheduler: Any = None
+    trigger_fns: dict[str, Any] = field(default_factory=dict)
     _background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
 
@@ -546,18 +547,68 @@ class TestSystemStatus:
         r = await client.get(f"{SYS_PREFIX}/status")
         assert r.status_code == 200
         body = r.json()
-        assert body["twitter"] is True
         assert body["telegram"] is False
         assert body["reddit"] is True
         assert body["agent_running"] is True
 
 
 class TestWatchlistAnalyze:
-    async def test_trigger_analysis(self, client: httpx.AsyncClient, mock_redis_dep):
+    async def test_trigger_analysis(self, client: httpx.AsyncClient, mock_agent_state):
+        mock_scheduler = MagicMock()
+        mock_agent_state.scheduler = mock_scheduler
+        mock_agent_state.trigger_fns = {"watchlist_intel": AsyncMock()}
         r = await client.post(f"{WL_PREFIX}/analyze")
         assert r.status_code == 202
         assert r.json() == {"status": "triggered"}
-        mock_redis_dep.set.assert_called_with("synesis:watchlist_intel:trigger", "1")
+        mock_scheduler.add_job.assert_called_once()
+
+    async def test_trigger_analysis_no_scheduler(self, client: httpx.AsyncClient, mock_agent_state):
+        mock_agent_state.scheduler = None
+        mock_agent_state.trigger_fns = {}
+        r = await client.post(f"{WL_PREFIX}/analyze")
+        assert r.status_code == 503
+        assert "not enabled" in r.json()["detail"]
+
+    async def test_trigger_analysis_missing_trigger_fn(
+        self, client: httpx.AsyncClient, mock_agent_state
+    ):
+        mock_agent_state.scheduler = MagicMock()
+        mock_agent_state.trigger_fns = {}  # no "watchlist_intel" key
+        r = await client.post(f"{WL_PREFIX}/analyze")
+        assert r.status_code == 503
+
+
+# ===========================================================================
+# Market Intel endpoints  /api/v1/mkt_intel/...
+# ===========================================================================
+
+MKT_PREFIX = "/api/v1/mkt_intel"
+
+
+class TestMktIntelTriggerScan:
+    async def test_trigger_scan(self, client: httpx.AsyncClient, mock_agent_state):
+        mock_scheduler = MagicMock()
+        mock_agent_state.scheduler = mock_scheduler
+        mock_agent_state.trigger_fns = {"mkt_intel": AsyncMock()}
+        r = await client.post(f"{MKT_PREFIX}/run")
+        assert r.status_code == 200
+        assert r.json() == {"status": "scan_triggered"}
+        mock_scheduler.add_job.assert_called_once()
+
+    async def test_trigger_scan_no_scheduler(self, client: httpx.AsyncClient, mock_agent_state):
+        mock_agent_state.scheduler = None
+        mock_agent_state.trigger_fns = {}
+        r = await client.post(f"{MKT_PREFIX}/run")
+        assert r.status_code == 503
+        assert "not enabled" in r.json()["detail"]
+
+    async def test_trigger_scan_missing_trigger_fn(
+        self, client: httpx.AsyncClient, mock_agent_state
+    ):
+        mock_agent_state.scheduler = MagicMock()
+        mock_agent_state.trigger_fns = {}  # no "mkt_intel" key
+        r = await client.post(f"{MKT_PREFIX}/run")
+        assert r.status_code == 503
 
 
 class TestSystemConfig:
@@ -566,7 +617,6 @@ class TestSystemConfig:
             s = MagicMock()
             s.env = "development"
             s.llm_provider = "anthropic"
-            s.twitterapi_api_key = "fake-key"
             s.telegram_api_id = None
             s.reddit_subreddits = ["wallstreetbets"]
             mock_settings.return_value = s
@@ -575,6 +625,5 @@ class TestSystemConfig:
         body = r.json()
         assert body["env"] == "development"
         assert body["llm_provider"] == "anthropic"
-        assert body["twitter_enabled"] is True
         assert body["telegram_enabled"] is False
         assert body["reddit_enabled"] is True

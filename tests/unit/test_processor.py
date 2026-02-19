@@ -15,7 +15,6 @@ from synesis.processing.news import (
     ResearchQuality,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     TickerAnalysis,
     UnifiedMessage,
     UrgencyLevel,
@@ -24,16 +23,14 @@ from synesis.processing.news import (
 
 def create_test_message(
     text: str = "Fed cuts rates by 25bps",
-    source_type: SourceType = SourceType.news,
 ) -> UnifiedMessage:
     """Create a test message."""
     return UnifiedMessage(
         external_id="test_123",
-        source_platform=SourcePlatform.twitter,
+        source_platform=SourcePlatform.telegram,
         source_account="@DeItaone",
         text=text,
         timestamp=datetime.now(timezone.utc),
-        source_type=source_type,
     )
 
 
@@ -412,8 +409,8 @@ class TestFetchWebResults:
         assert "unavailable" in results[0].lower() or "failed" in results[0].lower()
 
 
-class TestSourceTypeBranching:
-    """Tests for source_type-based urgency gate and Polymarket branching."""
+class TestUrgencyGate:
+    """Tests for urgency-based gate (only critical/high pass to Stage 2)."""
 
     @pytest.fixture
     def processor(self) -> NewsProcessor:
@@ -440,61 +437,32 @@ class TestSourceTypeBranching:
         return proc
 
     @pytest.mark.asyncio
-    async def test_analysis_normal_urgency_passes_gate(self, processor: NewsProcessor) -> None:
-        """Analysis source + normal urgency should pass to Stage 2."""
-        processor._classifier.classify = AsyncMock(
-            return_value=create_test_extraction(urgency=UrgencyLevel.normal)
-        )
-
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            message = create_test_message(
-                text="Interesting take on AAPL earnings",
-                source_type=SourceType.analysis,
-            )
-            result = await processor.process_message(message)
-
-        # Stage 2 should run (analysis is not None)
-        assert result.analysis is not None
-
-    @pytest.mark.asyncio
-    async def test_analysis_low_urgency_filtered(self, processor: NewsProcessor) -> None:
-        """Analysis source + low urgency should still be filtered."""
+    async def test_low_urgency_filtered(self, processor: NewsProcessor) -> None:
+        """Low urgency should be filtered (no Stage 2)."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.low)
         )
 
-        message = create_test_message(
-            text="Check out this promo link",
-            source_type=SourceType.analysis,
-        )
+        message = create_test_message(text="Check out this promo link")
         result = await processor.process_message(message)
 
-        # Stage 2 should NOT run
         assert result.analysis is None
 
     @pytest.mark.asyncio
-    async def test_news_normal_urgency_still_filtered(self, processor: NewsProcessor) -> None:
-        """News source + normal urgency should still be filtered (unchanged behavior)."""
+    async def test_normal_urgency_filtered(self, processor: NewsProcessor) -> None:
+        """Normal urgency should be filtered (no Stage 2)."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.normal)
         )
 
-        message = create_test_message(
-            text="Minor update on housing data",
-            source_type=SourceType.news,
-        )
+        message = create_test_message(text="Minor update on housing data")
         result = await processor.process_message(message)
 
-        # Stage 2 should NOT run for news+normal
         assert result.analysis is None
 
     @pytest.mark.asyncio
-    async def test_analysis_source_skips_polymarket(self, processor: NewsProcessor) -> None:
-        """Analysis source should NOT call search_polymarket."""
+    async def test_high_urgency_passes(self, processor: NewsProcessor) -> None:
+        """High urgency should pass to Stage 2."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.high)
         )
@@ -504,21 +472,14 @@ class TestSourceTypeBranching:
             new_callable=AsyncMock,
             return_value=[],
         ):
-            message = create_test_message(
-                text="Deep analysis of semiconductor sector",
-                source_type=SourceType.analysis,
-            )
-            await processor.process_message(message)
+            message = create_test_message(text="CPI comes in hot at 3.5%")
+            result = await processor.process_message(message)
 
-        # Polymarket search should NOT have been called
-        processor._analyzer.search_polymarket.assert_not_called()
-        # Analyzer should receive empty markets_text
-        call_kwargs = processor._analyzer.analyze.call_args
-        assert call_kwargs[0][3] == ""  # markets_text positional arg
+        assert result.analysis is not None
 
     @pytest.mark.asyncio
-    async def test_news_source_calls_polymarket(self, processor: NewsProcessor) -> None:
-        """News source should call search_polymarket (unchanged behavior)."""
+    async def test_critical_urgency_calls_polymarket(self, processor: NewsProcessor) -> None:
+        """Critical urgency should call search_polymarket."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.critical)
         )
@@ -528,13 +489,9 @@ class TestSourceTypeBranching:
             new_callable=AsyncMock,
             return_value=[],
         ):
-            message = create_test_message(
-                text="*BREAKING* Fed cuts rates by 50bps",
-                source_type=SourceType.news,
-            )
+            message = create_test_message(text="*BREAKING* Fed cuts rates by 50bps")
             await processor.process_message(message)
 
-        # Polymarket search SHOULD have been called for news
         processor._analyzer.search_polymarket.assert_called_once()
 
 

@@ -346,8 +346,8 @@ class TestClassifyUrgencyByRules:
         assert classify_urgency_by_rules("IMO the market is overreacting") == UrgencyLevel.low
         assert classify_urgency_by_rules("I think we'll see a pullback") == UrgencyLevel.low
 
-    def test_urgency_low_retweets_and_threads(self) -> None:
-        """Test low urgency for retweets and threads."""
+    def test_urgency_low_reposts_and_threads(self) -> None:
+        """Test low urgency for forwarded reposts and threads."""
         assert (
             classify_urgency_by_rules("RT @analyst: Great insight on markets") == UrgencyLevel.low
         )

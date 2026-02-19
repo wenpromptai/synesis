@@ -9,7 +9,6 @@ import pytest
 from synesis.markets.polymarket import (
     PolymarketClient,
     SimpleMarket,
-    find_market_opportunities,
 )
 
 
@@ -817,70 +816,3 @@ class TestCategoryEnrichmentGatherException:
         # The one with the failed fetch should still exist, category stays None
         fail_market = next(m for m in markets if m.id == "m_fail")
         assert fail_market.category is None
-
-
-class TestFindMarketOpportunities:
-    """Tests for find_market_opportunities function."""
-
-    @pytest.mark.asyncio
-    async def test_finds_opportunities(self) -> None:
-        """Test finding opportunities from keywords."""
-        mock_market = SimpleMarket(
-            id="opp_1",
-            condition_id="cond_1",
-            question="Fed rate cut?",
-            slug="fed-rate-cut",
-            description=None,
-            category="economics",
-            yes_price=0.40,
-            no_price=0.60,
-            volume_24h=10000,
-            volume_total=100000,
-            end_date=None,
-            created_at=None,
-            is_active=True,
-            is_closed=False,
-        )
-
-        with patch("synesis.markets.polymarket.PolymarketClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.search_markets = AsyncMock(return_value=[mock_market])
-            mock_client.close = AsyncMock()
-            mock_client_class.return_value = mock_client
-
-            opportunities = await find_market_opportunities(["Fed", "rate cut"])
-
-            assert len(opportunities) >= 1
-            assert opportunities[0].platform == "polymarket"
-
-    @pytest.mark.asyncio
-    async def test_deduplicates_markets(self) -> None:
-        """Test that duplicate markets are removed."""
-        mock_market = SimpleMarket(
-            id="same_id",  # Same ID
-            condition_id="cond_1",
-            question="Test?",
-            slug="test",
-            description=None,
-            category=None,
-            yes_price=0.50,
-            no_price=0.50,
-            volume_24h=0,
-            volume_total=0,
-            end_date=None,
-            created_at=None,
-            is_active=True,
-            is_closed=False,
-        )
-
-        with patch("synesis.markets.polymarket.PolymarketClient") as mock_client_class:
-            mock_client = AsyncMock()
-            # Return same market for multiple keywords
-            mock_client.search_markets = AsyncMock(return_value=[mock_market])
-            mock_client.close = AsyncMock()
-            mock_client_class.return_value = mock_client
-
-            opportunities = await find_market_opportunities(["keyword1", "keyword2", "keyword3"])
-
-            # Should only have 1 unique opportunity
-            assert len(opportunities) == 1

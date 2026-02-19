@@ -1493,9 +1493,12 @@ class TestMktIntelAPIRoutes:
 
         state = MagicMock()
         state.redis = mock_redis
+        state.scheduler = MagicMock()
+        state.trigger_fns = {"mkt_intel": AsyncMock()}
 
         result = await trigger_manual_scan(state)
         assert result["status"] == "scan_triggered"
+        state.scheduler.add_job.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_opportunities_empty(self, mock_redis: Any) -> None:
@@ -1710,10 +1713,9 @@ class TestMktIntelConfig:
         # Create with minimal required fields to test defaults
         settings = Settings(
             _env_file=None,
-            twitterapi_api_key="test",
         )
         assert settings.mkt_intel_enabled is True
-        assert settings.mkt_intel_interval == 3600
+        assert settings.mkt_intel_interval == 7200
         assert settings.mkt_intel_insider_score_min == 0.5
         assert settings.mkt_intel_expiring_hours == 24
         assert settings.mkt_intel_ws_enabled is True
@@ -1724,7 +1726,6 @@ class TestMktIntelConfig:
 
         settings = Settings(
             _env_file=None,
-            twitterapi_api_key="test",
         )
         assert settings.kalshi_api_key is None
         assert settings.kalshi_private_key_path is None
@@ -3942,7 +3943,6 @@ class TestMktIntelConfigAutoWatch:
 
         settings = Settings(
             _env_file=None,
-            twitterapi_api_key="test",
         )
         assert settings.mkt_intel_auto_watch_threshold == 0.6
 
@@ -3952,7 +3952,6 @@ class TestMktIntelConfigAutoWatch:
 
         settings = Settings(
             _env_file=None,
-            twitterapi_api_key="test",
             mkt_intel_auto_watch_threshold=0.8,
         )
         assert settings.mkt_intel_auto_watch_threshold == 0.8

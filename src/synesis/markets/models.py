@@ -26,12 +26,10 @@ class UnifiedMarket(BaseModel):
     volume_24h: float = Field(default=0.0, ge=0.0)
     volume_total: float = Field(default=0.0, ge=0.0)  # All-time volume
     open_interest: float | None = None
-    liquidity: float | None = None
     end_date: datetime | None = None
     is_active: bool = True
     url: str = ""
     category: str | None = None
-    description: str | None = None
     outcome_label: str | None = None
     yes_outcome: str | None = None  # e.g. "Up", "Over" for non-Yes/No markets
     yes_token_id: str | None = None  # CLOB token ID for YES outcome

@@ -1,6 +1,6 @@
 # Synesis
 
-Real-time financial news analysis and prediction market trading system. Transforms social signals (X/Twitter, Telegram, Reddit) into actionable Polymarket trading decisions using LLM-powered analysis.
+Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram, Reddit) into actionable Polymarket trading decisions using LLM-powered analysis.
 
 ## Tech Stack
 
@@ -33,7 +33,7 @@ uv run synesis --reload
 ```
 src/synesis/
 ├── core/              # Logging, constants, dependencies
-├── ingestion/         # Twitter, Telegram, Reddit listeners
+├── ingestion/         # Telegram, Reddit listeners
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
 │   ├── sentiment/     # Flow 2: Reddit sentiment (Gate 1 lexicon + Gate 2 LLM)
@@ -49,7 +49,7 @@ src/synesis/
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram notifications
 ├── storage/           # PostgreSQL + Redis clients
-├── agent/             # Agent runner, lifespan, PydanticAI
+├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
 └── api/               # HTTP/WebSocket endpoints
 ```
 

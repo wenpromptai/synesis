@@ -11,6 +11,8 @@ Provider Types:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -51,6 +53,54 @@ class TickerProvider(Protocol):
     async def close(self) -> None:
         """Clean up resources."""
         ...
+
+
+# =============================================================================
+# Watchlist fundamentals provider (Flow 4)
+# =============================================================================
+
+
+@dataclass
+class CompanyInfo:
+    """Minimal company info returned by fundamentals providers."""
+
+    name: str
+
+
+@dataclass
+class FundamentalsSnapshot:
+    """Standardized fundamentals snapshot for watchlist analysis."""
+
+    eps_diluted: float | None = None
+    price_to_book: float | None = None
+    price_to_sales: float | None = None
+    ev_to_ebitda: float | None = None
+    roe: float | None = None
+    net_margin: float | None = None
+    gross_margin: float | None = None
+    debt_to_equity: float | None = None
+    period_type: str = ""
+    period_end: date | None = None
+
+
+@dataclass
+class PriceSnapshot:
+    """Standardized price return data for watchlist analysis."""
+
+    one_day_pct: float | None = None
+    one_mth_pct: float | None = None
+    price_date: date | None = None
+
+
+@runtime_checkable
+class WatchlistDataProvider(Protocol):
+    """Protocol for fundamentals providers used by the watchlist processor."""
+
+    async def resolve_company(self, ticker: str) -> CompanyInfo | None: ...
+    async def get_market_cap(self, ticker: str) -> float | None: ...
+    async def get_fundamentals(self, ticker: str) -> FundamentalsSnapshot | None: ...
+    async def get_price(self, ticker: str) -> PriceSnapshot | None: ...
+    async def close(self) -> None: ...
 
 
 @runtime_checkable

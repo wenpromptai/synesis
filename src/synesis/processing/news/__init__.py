@@ -1,4 +1,4 @@
-"""Flow 1: Breaking News & Analysis Intelligence.
+"""Flow 1: Breaking News Intelligence.
 
 This module contains:
 - Unified message model and source types
@@ -11,8 +11,6 @@ This module contains:
 from synesis.processing.news.analyzer import (
     AnalyzerDeps,
     SmartAnalyzer,
-    analyze_with_context,
-    get_smart_analyzer,
 )
 from synesis.processing.news.categorizer import (
     categorize_by_rules,
@@ -32,23 +30,18 @@ from synesis.processing.news.deduplication import (
 from synesis.processing.news.models import (
     BeatMissStatus,
     Direction,
-    EvaluatorOutput,
     EventType,
-    NewsSignal,
     GICSSector,
-    InvestmentAnalysis,
     LightClassification,
     MarketEvaluation,
-    MarketOpportunity,
     MetricReading,
     NewsCategory,
+    NewsSignal,
     NumericExtraction,
-    OddsEvaluation,
     ResearchQuality,
     SectorImplication,
     SmartAnalysis,
     SourcePlatform,
-    SourceType,
     TickerAnalysis,
     UnifiedMessage,
     UrgencyLevel,
@@ -58,8 +51,6 @@ __all__ = [
     # Analyzer (Stage 2)
     "AnalyzerDeps",
     "SmartAnalyzer",
-    "analyze_with_context",
-    "get_smart_analyzer",
     # Categorizer
     "categorize_by_rules",
     "categorize_news",
@@ -75,23 +66,18 @@ __all__ = [
     # Models
     "BeatMissStatus",
     "Direction",
-    "EvaluatorOutput",
     "EventType",
-    "NewsSignal",
     "GICSSector",
-    "InvestmentAnalysis",
     "LightClassification",
     "MarketEvaluation",
-    "MarketOpportunity",
     "MetricReading",
     "NewsCategory",
+    "NewsSignal",
     "NumericExtraction",
-    "OddsEvaluation",
     "ResearchQuality",
     "SectorImplication",
     "SmartAnalysis",
     "SourcePlatform",
-    "SourceType",
     "TickerAnalysis",
     "UnifiedMessage",
     "UrgencyLevel",

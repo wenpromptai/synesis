@@ -19,7 +19,7 @@ from synesis.core.logging import get_logger
 if TYPE_CHECKING:
     from synesis.markets.models import CrossPlatformArb
     from synesis.processing.mkt_intel.models import MarketIntelSignal
-    from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
+    from synesis.processing.news import SmartAnalysis, UnifiedMessage
     from synesis.processing.sentiment import SentimentSignal
     from synesis.processing.watchlist.models import WatchlistSignal
 
@@ -46,6 +46,9 @@ def _escape_html(text: str) -> str:
 def _split_message_at_sections(message: str, max_length: int = TELEGRAM_MAX_LENGTH) -> list[str]:
     """Split a long message into chunks at section boundaries.
 
+    Splits at SECTION_SEPARATOR lines so each chunk starts/ends cleanly.
+    Multi-part messages get part indicators (e.g. "⋯ 1/3") for context.
+
     Args:
         message: The full message text
         max_length: Maximum length per chunk (default: Telegram limit)
@@ -56,34 +59,53 @@ def _split_message_at_sections(message: str, max_length: int = TELEGRAM_MAX_LENG
     if len(message) <= max_length:
         return [message]
 
+    # Reserve space for part indicators we'll add later
+    effective_max = max_length - 40
+
     chunks: list[str] = []
     remaining = message
 
     while remaining:
-        if len(remaining) <= max_length:
+        if len(remaining) <= effective_max:
             chunks.append(remaining)
             break
 
         # Find the last section separator within the limit
-        search_area = remaining[:max_length]
+        search_area = remaining[:effective_max]
         last_separator_pos = search_area.rfind(SECTION_SEPARATOR)
 
         if last_separator_pos > 0:
-            # Split at section boundary
+            # Split at section boundary — keep separator with the next chunk
             chunk = remaining[:last_separator_pos].rstrip()
-            remaining = remaining[last_separator_pos:].lstrip()
+            remaining = remaining[last_separator_pos:]
+            # Strip only whitespace before the separator, keep the separator itself
+            remaining = remaining.lstrip("\n")
         else:
-            # No separator found - split at last newline
+            # No separator found — split at last double-newline or newline
+            last_double_nl = search_area.rfind("\n\n")
             last_newline = search_area.rfind("\n")
-            if last_newline > max_length // 2:
-                chunk = remaining[:last_newline].rstrip()
-                remaining = remaining[last_newline:].lstrip()
+            split_pos = last_double_nl if last_double_nl > effective_max // 2 else last_newline
+
+            if split_pos > effective_max // 2:
+                chunk = remaining[:split_pos].rstrip()
+                remaining = remaining[split_pos:].lstrip("\n")
             else:
-                # Last resort: hard split
-                chunk = remaining[: max_length - 20] + "\n\n<i>(continued...)</i>"
-                remaining = remaining[max_length - 20 :]
+                # Last resort: hard split at effective_max
+                chunk = remaining[:effective_max].rstrip()
+                remaining = remaining[effective_max:].lstrip("\n")
 
         chunks.append(chunk)
+
+    # Add part indicators for multi-part messages
+    if len(chunks) > 1:
+        total = len(chunks)
+        for i in range(len(chunks)):
+            if i < total - 1:
+                # Not the last chunk — add indicator at bottom
+                chunks[i] += f"\n\n<i>⋯ {i + 1}/{total}</i>"
+            if i > 0:
+                # Not the first chunk — add indicator at top
+                chunks[i] = f"<i>⋯ {i + 1}/{total}</i>\n\n" + chunks[i]
 
     return chunks
 
@@ -167,102 +189,6 @@ async def send_long_telegram(message: str, parse_mode: str = "HTML") -> bool:
             all_sent = False
 
     return all_sent
-
-
-def format_investment_signal(
-    source: str,
-    summary: str,
-    primary_thesis: str,
-    tickers: list[str],
-    direction: str,
-    confidence: float,
-) -> str:
-    """Format an investment signal for Telegram notification.
-
-    Args:
-        source: News source (e.g., @DeItaone)
-        summary: One-line summary of the news
-        primary_thesis: Investment thesis from Stage 2A
-        tickers: List of affected tickers
-        direction: Market direction (bullish/bearish/neutral)
-        confidence: Thesis confidence (0.0 to 1.0)
-
-    Returns:
-        Formatted HTML message for Telegram
-    """
-    # Direction emoji
-    direction_emoji = {
-        "bullish": "\U0001f7e2",  # Green circle
-        "bearish": "\U0001f534",  # Red circle
-        "neutral": "\u26aa",  # White circle
-    }.get(direction, "\u26aa")
-
-    # Format tickers
-    tickers_str = ", ".join(f"${t}" for t in tickers) if tickers else "N/A"
-
-    return f"""<b>{direction_emoji} Investment Signal</b>
-
-<b>Source:</b> {_escape_html(source)}
-<b>Summary:</b> {_escape_html(summary)}
-
-<b>Thesis:</b> {_escape_html(primary_thesis)}
-
-<b>Tickers:</b> {tickers_str}
-<b>Direction:</b> {direction.upper()}
-<b>Confidence:</b> {confidence:.0%}"""
-
-
-def format_prediction_alert(
-    market_question: str,
-    verdict: str,
-    current_price: float,
-    fair_price: float,
-    edge: float,
-    recommended_side: str,
-    reasoning: str,
-) -> str:
-    """Format a prediction market alert for Telegram notification.
-
-    Args:
-        market_question: The prediction market question
-        verdict: undervalued/overvalued/fair
-        current_price: Current YES price
-        fair_price: Estimated fair price
-        edge: Edge percentage
-        recommended_side: yes/no/skip
-        reasoning: Brief reasoning
-
-    Returns:
-        Formatted HTML message for Telegram
-    """
-    # Verdict emoji
-    verdict_emoji = {
-        "undervalued": "\U0001f4c8",  # Chart up
-        "overvalued": "\U0001f4c9",  # Chart down
-        "fair": "\u2696\ufe0f",  # Balance scale
-    }.get(verdict, "\U0001f4ca")  # Bar chart
-
-    # Side emoji
-    side_emoji = {
-        "yes": "\u2705",  # Check mark
-        "no": "\u274c",  # X mark
-        "skip": "\u23ed\ufe0f",  # Skip
-    }.get(recommended_side, "\U0001f914")  # Thinking
-
-    reasoning_display = f"{reasoning[:200]}..." if len(reasoning) > 200 else reasoning
-
-    return f"""<b>{verdict_emoji} Prediction Opportunity</b>
-
-<b>Market:</b> {_escape_html(market_question)}
-
-<b>Verdict:</b> {verdict.upper()}
-<b>Current:</b> ${current_price:.2f}
-<b>Fair:</b> ${fair_price:.2f}
-<b>Edge:</b> {edge:+.1%}
-
-<b>{side_emoji} Recommended:</b> {recommended_side.upper()}
-
-<i>{_escape_html(reasoning_display)}</i>"""
 
 
 def format_condensed_signal(
@@ -354,255 +280,6 @@ def format_condensed_signal(
 🎯 <b>Polymarket</b>
 {_escape_html(mkt.market_question)}
 {side_str} @ ${mkt.current_price:.2f} → ${fair_price:.2f} (edge: {edge:+.1%})"""
-
-    return msg
-
-
-def format_combined_signal(
-    message: "UnifiedMessage",
-    extraction: "LightClassification",
-    analysis: "SmartAnalysis",
-) -> str:
-    """Format a combined investment signal + polymarket edge for Telegram.
-
-    Includes ALL available data without truncation for comprehensive notifications.
-
-    Args:
-        message: Original unified message with raw text
-        extraction: Stage 1 entity extraction with metadata
-        analysis: Stage 2 smart analysis with all judgments
-
-    Returns:
-        Formatted HTML message for Telegram (may be long, use send_long_telegram)
-    """
-    # Emoji mappings
-    sentiment_emoji = {
-        "bullish": "🟢",
-        "bearish": "🔴",
-        "neutral": "⚪",
-    }
-    urgency_emoji = {
-        "critical": "🔥",
-        "high": "⚡",
-        "normal": "📌",
-        "low": "💤",
-    }
-    category_emoji = {
-        "breaking": "🔴 BREAKING",
-        "economic_calendar": "📅 SCHEDULED",
-        "other": "ℹ️ NEWS",
-    }
-    beat_miss_emoji = {
-        "beat": "✅ BEAT",
-        "miss": "❌ MISS",
-        "inline": "➖ INLINE",
-        "unknown": "❓",
-    }
-    research_quality_emoji = {
-        "high": "🟢 HIGH",
-        "medium": "🟡 MEDIUM",
-        "low": "🔴 LOW",
-    }
-
-    sentiment = analysis.sentiment.value
-    urgency = extraction.urgency.value
-    category = extraction.news_category.value
-
-    # =========================================================================
-    # HEADER
-    # =========================================================================
-    msg = f"""📢 <b>SIGNAL ALERT</b>
-{SECTION_SEPARATOR}
-
-📌 <b>METADATA</b>
-Source: <code>{_escape_html(message.source_account)}</code>
-Category: {category_emoji.get(category, category)} | Type: <code>{extraction.event_type.value}</code>
-Urgency: {urgency_emoji.get(urgency, urgency)} {urgency.upper()}"""
-
-    if extraction.urgency_reasoning:
-        msg += f" - {_escape_html(extraction.urgency_reasoning)}"
-
-    # =========================================================================
-    # ORIGINAL MESSAGE
-    # =========================================================================
-    msg += f"""
-
-📝 <b>ORIGINAL MESSAGE</b>
-<blockquote>{_escape_html(message.text)}</blockquote>
-
-📊 <b>SUMMARY</b>
-{_escape_html(extraction.summary)}
-
-💡 <b>THESIS</b>
-{_escape_html(analysis.primary_thesis)} (confidence: {analysis.thesis_confidence:.0%})
-Sentiment: {sentiment_emoji.get(sentiment, sentiment)} {sentiment.upper()} ({analysis.sentiment_score:+.2f})"""
-
-    # =========================================================================
-    # NUMERIC DATA (for economic/earnings)
-    # =========================================================================
-    if extraction.numeric_data and extraction.numeric_data.metrics:
-        msg += f"""
-
-{SECTION_SEPARATOR}
-
-📈 <b>NUMERIC DATA</b>
-┌{SUBSECTION_SEPARATOR}"""
-
-        overall = extraction.numeric_data.overall_beat_miss.value
-        msg += f"\n│ Overall: {beat_miss_emoji.get(overall, overall)}"
-
-        for metric in extraction.numeric_data.metrics:
-            status = beat_miss_emoji.get(metric.beat_miss.value, metric.beat_miss.value)
-            line = f"\n│ {_escape_html(metric.metric_name)}: {metric.actual}{metric.unit}"
-            if metric.estimate is not None:
-                line += f" (Est: {metric.estimate}{metric.unit}) {status}"
-            if metric.surprise_magnitude is not None:
-                line += f"\n│   Surprise: {metric.surprise_magnitude:+}{metric.unit}"
-            if metric.previous is not None:
-                line += f" | Prev: {metric.previous}{metric.unit}"
-            msg += line
-
-        msg += f"\n└{SUBSECTION_SEPARATOR}"
-
-    # =========================================================================
-    # ENTITIES
-    # =========================================================================
-    if extraction.all_entities:
-        entities_str = ", ".join(_escape_html(e) for e in extraction.all_entities)
-        msg += f"""
-
-{SECTION_SEPARATOR}
-
-🏷️ <b>ENTITIES</b>
-{entities_str}"""
-
-    # =========================================================================
-    # TICKERS (ALL, not top 3)
-    # =========================================================================
-    if analysis.ticker_analyses:
-        msg += f"""
-
-{SECTION_SEPARATOR}
-
-📊 <b>TICKERS</b>"""
-
-        for ta in analysis.ticker_analyses:
-            ticker_dir = sentiment_emoji.get(ta.net_direction.value, "⚪")
-            company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
-            msg += f"""
-{SUBSECTION_SEPARATOR}
-{ticker_dir} <code>${ta.ticker}</code>{company_name} ({ta.net_direction.value.upper()}, {ta.conviction:.0%} conviction)"""
-            if ta.relevance_reason:
-                msg += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
-            msg += f"""
-   Time horizon: {ta.time_horizon}
-
-   🟢 Bull: {_escape_html(ta.bull_thesis)}
-   🔴 Bear: {_escape_html(ta.bear_thesis)}"""
-
-            if ta.catalysts:
-                msg += "\n\n   ✨ <b>Catalysts:</b>"
-                for catalyst in ta.catalysts:
-                    msg += f"\n   • {_escape_html(catalyst)}"
-
-            if ta.risk_factors:
-                msg += "\n\n   ⚠️ <b>Risk Factors:</b>"
-                for risk in ta.risk_factors:
-                    msg += f"\n   • {_escape_html(risk)}"
-
-    # =========================================================================
-    # SECTORS (ALL, not top 3)
-    # =========================================================================
-    if analysis.sector_implications:
-        msg += f"""
-
-{SECTION_SEPARATOR}
-
-🏭 <b>SECTORS</b>"""
-
-        for si in analysis.sector_implications:
-            sec_dir = sentiment_emoji.get(si.direction.value, "⚪")
-            msg += f"""
-{SUBSECTION_SEPARATOR}
-{sec_dir} <b>{_escape_html(si.sector)}</b>: {si.direction.value.upper()}
-   {_escape_html(si.reasoning)}"""
-
-            if si.subsectors:
-                subsectors = ", ".join(_escape_html(s) for s in si.subsectors)
-                msg += f"\n\n   Subsectors: {subsectors}"
-
-    # =========================================================================
-    # HISTORICAL CONTEXT (untruncated)
-    # =========================================================================
-    if analysis.historical_context:
-        msg += f"""
-
-{SECTION_SEPARATOR}
-
-📜 <b>HISTORICAL CONTEXT</b>
-<i>{_escape_html(analysis.historical_context)}</i>"""
-
-        if analysis.typical_market_reaction:
-            msg += f"""
-
-<b>Typical reaction:</b> {_escape_html(analysis.typical_market_reaction)}"""
-
-    # =========================================================================
-    # POLYMARKET (all relevant markets, no edge filter)
-    # =========================================================================
-    relevant_markets = [
-        e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6
-    ]
-    if relevant_markets:
-        msg += f"""
-
-{SECTION_SEPARATOR}
-
-🎯 <b>POLYMARKET</b>"""
-
-        # Sort by absolute edge (best first), but show all
-        relevant_markets.sort(key=lambda e: abs(e.edge or 0), reverse=True)
-
-        for i, mkt in enumerate(relevant_markets, 1):
-            edge = mkt.edge or 0
-            side = mkt.recommended_side
-            confidence_pct = f"{mkt.confidence:.0%}"
-
-            # Determine edge status
-            if abs(edge) < 0.01:
-                edge_label = "FAIR"
-            elif edge > 0:
-                edge_label = "UNDERVALUED"
-            else:
-                edge_label = "OVERVALUED"
-
-            # Side emoji
-            if side == "yes":
-                side_emoji_char = "✅ YES"
-            elif side == "no":
-                side_emoji_char = "❌ NO"
-            else:
-                side_emoji_char = "⏭️ SKIP"
-
-            # Fair price
-            fair_price = mkt.estimated_fair_price if mkt.estimated_fair_price else mkt.current_price
-
-            msg += f"""
-{SUBSECTION_SEPARATOR}
-<b>{i}.</b> {_escape_html(mkt.market_question)}
-   Edge: {edge:+.1%} ({edge_label}) | Confidence: {confidence_pct}
-   {side_emoji_char} @ ${mkt.current_price:.2f} → Fair: ${fair_price:.2f}
-
-   <i>{_escape_html(mkt.reasoning)}</i>"""
-
-    # =========================================================================
-    # FOOTER
-    # =========================================================================
-    research_quality = analysis.research_quality.value
-    msg += f"""
-
-{SECTION_SEPARATOR}
-Research Quality: {research_quality_emoji.get(research_quality, research_quality)}"""
 
     return msg
 

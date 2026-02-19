@@ -17,11 +17,15 @@ class TickerIntelligence(BaseModel):
     ticker: str
     company_name: str | None = None
 
+    # Timestamps for recency weighting
+    data_as_of: datetime | None = None
+    fundamentals_period: str | None = None  # e.g., "LTM ending 2025-12-31"
+    price_as_of: str | None = None  # e.g., "2026-02-18"
+
     # FactSet
     market_cap: float | None = None
     fundamentals: dict[str, Any] | None = None
     price_change_1d: float | None = None
-    price_change_1w: float | None = None
     price_change_1m: float | None = None
 
     # SEC EDGAR
@@ -32,6 +36,9 @@ class TickerIntelligence(BaseModel):
 
     # Nasdaq
     next_earnings: dict[str, Any] | None = None
+
+    # Web search (analyst ratings, news)
+    recent_news: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CatalystAlert(BaseModel):

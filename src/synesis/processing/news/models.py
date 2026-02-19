@@ -1,7 +1,7 @@
-"""Processing models for Flow 1: Breaking News & Analysis.
+"""Processing models for Flow 1: Breaking News Intelligence.
 
 These models define the data structures for the news processing pipeline:
-- Unified message format from Twitter/Telegram
+- Unified message format from Telegram
 - LLM classification output schema
 - Final signal output
 """
@@ -21,16 +21,8 @@ from pydantic import BaseModel, Field
 class SourcePlatform(str, Enum):
     """Platform where the message originated."""
 
-    twitter = "twitter"
     telegram = "telegram"
     reddit = "reddit"
-
-
-class SourceType(str, Enum):
-    """Type of source — news wire vs. analysis/commentary."""
-
-    news = "news"  # Wire services, breaking news (e.g., @DeItaone, @marketfeed)
-    analysis = "analysis"  # Commentary, opinions (e.g., @elonmusk, analysts)
 
 
 class NewsCategory(str, Enum):
@@ -47,22 +39,19 @@ class NewsCategory(str, Enum):
 
 
 class UnifiedMessage(BaseModel):
-    """Normalized message from any source (Twitter/Telegram).
+    """Normalized message from any source (Telegram).
 
     This is the common format after ingestion, before processing.
     """
 
     # Identity
-    external_id: str  # Platform-specific ID (tweet_id, message_id)
+    external_id: str  # Platform-specific ID (message_id)
     source_platform: SourcePlatform
-    source_account: str  # @username or channel name
+    source_account: str  # channel name
 
     # Content
     text: str
     timestamp: datetime
-
-    # Classification (determined by config, not LLM)
-    source_type: SourceType
 
     # Raw data for debugging
     raw: dict[str, Any] = Field(default_factory=dict)
@@ -250,76 +239,6 @@ class ResearchQuality(str, Enum):
     low = "low"  # Limited or no external data
 
 
-class InvestmentAnalysis(BaseModel):
-    """Stage 2A: Investment analysis output.
-
-    Comprehensive analysis of investment implications from news,
-    including ticker-level analysis and sector impacts.
-    """
-
-    # Ticker-level analysis
-    ticker_analyses: list[TickerAnalysis] = Field(
-        default_factory=list,
-        description="Analysis of individual tickers affected",
-    )
-
-    # Sector implications
-    sector_implications: list[SectorImplication] = Field(
-        default_factory=list,
-        description="Sector-level impacts",
-    )
-
-    # Historical context
-    historical_precedent: str = Field(
-        default="",
-        description="What happened historically with similar news",
-    )
-    similar_events: list[str] = Field(
-        default_factory=list,
-        description="List of similar historical events",
-    )
-    typical_market_reaction: str = Field(
-        default="",
-        description="Typical market reaction pattern",
-    )
-
-    # Actionable output
-    actionable_insights: list[str] = Field(
-        default_factory=list,
-        description="Specific actionable trading insights",
-    )
-
-    # Primary thesis (for Stage 2B)
-    primary_thesis: str = Field(
-        default="",
-        description="Primary investment thesis from this news",
-    )
-    thesis_confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=0.5,
-        description="Confidence in the primary thesis",
-    )
-
-    # Research quality indicator
-    research_quality: ResearchQuality = Field(
-        default=ResearchQuality.medium,
-        description="Quality of available research data",
-    )
-
-    @property
-    def has_tradable_tickers(self) -> bool:
-        """Check if any tickers have high conviction."""
-        return any(t.conviction >= 0.7 for t in self.ticker_analyses)
-
-    @property
-    def top_ticker(self) -> TickerAnalysis | None:
-        """Get the ticker with highest conviction."""
-        if not self.ticker_analyses:
-            return None
-        return max(self.ticker_analyses, key=lambda t: t.conviction)
-
-
 # =============================================================================
 # Stage 1: Lightweight Classification (NEW)
 # =============================================================================
@@ -378,57 +297,7 @@ class LightClassification(BaseModel):
 
 
 # =============================================================================
-# Market Opportunity
-# =============================================================================
-
-
-class MarketOpportunity(BaseModel):
-    """A potential prediction market trading opportunity."""
-
-    # Market info
-    market_id: str
-    platform: str  # "polymarket" or "kalshi"
-    question: str
-    slug: str | None = None
-
-    # Current state
-    yes_price: float = Field(ge=0.0, le=1.0)
-    no_price: float = Field(ge=0.0, le=1.0)
-    volume_24h: float | None = None
-
-    # Opportunity
-    suggested_direction: str  # "yes" or "no"
-    reason: str
-    news_summary: str | None = None
-
-    # Metadata
-    end_date: datetime | None = None
-
-
-class OddsEvaluation(BaseModel):
-    """Evaluation of prediction market odds vs analyst estimates."""
-
-    market_id: str
-    market_question: str
-    verdict: str = Field(description="undervalued | overvalued | fair")
-    current_odds: float = Field(ge=0.0, le=1.0)
-    estimated_fair_odds: float = Field(ge=0.0, le=1.0)
-    edge: float = Field(description="Estimated edge (fair - current)")
-    confidence: float = Field(ge=0.0, le=1.0, description="Confidence in this estimate")
-    reasoning: str = Field(description="Explanation of the evaluation")
-    analyst_estimates: list[str] = Field(
-        default_factory=list,
-        description="Analyst probability estimates found",
-    )
-    historical_pm_accuracy: str | None = Field(
-        default=None,
-        description="Polymarket historical accuracy on similar events",
-    )
-    recommended_side: str = Field(description="yes | no | skip")
-
-
-# =============================================================================
-# Stage 2: Smart Evaluator Output (NEW)
+# Market Evaluation
 # =============================================================================
 
 
@@ -468,59 +337,13 @@ class MarketEvaluation(BaseModel):
     recommended_side: str = Field(description="yes | no | skip")
 
 
-class EvaluatorOutput(BaseModel):
-    """Stage 2 Smart Evaluator output.
-
-    Contains all market evaluations, research summary, and best opportunity.
-    """
-
-    # Summary stats
-    markets_found: int = Field(description="Total markets found via search")
-    markets_relevant: int = Field(description="Markets that passed relevance filter")
-
-    # All evaluations (including non-relevant for transparency)
-    evaluations: list[MarketEvaluation] = Field(default_factory=list)
-
-    # Research performed
-    research_summary: str = Field(
-        default="",
-        description="Summary of web research performed",
-    )
-
-    # Quick access to best opportunity
-    has_tradable_edge: bool = Field(
-        default=False,
-        description="Whether any market has tradable edge",
-    )
-    best_opportunity: MarketEvaluation | None = Field(
-        default=None,
-        description="Best market by edge (if any has edge)",
-    )
-
-    @property
-    def relevant_evaluations(self) -> list[MarketEvaluation]:
-        """Get only the relevant market evaluations."""
-        return [e for e in self.evaluations if e.is_relevant]
-
-    @property
-    def opportunities_with_edge(self) -> list[MarketEvaluation]:
-        """Get evaluations with positive edge."""
-        return [
-            e for e in self.evaluations if e.is_relevant and e.edge is not None and e.edge > 0.05
-        ]
-
-
 # =============================================================================
 # Stage 2: Smart Analysis (Consolidated Output)
 # =============================================================================
 
 
 class SmartAnalysis(BaseModel):
-    """Stage 2 consolidated output - ALL analysis happens here after research.
-
-    This replaces both InvestmentAnalysis and EvaluatorOutput as the unified
-    Stage 2 output. It contains all informed judgments made with research context.
-    """
+    """Stage 2 consolidated output — all informed judgments with research context."""
 
     # Informed judgments (made with research context, NOT Stage 1)
     tickers: list[str] = Field(
@@ -632,7 +455,7 @@ class SmartAnalysis(BaseModel):
 
 
 class NewsSignal(BaseModel):
-    """Real-time signal emitted for each news/analysis item.
+    """Real-time signal emitted for each news item.
 
     This is the final output of Flow 1, written to JSONL.
     Uses the 2-stage architecture: LightClassification (Stage 1) + SmartAnalysis (Stage 2).
@@ -643,7 +466,6 @@ class NewsSignal(BaseModel):
     # Source info
     source_platform: SourcePlatform
     source_account: str
-    source_type: SourceType
     raw_text: str
     external_id: str
 
@@ -658,19 +480,6 @@ class NewsSignal(BaseModel):
         default=None,
         description="Stage 2 smart analysis output (tickers, sectors, sentiment, markets)",
     )
-
-    # Legacy fields for backwards compatibility
-    classification: LightClassification | None = Field(
-        default=None,
-        description="Deprecated: Use extraction instead",
-    )
-    opportunities: list[MarketOpportunity] = Field(default_factory=list)
-    evaluations: list[OddsEvaluation | MarketEvaluation] = Field(default_factory=list)
-    evaluator_output: EvaluatorOutput | None = Field(default=None)
-
-    # Watchlist additions (for Flow 2) - now comes from analysis
-    watchlist_tickers: list[str] = Field(default_factory=list)
-    watchlist_sectors: list[str] = Field(default_factory=list)
 
     # Processing metadata
     is_duplicate: bool = False

@@ -52,7 +52,6 @@ def _poly_to_unified(m: SimpleMarket) -> UnifiedMarket:
         is_active=m.is_active,
         url=m.url,
         category=m.category,
-        description=m.description,
         outcome_label=m.group_item_title,
         yes_outcome=m.yes_outcome,
         yes_token_id=m.yes_token_id,
