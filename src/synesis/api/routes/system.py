@@ -12,7 +12,6 @@ router = APIRouter()
 async def system_status(state: AgentStateDep) -> dict[str, object]:
     return {
         "telegram": state.telegram_enabled,
-        "reddit": state.reddit_enabled,
         "agent_running": state.agent_task is not None and not state.agent_task.done(),
     }
 
@@ -24,5 +23,4 @@ async def system_config() -> dict[str, object]:
         "env": settings.env,
         "llm_provider": settings.llm_provider,
         "telegram_enabled": bool(settings.telegram_api_id),
-        "reddit_enabled": bool(settings.reddit_subreddits),
     }

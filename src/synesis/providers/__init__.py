@@ -3,13 +3,11 @@
 ## Provider Types
 
 - **TickerProvider**: Ticker validation and symbol search
-- **FundamentalsProvider**: Company fundamental data (financials, filings, etc.)
 - **CrawlerProvider**: Web crawling and content extraction
 
 ## Standalone Providers
 
-- **Finnhub**: Real-time prices only (WebSocket + /quote)
-- **FactSet**: Fundamentals (P/E, margins, ratios), market cap, ticker verification
+- **Finnhub**: Real-time prices, ticker verification
 - **SEC EDGAR**: Filings, insider transactions/sentiment, historical EPS/revenue (XBRL)
 - **NASDAQ**: Earnings calendar, EPS forecasts
 """
@@ -26,7 +24,7 @@ from synesis.providers.factory import (
     create_ticker_provider,
 )
 
-# Finnhub implementations (prices only — fundamentals replaced by standalone providers)
+# Finnhub implementations
 from synesis.providers.finnhub import (
     FinnhubFundamentalsProvider,
     FinnhubPriceProvider,
@@ -57,18 +55,6 @@ from synesis.providers.nasdaq import (
     NasdaqClient,
 )
 
-# FactSet implementation
-from synesis.providers.factset import (
-    FactSetClient,
-    FactSetCorporateAction,
-    FactSetFundamentals,
-    FactSetPrice,
-    FactSetProvider,
-    FactSetSecurity,
-    FactSetSharesOutstanding,
-    FactSetTickerProvider,
-)
-
 __all__ = [
     # Protocols
     "TickerProvider",
@@ -76,7 +62,7 @@ __all__ = [
     "CrawlerProvider",
     # Factory functions
     "create_ticker_provider",
-    # Finnhub (prices only)
+    # Finnhub
     "FinnhubPriceProvider",
     "FinnhubTickerProvider",
     "FinnhubFundamentalsProvider",
@@ -94,16 +80,7 @@ __all__ = [
     "init_price_service",
     "close_price_service",
     "get_rate_limiter",
-    # Crawler implementations
+    # Crawler
     "Crawl4AICrawlerProvider",
     "CrawlResult",
-    # FactSet implementation
-    "FactSetProvider",
-    "FactSetTickerProvider",
-    "FactSetClient",
-    "FactSetPrice",
-    "FactSetSecurity",
-    "FactSetFundamentals",
-    "FactSetCorporateAction",
-    "FactSetSharesOutstanding",
 ]

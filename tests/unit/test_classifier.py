@@ -12,9 +12,9 @@ from synesis.processing.news.classifier import (
     create_classifier_agent,
 )
 from synesis.processing.news import (
-    EventType,
     LightClassification,
     NewsCategory,
+    PrimaryTopic,
     SourcePlatform,
     UnifiedMessage,
 )
@@ -36,11 +36,11 @@ def create_mock_classification() -> LightClassification:
 
     Note: LightClassification is Stage 1 entity extraction only.
     It does NOT contain: sentiment, tickers, sectors.
-    Those fields moved to Stage 2 SmartAnalysis.
+    Those fields are in Stage 2 SmartAnalysis.
     """
     return LightClassification(
         news_category=NewsCategory.breaking,
-        event_type=EventType.macro,
+        primary_topics=[PrimaryTopic.monetary_policy],
         summary="Fed announces rate cut of 25 basis points",
         confidence=0.95,
         primary_entity="Federal Reserve",
@@ -56,17 +56,24 @@ class TestClassifierSystemPrompt:
     def test_prompt_contains_key_instructions(self) -> None:
         """Test that the system prompt contains key instructions."""
         assert "entity extractor" in CLASSIFIER_SYSTEM_PROMPT.lower()
-        assert "event_type" in CLASSIFIER_SYSTEM_PROMPT.lower()
+        assert "topics" in CLASSIFIER_SYSTEM_PROMPT.lower()
         assert "polymarket" in CLASSIFIER_SYSTEM_PROMPT.lower()
 
-    def test_prompt_lists_event_types(self) -> None:
-        """Test that the prompt lists all event types."""
-        assert "macro" in CLASSIFIER_SYSTEM_PROMPT
+    def test_prompt_lists_topic_tags(self) -> None:
+        """Test that the prompt lists primary and secondary topic tags."""
+        # Primary topics
+        assert "monetary_policy" in CLASSIFIER_SYSTEM_PROMPT
         assert "earnings" in CLASSIFIER_SYSTEM_PROMPT
-        assert "geopolitical" in CLASSIFIER_SYSTEM_PROMPT
-        assert "corporate" in CLASSIFIER_SYSTEM_PROMPT
+        assert "geopolitics" in CLASSIFIER_SYSTEM_PROMPT
+        assert "corporate_actions" in CLASSIFIER_SYSTEM_PROMPT
         assert "regulatory" in CLASSIFIER_SYSTEM_PROMPT
         assert "crypto" in CLASSIFIER_SYSTEM_PROMPT
+        assert "trade_policy" in CLASSIFIER_SYSTEM_PROMPT
+        # Secondary topics
+        assert "semiconductors" in CLASSIFIER_SYSTEM_PROMPT
+        assert "biotech" in CLASSIFIER_SYSTEM_PROMPT
+        assert "primary_topics" in CLASSIFIER_SYSTEM_PROMPT
+        assert "secondary_topics" in CLASSIFIER_SYSTEM_PROMPT
 
     def test_prompt_clarifies_no_judgment_calls(self) -> None:
         """Test that the prompt clarifies Stage 1 makes no judgment calls."""
@@ -98,7 +105,7 @@ class TestNewsClassifier:
         result = await classifier.classify(message)
 
         assert isinstance(result, LightClassification)
-        assert result.event_type == EventType.macro
+        assert PrimaryTopic.monetary_policy in result.primary_topics
         assert result.confidence == 0.95
         assert result.primary_entity == "Federal Reserve"
 
@@ -178,7 +185,8 @@ class TestLightClassificationModel:
         classification = create_mock_classification()
 
         # Stage 1 fields that SHOULD exist
-        assert hasattr(classification, "event_type")
+        assert hasattr(classification, "primary_topics")
+        assert hasattr(classification, "secondary_topics")
         assert hasattr(classification, "summary")
         assert hasattr(classification, "confidence")
         assert hasattr(classification, "primary_entity")
@@ -190,7 +198,7 @@ class TestLightClassificationModel:
     def test_light_classification_does_not_have_stage2_fields(self) -> None:
         """Test that LightClassification does NOT have Stage 2 fields.
 
-        These fields moved to SmartAnalysis in the 2-stage architecture.
+        These fields live in SmartAnalysis in the 2-stage architecture.
         """
         classification = create_mock_classification()
 
@@ -203,7 +211,7 @@ class TestLightClassificationModel:
     def test_confidence_bounds(self) -> None:
         """Test that confidence is bounded 0-1."""
         classification = LightClassification(
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Test",
             confidence=0.0,
             primary_entity="Test",
@@ -211,7 +219,7 @@ class TestLightClassificationModel:
         assert classification.confidence == 0.0
 
         classification2 = LightClassification(
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Test",
             confidence=1.0,
             primary_entity="Test",
@@ -221,7 +229,7 @@ class TestLightClassificationModel:
     def test_defaults(self) -> None:
         """Test default values."""
         classification = LightClassification(
-            event_type=EventType.other,
+            primary_topics=[PrimaryTopic.other],
             summary="Test",
             confidence=0.5,
             primary_entity="Unknown",
@@ -231,3 +239,19 @@ class TestLightClassificationModel:
         assert classification.all_entities == []
         assert classification.polymarket_keywords == []
         assert classification.search_keywords == []
+        assert classification.secondary_topics == []
+
+    def test_multiple_topics(self) -> None:
+        """Test that multiple primary topic tags can be assigned."""
+        from synesis.processing.news import SecondaryTopic
+
+        classification = LightClassification(
+            primary_topics=[PrimaryTopic.earnings],
+            secondary_topics=[SecondaryTopic.semiconductors],
+            summary="Nvidia Q4 earnings beat on AI demand",
+            confidence=0.9,
+            primary_entity="Nvidia",
+        )
+        assert len(classification.primary_topics) == 1
+        assert PrimaryTopic.earnings in classification.primary_topics
+        assert SecondaryTopic.semiconductors in classification.secondary_topics

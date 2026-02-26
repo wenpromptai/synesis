@@ -48,8 +48,7 @@ class TickerMetadata:
     """Metadata for a watchlist ticker."""
 
     ticker: str
-    source: str  # "telegram", "reddit", etc.
-    subreddit: str | None = None  # For Reddit source
+    source: str  # "telegram", "twitter", etc.
     added_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_seen_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     mention_count: int = 1
@@ -59,7 +58,6 @@ class TickerMetadata:
         return {
             "ticker": self.ticker,
             "source": self.source,
-            "subreddit": self.subreddit or "",
             "added_at": self.added_at.isoformat(),
             "last_seen_at": self.last_seen_at.isoformat(),
             "mention_count": str(self.mention_count),
@@ -71,7 +69,6 @@ class TickerMetadata:
         return cls(
             ticker=data["ticker"],
             source=data["source"],
-            subreddit=data.get("subreddit") or None,
             added_at=datetime.fromisoformat(data["added_at"]),
             last_seen_at=datetime.fromisoformat(data["last_seen_at"]),
             mention_count=int(data.get("mention_count", "1")),
@@ -110,16 +107,12 @@ class WatchlistManager:
         self,
         ticker: str,
         source: str,
-        subreddit: str | None = None,
-        company_name: str | None = None,
     ) -> bool:
         """Add ticker to watchlist or refresh TTL if exists.
 
         Args:
             ticker: Stock ticker symbol (e.g., "AAPL")
-            source: Source platform ("telegram", "reddit", etc.)
-            subreddit: Subreddit name if source is Reddit
-            company_name: Full company name if known
+            source: Source platform ("telegram", "twitter", etc.)
 
         Returns:
             True if ticker was newly added, False if refreshed
@@ -142,7 +135,6 @@ class WatchlistManager:
             metadata = TickerMetadata(
                 ticker=ticker,
                 source=source,
-                subreddit=subreddit,
             )
             await self.redis.hset(metadata_key, mapping=metadata.to_dict())  # type: ignore[misc]
             await self.redis.expire(metadata_key, self.ttl_seconds)
@@ -151,7 +143,6 @@ class WatchlistManager:
                 "Ticker added to watchlist",
                 ticker=ticker,
                 source=source,
-                subreddit=subreddit,
                 ttl_days=self.ttl_days,
             )
         else:
@@ -175,12 +166,9 @@ class WatchlistManager:
         if self.db:
             try:
                 expires_at = datetime.now(UTC) + timedelta(days=self.ttl_days)
-                added_reason = (
-                    f"Sentiment from r/{subreddit}" if subreddit else f"Signal from {source}"
-                )
+                added_reason = f"Signal from {source}"
                 await self.db.upsert_watchlist_ticker(
                     ticker=ticker,
-                    company_name=company_name,
                     added_by=source,
                     added_reason=added_reason,
                     expires_at=expires_at,
@@ -375,23 +363,11 @@ class WatchlistManager:
                     ttl_key = f"{TTL_KEY_PREFIX}{ticker}"
                     await self.redis.set(ttl_key, "1", ex=self.ttl_seconds)
 
-                    # Restore metadata from database
-                    # Extract subreddit from added_reason if present (e.g., "Sentiment from r/wallstreetbets")
-                    added_reason = record["added_reason"] or ""
-                    subreddit = None
-                    if "r/" in added_reason:
-                        import re
-
-                        match = re.search(r"r/(\w+)", added_reason)
-                        if match:
-                            subreddit = match.group(1)
-
                     # Create metadata from DB fields
                     added_at = record["added_at"] or datetime.now(UTC)
                     metadata = TickerMetadata(
                         ticker=ticker,
                         source=record["added_by"] or "unknown",
-                        subreddit=subreddit,
                         added_at=added_at,
                         last_seen_at=added_at,  # Best we can do on restore
                         mention_count=1,  # Reset on restore
@@ -455,14 +431,12 @@ class WatchlistManager:
         self,
         tickers: list[str],
         source: str,
-        subreddit: str | None = None,
     ) -> tuple[list[str], list[str]]:
         """Add multiple tickers to watchlist.
 
         Args:
             tickers: List of ticker symbols
             source: Source platform
-            subreddit: Subreddit name if source is Reddit
 
         Returns:
             Tuple of (newly_added, refreshed) ticker lists
@@ -471,7 +445,7 @@ class WatchlistManager:
         refreshed = []
 
         for ticker in tickers:
-            is_new = await self.add_ticker(ticker, source, subreddit)
+            is_new = await self.add_ticker(ticker, source)
             if is_new:
                 newly_added.append(ticker)
             else:

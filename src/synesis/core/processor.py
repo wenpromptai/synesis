@@ -17,6 +17,7 @@ Stage 2 (Smart Analyzer):
 """
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
@@ -176,11 +177,20 @@ class NewsProcessor:
     async def close(self) -> None:
         """Clean up resources."""
         if self._analyzer:
-            await self._analyzer.close()
+            try:
+                await self._analyzer.close()
+            except Exception:
+                logger.error("Error closing analyzer", exc_info=True)
         if self._polymarket:
-            await self._polymarket.close()
+            try:
+                await self._polymarket.close()
+            except Exception:
+                logger.error("Error closing Polymarket client", exc_info=True)
         if self._deduplicator:
-            await self._deduplicator.cleanup()
+            try:
+                await self._deduplicator.cleanup()
+            except Exception:
+                logger.error("Error cleaning up deduplicator", exc_info=True)
 
     async def __aenter__(self) -> "NewsProcessor":
         """Async context manager entry."""
@@ -264,8 +274,6 @@ class NewsProcessor:
         Returns:
             ProcessingResult with extraction and analysis
         """
-        import time
-
         start_time = time.perf_counter()
 
         log = logger.bind(
@@ -299,7 +307,7 @@ class NewsProcessor:
 
         log.info(
             "Stage 1 complete",
-            event_type=extraction.event_type.value,
+            primary_topics=[t.value for t in extraction.primary_topics],
             primary_entity=extraction.primary_entity,
             all_entities=extraction.all_entities,
             urgency=extraction.urgency.value,

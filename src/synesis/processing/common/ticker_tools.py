@@ -1,9 +1,9 @@
 """Shared ticker verification tools for LLM agents.
 
-This module provides a unified ticker verification function that can be used
-by both Flow 1 (SmartAnalyzer) and Flow 2 (SentimentRefiner) agents.
+This module provides a unified ticker verification function used by
+the Flow 1 SmartAnalyzer agent.
 
-Uses FactSet TickerProvider for ticker verification (global coverage).
+Uses FinnhubTickerProvider for ticker verification.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ async def verify_ticker(
 
     Args:
         ticker: The ticker symbol to verify (e.g., "AAPL", "GME", "TSLA")
-        ticker_provider: TickerProvider instance (e.g., FactSetTickerProvider) or None
+        ticker_provider: TickerProvider instance (e.g., FinnhubTickerProvider) or None
 
     Returns:
         Verification result string describing whether the ticker is valid,

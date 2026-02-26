@@ -9,9 +9,9 @@ You are reviewing code for Synesis. Follow CLAUDE.md (in the project root) for d
 
 ## Architecture Context
 This is a Python-based financial intelligence system built with FastAPI and PydanticAI:
-- **Processing**: 4 analysis flows — news (Flow 1), sentiment (Flow 2), market intel (Flow 3), watchlist (Flow 4)
-- **Providers**: SEC EDGAR, NASDAQ, Finnhub, FactSet for market data
-- **Markets**: Polymarket CLOB API integration for prediction markets
+- **Processing**: Two-stage news pipeline — Stage 1 entity extraction (fast) + Stage 2 smart analysis (LLM with research context)
+- **Providers**: SEC EDGAR, NASDAQ, Finnhub for market data
+- **Markets**: Polymarket Gamma API for market discovery and evaluation
 - **Agent**: PydanticAI agent with APScheduler for periodic jobs
 - **Storage**: PostgreSQL (TimescaleDB) + Redis
 - **Config**: pydantic-settings `BaseSettings` with `.env` files
@@ -46,8 +46,8 @@ Use git commands or file reading to understand the changes in the repository.
 ## Review Focus Areas
 
 ### 1. Architecture & Patterns
-- Dataclass-based clients (e.g., `PolymarketClient`, `KalshiClient`) with `_get_client()` returning httpx.AsyncClient
-- Pipeline pattern: `scanner.scan()` → `processor.run_scan()` → Signal model
+- Dataclass-based clients (e.g., `PolymarketClient`) with `_get_client()` returning httpx.AsyncClient
+- Two-stage pipeline: Stage 1 entity extraction → Stage 2 smart analysis → NewsSignal model
 - pydantic-settings `BaseSettings` with `Field(default=...)` for configuration
 - asyncpg via `Database` wrapper in `storage/database.py`
 - PydanticAI agents with structured output models for LLM analysis
@@ -121,7 +121,7 @@ Security focus for this system should be on:
 
 ## Performance Considerations
 - LLM call efficiency (token usage, model selection: haiku vs sonnet)
-- Redis caching for expensive API calls (Finnhub, FactSet, SEC EDGAR)
+- Redis caching for expensive API calls (Finnhub, SEC EDGAR)
 - Async/await usage for concurrent operations
 - Rate limiting compliance (Finnhub 60/min, SEC EDGAR fair use)
 - WebSocket connection management and reconnection

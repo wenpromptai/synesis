@@ -159,12 +159,12 @@ class TestDatabaseSignalOperations:
     async def test_insert_signal(self) -> None:
         """Test inserting a NewsSignal."""
         from synesis.processing.news import (
-            EventType,
-            NewsSignal,
+            Direction,
             LightClassification,
+            NewsSignal,
+            PrimaryTopic,
             SmartAnalysis,
             SourcePlatform,
-            Direction,
         )
 
         db = Database(dsn="postgresql://localhost/db")
@@ -180,7 +180,7 @@ class TestDatabaseSignalOperations:
         db._pool = mock_pool
 
         extraction = LightClassification(
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Fed cuts rates",
             confidence=0.9,
             primary_entity="Federal Reserve",
@@ -213,9 +213,9 @@ class TestDatabaseSignalOperations:
         """Test inserting a NewsSignal with analysis data."""
         from synesis.processing.news import (
             Direction,
-            EventType,
             LightClassification,
             NewsSignal,
+            PrimaryTopic,
             SmartAnalysis,
             SourcePlatform,
         )
@@ -233,7 +233,7 @@ class TestDatabaseSignalOperations:
         db._pool = mock_pool
 
         extraction = LightClassification(
-            event_type=EventType.earnings,
+            primary_topics=[PrimaryTopic.earnings],
             summary="AAPL beats earnings",
             confidence=0.9,
             primary_entity="Apple",
@@ -260,9 +260,9 @@ class TestDatabaseSignalOperations:
 
         mock_conn.execute.assert_called_once()
         call_args = mock_conn.execute.call_args
-        # Verify 7 columns (no prices_at_signal)
+        # Verify 9 columns (time, flow_id, signal_type, payload, markets, tickers, entities, primary_topics, secondary_topics)
         assert "INSERT INTO signals" in call_args[0][0]
-        assert len(call_args[0]) == 8  # query + 7 params
+        assert len(call_args[0]) == 10  # query + 9 params
 
     @pytest.mark.anyio
     async def test_insert_raw_message(self) -> None:
@@ -411,55 +411,8 @@ class TestGlobalDatabaseFunctions:
         assert db_module._db is None
 
 
-class TestDatabaseSentimentOperations:
-    """Tests for sentiment database operations."""
-
-    @pytest.mark.anyio
-    async def test_insert_sentiment_signal(self) -> None:
-        """Test inserting a SentimentSignal."""
-        from synesis.processing.sentiment import SentimentSignal, TickerSentimentSummary
-
-        db = Database(dsn="postgresql://localhost/db")
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="INSERT 1")
-
-        mock_pool = MagicMock()
-        mock_pool.acquire = MagicMock(
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
-            )
-        )
-        db._pool = mock_pool
-
-        now = datetime.now(timezone.utc)
-        signal = SentimentSignal(
-            timestamp=now,
-            period_start=now,
-            period_end=now,
-            watchlist=["AAPL", "TSLA"],
-            ticker_sentiments=[
-                TickerSentimentSummary(
-                    ticker="AAPL",
-                    company_name="Apple Inc.",
-                    mention_count=50,
-                    avg_sentiment=0.3,
-                ),
-            ],
-            overall_sentiment="bullish",
-            narrative_summary="Market is bullish on tech",
-            total_posts_analyzed=100,
-        )
-
-        await db.insert_sentiment_signal(signal)
-
-        mock_conn.execute.assert_called_once()
-        # Verify the SQL contains expected table name
-        call_args = mock_conn.execute.call_args
-        assert "INSERT INTO signals" in call_args[0][0]
-        # Verify flow_id is 'sentiment'
-        assert call_args[0][2] == "sentiment"
-        # Verify watchlist is passed as tickers
-        assert call_args[0][5] == ["AAPL", "TSLA"]
+class TestDatabaseWatchlistOperations:
+    """Tests for watchlist and snapshot database operations."""
 
     @pytest.mark.anyio
     async def test_upsert_watchlist_ticker_new(self) -> None:
@@ -481,9 +434,8 @@ class TestDatabaseSentimentOperations:
         now = datetime.now(timezone.utc)
         result = await db.upsert_watchlist_ticker(
             ticker="AAPL",
-            company_name="Apple Inc.",
-            added_by="reddit",
-            added_reason="High mention volume",
+            added_by="telegram",
+            added_reason="Signal from telegram",
             expires_at=now,
         )
 
@@ -513,75 +465,12 @@ class TestDatabaseSentimentOperations:
         now = datetime.now(timezone.utc)
         result = await db.upsert_watchlist_ticker(
             ticker="AAPL",
-            company_name="Apple Inc.",
-            added_by="reddit",
+            added_by="telegram",
             added_reason="Extended TTL",
             expires_at=now,
         )
 
         assert result is False
-
-    @pytest.mark.anyio
-    async def test_insert_sentiment_snapshot_all_params(self) -> None:
-        """Test inserting sentiment snapshot with all parameters."""
-        db = Database(dsn="postgresql://localhost/db")
-
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="INSERT 1")
-
-        mock_pool = MagicMock()
-        mock_pool.acquire = MagicMock(
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
-            )
-        )
-        db._pool = mock_pool
-
-        now = datetime.now(timezone.utc)
-        await db.insert_sentiment_snapshot(
-            ticker="AAPL",
-            snapshot_time=now,
-            bullish_ratio=0.6,
-            bearish_ratio=0.2,
-            mention_count=50,
-        )
-
-        mock_conn.execute.assert_called_once()
-        call_args = mock_conn.execute.call_args
-        assert "INSERT INTO sentiment_snapshots" in call_args[0][0]
-        # Verify 5 columns: ticker, snapshot_time, bullish_ratio, bearish_ratio, mention_count
-        assert len(call_args[0]) == 6  # query + 5 params
-
-    @pytest.mark.anyio
-    async def test_insert_sentiment_snapshot_minimal_params(self) -> None:
-        """Test inserting sentiment snapshot with minimal parameters."""
-        db = Database(dsn="postgresql://localhost/db")
-
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="INSERT 1")
-
-        mock_pool = MagicMock()
-        mock_pool.acquire = MagicMock(
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
-            )
-        )
-        db._pool = mock_pool
-
-        now = datetime.now(timezone.utc)
-        await db.insert_sentiment_snapshot(
-            ticker="TSLA",
-            snapshot_time=now,
-            bullish_ratio=0.33,
-            bearish_ratio=0.33,
-            mention_count=10,
-        )
-
-        mock_conn.execute.assert_called_once()
-        call_args = mock_conn.execute.call_args
-        assert "INSERT INTO sentiment_snapshots" in call_args[0][0]
-        # Verify 5 params (no price_at_signal)
-        assert call_args[0][5] == 10  # mention_count is last param
 
     @pytest.mark.anyio
     async def test_deactivate_expired_watchlist(self) -> None:

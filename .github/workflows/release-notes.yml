@@ -79,14 +79,14 @@ jobs:
           # Get detailed changes by component
           echo "### File Changes by Component" > changes.txt
           echo "" >> changes.txt
-          echo "**Frontend:**" >> changes.txt
-          git diff ${PREVIOUS_TAG}..${CURRENT_TAG} --stat -- archon-ui-main/ | head -20 >> changes.txt
+          echo "**Core:**" >> changes.txt
+          git diff ${PREVIOUS_TAG}..${CURRENT_TAG} --stat -- src/synesis/ | head -20 >> changes.txt
           echo "" >> changes.txt
-          echo "**Backend:**" >> changes.txt
-          git diff ${PREVIOUS_TAG}..${CURRENT_TAG} --stat -- python/ | head -20 >> changes.txt
+          echo "**Tests:**" >> changes.txt
+          git diff ${PREVIOUS_TAG}..${CURRENT_TAG} --stat -- tests/ | head -20 >> changes.txt
           echo "" >> changes.txt
           echo "**Documentation:**" >> changes.txt
-          git diff ${PREVIOUS_TAG}..${CURRENT_TAG} --stat -- '*.md' PRPs/ | head -10 >> changes.txt
+          git diff ${PREVIOUS_TAG}..${CURRENT_TAG} --stat -- '*.md' docs/ | head -10 >> changes.txt
 
       - name: Get closed PRs
         id: prs
@@ -115,7 +115,7 @@ jobs:
           cat > release-context.md <<'EOF'
           # Release Notes Generation Task
 
-          You are writing release notes for Archon V2 Beta, a local-first AI knowledge management system.
+          You are writing release notes for Synesis, a real-time financial news analysis and prediction market trading system.
 
           ## Release Information
 
@@ -170,14 +170,14 @@ jobs:
 
           ## 🔧 Technical Changes
 
-          ### Backend (Python/FastAPI)
-          - [Notable backend changes]
+          ### Processing & Providers
+          - [Notable changes to news pipeline, providers, markets]
 
-          ### Frontend (React/TypeScript)
-          - [Notable frontend changes]
+          ### Agent & Scheduler
+          - [Changes to PydanticAI agent, APScheduler jobs]
 
           ### Infrastructure
-          - [Docker, CI/CD, deployment changes]
+          - [Docker, CI/CD, database, deployment changes]
 
           ## 📊 Statistics
           - **Commits:** ${{ steps.commits.outputs.commit_count }}
@@ -205,7 +205,7 @@ jobs:
 
           ---
 
-          **Note:** This is a beta release. Features may change rapidly. Report issues at: https://github.com/${{ github.repository }}/issues
+          **Note:** Report issues at: https://github.com/${{ github.repository }}/issues
 
           ---
 

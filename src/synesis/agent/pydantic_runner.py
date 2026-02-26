@@ -26,11 +26,12 @@ from synesis.config import get_settings
 from synesis.core.constants import MIN_THESIS_CONFIDENCE_FOR_ALERT
 from synesis.core.logging import get_logger
 from synesis.core.processor import NewsProcessor, ProcessingResult
-from synesis.processing.common.watchlist import WatchlistManager
 from synesis.notifications.telegram import (
     format_condensed_signal,
+    format_stage1_signal,
     send_long_telegram,
 )
+from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import (
     NewsSignal,
     LightClassification,
@@ -38,7 +39,9 @@ from synesis.processing.news import (
     SmartAnalysis,
     SourcePlatform,
     UnifiedMessage,
+    UrgencyLevel,
 )
+from synesis.providers.factory import create_ticker_provider
 from synesis.storage.database import Database, get_database
 
 logger = get_logger(__name__)
@@ -49,26 +52,12 @@ SIGNAL_CHANNEL = "synesis:signals"
 
 
 async def store_signal(signal: NewsSignal, redis: Redis) -> None:
-    """Store a signal and notify subscribers.
-
-    Writes to both:
-    - JSONL file in data/signals/
-    - Redis pub/sub channel for real-time notifications
+    """Publish a signal to Redis for real-time subscribers.
 
     Args:
-        signal: The NewsSignal to store
+        signal: The NewsSignal to publish
         redis: Redis client
     """
-    settings = get_settings()
-    signals_dir = settings.signals_output_dir
-
-    # Ensure output directory exists
-    signals_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write to daily JSONL file
-    date_str = signal.timestamp.strftime("%Y-%m-%d")
-    output_file = signals_dir / f"signals_{date_str}.jsonl"
-
     try:
         signal_json = signal.model_dump_json()
     except (TypeError, ValueError) as e:
@@ -79,37 +68,38 @@ async def store_signal(signal: NewsSignal, redis: Redis) -> None:
         )
         return
 
-    # Use thread pool to avoid blocking event loop
-    def _write_sync() -> None:
-        with open(output_file, "a") as f:
-            f.write(signal_json + "\n")
+    try:
+        await redis.publish(SIGNAL_CHANNEL, signal_json)
+    except Exception:
+        logger.error(
+            "Failed to publish signal to Redis — real-time subscribers will not see this signal",
+            message_id=signal.external_id,
+            exc_info=True,
+        )
+        return
 
-    await asyncio.to_thread(_write_sync)
-
-    # Publish to Redis for real-time subscribers
-    await redis.publish(SIGNAL_CHANNEL, signal_json)
-
-    logger.debug(
-        "Signal stored",
-        file=str(output_file),
-        message_id=signal.external_id,
-    )
+    logger.debug("Signal published", message_id=signal.external_id)
 
 
 async def emit_signal_to_db(
     message: UnifiedMessage,
     extraction: LightClassification,
-    analysis: SmartAnalysis,
+    analysis: SmartAnalysis | None,
 ) -> None:
     """Store signal to signals table (DB only, no Telegram).
 
     Args:
         message: Original message
         extraction: Stage 1 entity extraction
-        analysis: Stage 2 smart analysis
+        analysis: Stage 2 smart analysis (None for low/normal urgency signals)
     """
     try:
         db = get_database()
+    except RuntimeError:
+        logger.debug("Database not available, skipping signal storage")
+        return
+
+    try:
         signal = NewsSignal(
             timestamp=message.timestamp,
             source_platform=message.source_platform,
@@ -125,20 +115,16 @@ async def emit_signal_to_db(
             "Signal stored to database",
             message_id=message.external_id,
         )
-    except RuntimeError:
-        logger.debug("Database not available, skipping signal storage")
     except asyncpg.UniqueViolationError:
         logger.debug("Signal already exists", message_id=message.external_id)
     except (asyncpg.PostgresConnectionError, asyncpg.InterfaceError) as e:
         logger.warning(
-            "Database connection error - signal not stored",
+            "Database connection error — signal not stored",
             error=str(e),
             message_id=message.external_id,
         )
-    except Exception as e:
-        logger.error(
-            "Failed to store signal - DATA LOSS", error=str(e), message_id=message.external_id
-        )
+    except Exception:
+        logger.exception("Failed to store signal — DATA LOSS", message_id=message.external_id)
 
 
 async def emit_prediction_to_db(evaluation: MarketEvaluation, message: UnifiedMessage) -> None:
@@ -150,19 +136,48 @@ async def emit_prediction_to_db(evaluation: MarketEvaluation, message: UnifiedMe
     """
     try:
         db = get_database()
+    except RuntimeError:
+        logger.debug("Database not available, skipping prediction storage")
+        return
+
+    try:
         await db.insert_prediction(evaluation, message.timestamp)
         logger.debug(
             "Prediction stored to database",
             market_id=evaluation.market_id,
             verdict=evaluation.verdict,
         )
-    except RuntimeError:
-        logger.debug("Database not available, skipping prediction storage")
-    except Exception as e:
-        logger.error(
-            "Failed to store prediction - DATA LOSS",
-            error=str(e),
+    except Exception:
+        logger.exception(
+            "Failed to store prediction — DATA LOSS",
             market_id=evaluation.market_id,
+        )
+
+
+async def emit_stage1_telegram(
+    message: UnifiedMessage,
+    extraction: LightClassification,
+) -> None:
+    """Send Stage 1 first-pass Telegram notification.
+
+    Sent immediately after Gate 1 for high/critical urgency signals.
+
+    Args:
+        message: Original message
+        extraction: Stage 1 entity extraction
+    """
+    telegram_msg = format_stage1_signal(message=message, extraction=extraction)
+    sent = await send_long_telegram(telegram_msg)
+    if not sent:
+        logger.error(
+            "Failed to send Stage 1 signal to Telegram",
+            message_id=message.external_id,
+        )
+    else:
+        logger.debug(
+            "Stage 1 signal sent to Telegram",
+            message_id=message.external_id,
+            urgency=extraction.urgency.value,
         )
 
 
@@ -188,12 +203,13 @@ async def emit_combined_telegram(
             "Failed to send news signal to Telegram",
             message_id=message.external_id,
         )
-    logger.debug(
-        "Combined signal sent to Telegram",
-        message_id=message.external_id,
-        has_edge=analysis.has_tradable_edge,
-        markets_evaluated=len(analysis.market_evaluations),
-    )
+    else:
+        logger.debug(
+            "Combined signal sent to Telegram",
+            message_id=message.external_id,
+            has_edge=analysis.has_tradable_edge,
+            markets_evaluated=len(analysis.market_evaluations),
+        )
 
 
 async def emit_raw_message_to_db(message: UnifiedMessage) -> None:
@@ -204,13 +220,15 @@ async def emit_raw_message_to_db(message: UnifiedMessage) -> None:
     """
     try:
         db = get_database()
+    except RuntimeError:
+        logger.debug("Database not initialized, skipping raw message storage")
+        return
+
+    try:
         await db.insert_raw_message(message)
         logger.debug("Raw message stored to DB", message_id=message.external_id)
-    except RuntimeError:
-        # Database not initialized - skip DB storage
-        logger.debug("Database not initialized, skipping raw message storage")
-    except Exception as e:
-        logger.error("Failed to store raw message", error=str(e))
+    except Exception:
+        logger.exception("Failed to store raw message", message_id=message.external_id)
 
 
 async def emit_signal(
@@ -221,10 +239,10 @@ async def emit_signal(
 
     Converts the ProcessingResult to a NewsSignal and:
     - Stores raw message to raw_messages table (DB)
-    - Stores it in JSONL files + Redis (legacy)
+    - Publishes signal to Redis for real-time subscribers
     - Stores signal to signals table (DB)
     - Stores each prediction to predictions table (DB)
-    - Sends ONE combined Telegram message (signal + best polymarket edge)
+    - Sends two-pass Telegram: [1st pass] after Stage 1, [add story] after Stage 2
 
     Args:
         result: The processing result to emit
@@ -238,28 +256,52 @@ async def emit_signal(
         logger.debug("No signal to emit (skipped or no extraction)")
         return
 
-    # Legacy: Store to JSONL and Redis
+    # Store to Redis for real-time subscribers
     await store_signal(signal, redis)
 
-    if result.analysis is None or result.extraction is None:
+    if result.extraction is None:
         return
 
-    # 1. Store signal to DB (signals table)
-    await emit_signal_to_db(
-        result.message,
-        result.extraction,
-        result.analysis,
-    )
+    urgency = result.extraction.urgency
+    is_high_urgency = urgency in (UrgencyLevel.high, UrgencyLevel.critical)
+
+    if not is_high_urgency:
+        # Low/normal urgency: store extraction-only signal to DB (no Stage 2 ran)
+        await emit_signal_to_db(result.message, result.extraction, None)
+        return
+
+    # High/critical urgency: send Stage 1 first-pass Telegram notification.
+    # Isolated so a formatting or send failure does not abort the DB write.
+    try:
+        await emit_stage1_telegram(result.message, result.extraction)
+    except Exception:
+        logger.error(
+            "Unexpected error sending Stage 1 Telegram",
+            message_id=result.message.external_id,
+            exc_info=True,
+        )
+
+    if result.analysis is None:
+        # Stage 2 failed — store extraction-only and log for visibility.
+        logger.error(
+            "Stage 2 analysis unavailable for high-urgency signal",
+            message_id=result.message.external_id,
+            urgency=urgency.value,
+        )
+        await emit_signal_to_db(result.message, result.extraction, None)
+        return
+
+    # 1. Store full signal to DB (extraction + analysis, signals table)
+    await emit_signal_to_db(result.message, result.extraction, result.analysis)
 
     # 2. Store each prediction to DB (predictions table)
     for evaluation in result.analysis.market_evaluations:
         await emit_prediction_to_db(evaluation, result.message)
 
-    # 3. Send ONE combined Telegram message (signal + best polymarket edge if any)
-    # Safety net: skip Telegram for low-confidence signals that slipped past Stage 1
+    # 3. Send Stage 2 Telegram (add story) if confidence gate passes
     if result.analysis.thesis_confidence < MIN_THESIS_CONFIDENCE_FOR_ALERT:
         logger.info(
-            "Skipping Telegram alert (low confidence)",
+            "Skipping Stage 2 Telegram alert (low confidence)",
             message_id=result.message.external_id,
             thesis_confidence=f"{result.analysis.thesis_confidence:.0%}",
         )
@@ -372,6 +414,7 @@ async def run_pydantic_agent(
     workers: list[asyncio.Task[None]] = []
     # Standalone providers (initialized in try block)
     ticker_provider = None
+    processor: NewsProcessor | None = None
 
     try:
         await redis.ping()  # type: ignore[misc]
@@ -389,14 +432,17 @@ async def run_pydantic_agent(
                     "Database not available, WebSocket watchlist will be empty", error=str(e)
                 )
 
-        # Initialize ticker provider (FactSet or Finnhub based on config)
+        # Initialize Finnhub ticker provider for ticker verification
         try:
-            from synesis.providers.factory import create_ticker_provider
-
             ticker_provider = await create_ticker_provider(redis)
-            logger.debug("Ticker provider initialized", provider=settings.ticker_provider)
-        except Exception as e:
-            logger.warning("Ticker provider not available", error=str(e))
+            logger.debug("Ticker provider initialized")
+        except ValueError as e:
+            logger.warning(
+                "Ticker provider configuration error — ticker verification disabled",
+                error=str(e),
+            )
+        except Exception:
+            logger.error("Ticker provider initialization failed", exc_info=True)
 
         # Use shared watchlist (passed from __main__.py)
         # If not provided (standalone mode), create local instance
@@ -474,14 +520,27 @@ async def run_pydantic_agent(
             w.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
 
-        await processor.close()
+        if processor:
+            try:
+                await processor.close()
+            except Exception:
+                logger.error("Error closing NewsProcessor", exc_info=True)
         if ticker_provider:
-            await ticker_provider.close()
+            try:
+                await ticker_provider.close()
+            except Exception:
+                logger.error("Error closing ticker provider", exc_info=True)
         # Only close resources we created (not passed from __main__.py)
         if own_db and db:
-            await db.disconnect()
+            try:
+                await db.disconnect()
+            except Exception:
+                logger.error("Error disconnecting database", exc_info=True)
         if own_redis:
-            await redis.close()
+            try:
+                await redis.close()
+            except Exception:
+                logger.error("Error closing Redis", exc_info=True)
         logger.info("Agent stopped")
 
 

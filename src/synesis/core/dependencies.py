@@ -10,8 +10,6 @@ from redis.asyncio import Redis
 from synesis.agent import AgentState
 from synesis.config import Settings, get_settings
 from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
-from synesis.providers.factset.client import get_factset_client
-from synesis.providers.factset.provider import FactSetProvider
 from synesis.providers.finnhub.prices import FinnhubPriceProvider, get_price_service
 from synesis.providers.nasdaq import NasdaqClient
 from synesis.providers.sec_edgar import SECEdgarClient
@@ -35,11 +33,6 @@ def get_db() -> Database:
 async def get_agent_state(request: Request) -> AgentState:
     """Get AgentState from app.state (set during lifespan)."""
     return request.app.state.agent  # type: ignore[no-any-return]
-
-
-def get_factset_provider() -> FactSetProvider:
-    """Get FactSet provider with singleton client."""
-    return FactSetProvider(client=get_factset_client())
 
 
 def get_price_provider() -> FinnhubPriceProvider:
@@ -80,7 +73,6 @@ def get_crawler() -> Crawl4AICrawlerProvider:
 DbDep = Annotated[Database, Depends(get_db)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
 AgentStateDep = Annotated[AgentState, Depends(get_agent_state)]
-FactSetProviderDep = Annotated[FactSetProvider, Depends(get_factset_provider)]
 PriceServiceDep = Annotated[FinnhubPriceProvider, Depends(get_price_provider)]
 SECEdgarClientDep = Annotated[SECEdgarClient, Depends(get_sec_edgar_client)]
 NasdaqClientDep = Annotated[NasdaqClient, Depends(get_nasdaq_client)]

@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 from synesis.processing.news import (
     Direction,
-    EventType,
     LightClassification,
     MarketEvaluation,
     NewsCategory,
     NewsSignal,
+    PrimaryTopic,
     ResearchQuality,
     SectorImplication,
     SmartAnalysis,
@@ -24,7 +24,7 @@ class TestSourceEnums:
 
     def test_source_platform_values(self) -> None:
         assert SourcePlatform.telegram.value == "telegram"
-        assert SourcePlatform.reddit.value == "reddit"
+        assert SourcePlatform.twitter.value == "twitter"
 
 
 class TestUnifiedMessage:
@@ -79,7 +79,7 @@ class TestNewsSignal:
         # Stage 1: LightClassification (entity extraction only)
         extraction = LightClassification(
             news_category=NewsCategory.breaking,
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Fed cuts rates",
             confidence=0.9,
             primary_entity="Federal Reserve",
@@ -108,7 +108,7 @@ class TestNewsSignal:
             analysis=analysis,
         )
 
-        assert signal.extraction.event_type == EventType.macro
+        assert PrimaryTopic.monetary_policy in signal.extraction.primary_topics
         # Tickers/sectors come from analysis (Stage 2)
         assert signal.tickers == ["SPY"]
         assert signal.sectors == ["financials"]
@@ -117,7 +117,7 @@ class TestNewsSignal:
         """Test JSON serialization of NewsSignal."""
         extraction = LightClassification(
             news_category=NewsCategory.breaking,
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Test",
             confidence=0.9,
             primary_entity="Federal Reserve",
@@ -136,12 +136,12 @@ class TestNewsSignal:
         data = signal.model_dump(mode="json")
         assert isinstance(data, dict)
         assert data["source_platform"] == "telegram"
-        assert data["extraction"]["event_type"] == "macro"
+        assert "monetary_policy" in data["extraction"]["primary_topics"]
 
     def test_signal_without_analysis(self) -> None:
         """Test signal with only Stage 1 (no Stage 2 analysis)."""
         extraction = LightClassification(
-            event_type=EventType.other,
+            primary_topics=[PrimaryTopic.other],
             summary="Test",
             confidence=0.5,
             primary_entity="Test",

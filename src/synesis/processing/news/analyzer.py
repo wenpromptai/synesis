@@ -410,7 +410,8 @@ Message:
 ## Stage 1 Extraction
 Primary Entity: {ext.primary_entity}
 All Entities: {entities_str}
-Event Type: {ext.event_type.value}
+Primary Topics: {", ".join(t.value for t in ext.primary_topics) or "other"}
+Secondary Topics: {", ".join(t.value for t in ext.secondary_topics) or "none"}
 News Category: {ext.news_category.value}
 Summary: {ext.summary}
 
@@ -684,7 +685,6 @@ Focus on DIRECT impacts. Be conservative with confidence scores."""
             log.info(
                 "Stage 2 smart analysis complete",
                 tickers=output.tickers,
-                sectors=output.sectors,
                 sentiment=output.sentiment.value,
                 sentiment_score=output.sentiment_score,
                 thesis_confidence=f"{output.thesis_confidence:.0%}",

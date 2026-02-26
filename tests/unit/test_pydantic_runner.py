@@ -1,7 +1,6 @@
 """Tests for PydanticAI agent runner."""
 
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,20 +13,21 @@ from synesis.agent.pydantic_runner import (
     emit_raw_message_to_db,
     emit_signal,
     emit_signal_to_db,
+    emit_stage1_telegram,
     enqueue_test_message,
     store_signal,
 )
-from synesis.core.constants import DEFAULT_SIGNALS_OUTPUT_DIR
 from synesis.processing.news import (
     Direction,
-    EventType,
-    NewsSignal,
     LightClassification,
     MarketEvaluation,
     NewsCategory,
+    NewsSignal,
+    PrimaryTopic,
     SmartAnalysis,
     SourcePlatform,
     UnifiedMessage,
+    UrgencyLevel,
 )
 
 
@@ -39,10 +39,6 @@ class TestConstants:
         assert INCOMING_QUEUE == "synesis:queue:incoming"
         assert SIGNAL_CHANNEL == "synesis:signals"
 
-    def test_signals_dir(self) -> None:
-        """Test signals directory default path."""
-        assert DEFAULT_SIGNALS_OUTPUT_DIR == "output/signals"
-
 
 class TestStoreSignal:
     """Tests for store_signal function."""
@@ -51,7 +47,7 @@ class TestStoreSignal:
     def sample_signal(self) -> NewsSignal:
         """Create a sample signal for testing."""
         extraction = LightClassification(
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Fed cuts rates",
             confidence=0.9,
             primary_entity="Federal Reserve",
@@ -66,59 +62,11 @@ class TestStoreSignal:
         )
 
     @pytest.mark.anyio
-    async def test_store_signal_creates_dir(
-        self, sample_signal: NewsSignal, tmp_path: Path
-    ) -> None:
-        """Test that store_signal creates output directory."""
-        mock_redis = AsyncMock()
-        mock_redis.publish = AsyncMock()
-
-        mock_settings = MagicMock()
-        mock_settings.signals_output_dir = tmp_path / "signals"
-
-        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
-            await store_signal(sample_signal, mock_redis)
-
-        assert (tmp_path / "signals").exists()
-
-    @pytest.mark.anyio
-    async def test_store_signal_writes_jsonl(
-        self, sample_signal: NewsSignal, tmp_path: Path
-    ) -> None:
-        """Test that store_signal writes to JSONL file."""
-        mock_redis = AsyncMock()
-        mock_redis.publish = AsyncMock()
-
-        signals_dir = tmp_path / "signals"
-        mock_settings = MagicMock()
-        mock_settings.signals_output_dir = signals_dir
-
-        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
-            await store_signal(sample_signal, mock_redis)
-
-        # Check file was created
-        date_str = sample_signal.timestamp.strftime("%Y-%m-%d")
-        expected_file = signals_dir / f"signals_{date_str}.jsonl"
-        assert expected_file.exists()
-
-        # Check content
-        content = expected_file.read_text()
-        assert "test_123" in content
-        assert "Fed cuts rates" in content
-
-    @pytest.mark.anyio
-    async def test_store_signal_publishes_to_redis(
-        self, sample_signal: NewsSignal, tmp_path: Path
-    ) -> None:
+    async def test_store_signal_publishes_to_redis(self, sample_signal: NewsSignal) -> None:
         """Test that store_signal publishes to Redis."""
         mock_redis = AsyncMock()
-        mock_redis.publish = AsyncMock()
 
-        mock_settings = MagicMock()
-        mock_settings.signals_output_dir = tmp_path / "signals"
-
-        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
-            await store_signal(sample_signal, mock_redis)
+        await store_signal(sample_signal, mock_redis)
 
         mock_redis.publish.assert_called_once()
         call_args = mock_redis.publish.call_args
@@ -140,7 +88,7 @@ class TestEmitSignalToDb:
         )
         extraction = LightClassification(
             news_category=NewsCategory.breaking,
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Test",
             confidence=0.9,
             primary_entity="Test",
@@ -173,7 +121,7 @@ class TestEmitSignalToDb:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            event_type=EventType.other,
+            primary_topics=[PrimaryTopic.other],
             summary="Test",
             confidence=0.5,
             primary_entity="Test",
@@ -361,12 +309,77 @@ class TestEnqueueTestMessage:
         mock_redis.close.assert_called_once()  # Should close its own client
 
 
+class TestEmitStage1Telegram:
+    """Tests for emit_stage1_telegram function."""
+
+    @pytest.mark.anyio
+    async def test_sends_stage1_notification(self) -> None:
+        """Test that Stage 1 signal is sent to Telegram."""
+        message = UnifiedMessage(
+            external_id="123",
+            source_platform=SourcePlatform.telegram,
+            source_account="@test",
+            text="Breaking: Fed cuts rates",
+            timestamp=datetime.now(timezone.utc),
+        )
+        extraction = LightClassification(
+            primary_topics=[PrimaryTopic.monetary_policy],
+            summary="Fed cuts rates 25bps",
+            confidence=0.9,
+            primary_entity="Federal Reserve",
+            urgency=UrgencyLevel.critical,
+            urgency_reasoning="Surprise Fed cut",
+        )
+
+        with patch(
+            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
+        ) as mock_send:
+            mock_send.return_value = True
+            await emit_stage1_telegram(message, extraction)
+
+        mock_send.assert_called_once()
+        # Verify the message contains [1st pass] marker
+        call_args = mock_send.call_args[0][0]
+        assert "[1st pass]" in call_args
+
+    @pytest.mark.anyio
+    async def test_stage1_message_includes_entities(self) -> None:
+        """Test that Stage 1 message includes entity info."""
+        message = UnifiedMessage(
+            external_id="124",
+            source_platform=SourcePlatform.telegram,
+            source_account="@markets",
+            text="Apple earnings beat by wide margin",
+            timestamp=datetime.now(timezone.utc),
+        )
+        extraction = LightClassification(
+            primary_topics=[PrimaryTopic.earnings],
+            summary="Apple Q4 EPS beats estimates",
+            confidence=0.95,
+            primary_entity="Apple",
+            all_entities=["Apple", "Tim Cook"],
+            urgency=UrgencyLevel.high,
+            urgency_reasoning="Earnings beat",
+        )
+
+        with patch(
+            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
+        ) as mock_send:
+            mock_send.return_value = True
+            await emit_stage1_telegram(message, extraction)
+
+        mock_send.assert_called_once()
+        call_args = mock_send.call_args[0][0]
+        assert "Apple" in call_args
+        assert "earnings" in call_args
+
+
 class TestEmitSignal:
     """Tests for emit_signal function."""
 
     @pytest.mark.anyio
-    async def test_emit_signal_no_analysis(self, tmp_path: Path) -> None:
-        """Test emit_signal with no analysis."""
+    async def test_emit_signal_no_analysis(self) -> None:
+        """Test emit_signal with no analysis still publishes to Redis."""
         from synesis.core.processor import ProcessingResult
 
         message = UnifiedMessage(
@@ -377,7 +390,7 @@ class TestEmitSignal:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            event_type=EventType.other,
+            primary_topics=[PrimaryTopic.other],
             summary="Test",
             confidence=0.5,
             primary_entity="Test",
@@ -391,14 +404,168 @@ class TestEmitSignal:
         )
 
         mock_redis = AsyncMock()
-        mock_redis.publish = AsyncMock()
 
-        mock_settings = MagicMock()
-        mock_settings.signals_output_dir = tmp_path / "signals"
+        with patch("synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock):
+            await emit_signal(result, mock_redis)
 
-        with patch("synesis.agent.pydantic_runner.get_settings", return_value=mock_settings):
-            with patch("synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock):
-                await emit_signal(result, mock_redis)
+        mock_redis.publish.assert_called_once()
 
-        # Should still write to JSONL
-        assert (tmp_path / "signals").exists()
+    @pytest.mark.anyio
+    async def test_emit_signal_normal_urgency_persists_to_db_no_telegram(self) -> None:
+        """Normal urgency: DB persists with analysis=None, no Telegram sent."""
+        from synesis.core.processor import ProcessingResult
+
+        message = UnifiedMessage(
+            external_id="normal_123",
+            source_platform=SourcePlatform.telegram,
+            source_account="@test",
+            text="Some normal news",
+            timestamp=datetime.now(timezone.utc),
+        )
+        extraction = LightClassification(
+            primary_topics=[PrimaryTopic.other],
+            summary="Normal news item",
+            confidence=0.5,
+            primary_entity="Test",
+            urgency=UrgencyLevel.normal,
+        )
+        result = ProcessingResult(
+            message=message,
+            extraction=extraction,
+            analysis=None,
+        )
+
+        mock_redis = AsyncMock()
+
+        with (
+            patch(
+                "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
+            ) as mock_db,
+            patch(
+                "synesis.agent.pydantic_runner.emit_stage1_telegram", new_callable=AsyncMock
+            ) as mock_stage1,
+            patch(
+                "synesis.agent.pydantic_runner.emit_combined_telegram", new_callable=AsyncMock
+            ) as mock_stage2,
+        ):
+            await emit_signal(result, mock_redis)
+
+        mock_db.assert_called_once_with(message, extraction, None)
+        mock_stage1.assert_not_called()
+        mock_stage2.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_emit_signal_high_urgency_stage2_failed_sends_stage1_and_persists(
+        self,
+    ) -> None:
+        """High urgency + Stage 2 failure: Stage 1 Telegram fires, DB persists with analysis=None."""
+        from synesis.core.processor import ProcessingResult
+
+        message = UnifiedMessage(
+            external_id="high_no_analysis",
+            source_platform=SourcePlatform.telegram,
+            source_account="@test",
+            text="Breaking news",
+            timestamp=datetime.now(timezone.utc),
+        )
+        extraction = LightClassification(
+            primary_topics=[PrimaryTopic.monetary_policy],
+            summary="Fed cuts rates",
+            confidence=0.9,
+            primary_entity="Federal Reserve",
+            urgency=UrgencyLevel.critical,
+        )
+        result = ProcessingResult(
+            message=message,
+            extraction=extraction,
+            analysis=None,  # Stage 2 failed
+        )
+
+        mock_redis = AsyncMock()
+
+        with (
+            patch(
+                "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
+            ) as mock_db,
+            patch(
+                "synesis.agent.pydantic_runner.emit_stage1_telegram", new_callable=AsyncMock
+            ) as mock_stage1,
+            patch(
+                "synesis.agent.pydantic_runner.emit_combined_telegram", new_callable=AsyncMock
+            ) as mock_stage2,
+        ):
+            await emit_signal(result, mock_redis)
+
+        mock_stage1.assert_called_once_with(message, extraction)
+        mock_db.assert_called_once_with(message, extraction, None)
+        mock_stage2.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_emit_signal_below_confidence_gate_skips_stage2_telegram(self) -> None:
+        """High urgency + low confidence: DB persists + predictions stored, Stage 2 Telegram skipped."""
+        from synesis.core.constants import MIN_THESIS_CONFIDENCE_FOR_ALERT
+        from synesis.core.processor import ProcessingResult
+
+        message = UnifiedMessage(
+            external_id="low_confidence",
+            source_platform=SourcePlatform.telegram,
+            source_account="@test",
+            text="Some high urgency news",
+            timestamp=datetime.now(timezone.utc),
+        )
+        extraction = LightClassification(
+            primary_topics=[PrimaryTopic.earnings],
+            summary="Earnings report",
+            confidence=0.9,
+            primary_entity="Apple",
+            urgency=UrgencyLevel.high,
+        )
+        analysis = SmartAnalysis(
+            tickers=["AAPL"],
+            sectors=[],
+            sentiment=Direction.bullish,
+            sentiment_score=0.5,
+            primary_thesis="Weak thesis",
+            thesis_confidence=max(0.0, MIN_THESIS_CONFIDENCE_FOR_ALERT - 0.01),
+            market_evaluations=[
+                MarketEvaluation(
+                    market_id="mkt_abc",
+                    market_question="Will AAPL beat earnings?",
+                    is_relevant=True,
+                    relevance_reasoning="Direct subject",
+                    current_price=0.5,
+                    verdict="fair",
+                    confidence=0.7,
+                    reasoning="Uncertain",
+                    recommended_side="skip",
+                )
+            ],
+        )
+        result = ProcessingResult(
+            message=message,
+            extraction=extraction,
+            analysis=analysis,
+        )
+
+        mock_redis = AsyncMock()
+
+        with (
+            patch(
+                "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
+            ) as mock_db,
+            patch(
+                "synesis.agent.pydantic_runner.emit_stage1_telegram", new_callable=AsyncMock
+            ) as mock_stage1,
+            patch(
+                "synesis.agent.pydantic_runner.emit_combined_telegram", new_callable=AsyncMock
+            ) as mock_stage2,
+            patch(
+                "synesis.agent.pydantic_runner.emit_prediction_to_db", new_callable=AsyncMock
+            ) as mock_pred,
+        ):
+            await emit_signal(result, mock_redis)
+
+        mock_stage1.assert_called_once()
+        mock_db.assert_called_once_with(message, extraction, analysis)
+        mock_pred.assert_called_once()  # predictions still stored
+        mock_stage2.assert_not_called()  # Stage 2 Telegram skipped

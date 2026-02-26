@@ -7,8 +7,8 @@ import pytest
 
 from synesis.processing.news import (
     Direction,
-    EventType,
     LightClassification,
+    PrimaryTopic,
     NewsCategory,
     SmartAnalysis,
     SourcePlatform,
@@ -35,7 +35,7 @@ class TestAnalyzerDeps:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Test summary",
             confidence=0.9,
             primary_entity="Test Entity",
@@ -64,7 +64,7 @@ class TestAnalyzerDeps:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            event_type=EventType.other,
+            primary_topics=[PrimaryTopic.other],
             summary="Test",
             confidence=0.5,
             primary_entity="Test",
@@ -232,7 +232,7 @@ class TestSmartAnalyzer:
         )
         extraction = LightClassification(
             news_category=NewsCategory.economic_calendar,
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.monetary_policy],
             summary="Fed rate cut",
             confidence=0.95,
             primary_entity="Federal Reserve",
@@ -291,7 +291,7 @@ class TestSmartAnalyzer:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            event_type=EventType.other,
+            primary_topics=[PrimaryTopic.other],
             summary="Test",
             confidence=0.5,
             primary_entity="Test",

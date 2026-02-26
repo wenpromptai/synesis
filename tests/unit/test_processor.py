@@ -8,8 +8,8 @@ import pytest
 from synesis.core.processor import NewsProcessor, ProcessingResult
 from synesis.processing.news import (
     Direction,
-    EventType,
     LightClassification,
+    PrimaryTopic,
     MarketEvaluation,
     NewsCategory,
     ResearchQuality,
@@ -44,7 +44,7 @@ def create_test_extraction(
     """
     return LightClassification(
         news_category=NewsCategory.breaking,
-        event_type=EventType.macro,
+        primary_topics=[PrimaryTopic.monetary_policy],
         summary="Fed announces rate cut",
         confidence=0.95,
         primary_entity="Federal Reserve",

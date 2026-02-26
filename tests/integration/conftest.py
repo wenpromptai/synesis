@@ -195,14 +195,12 @@ def mock_db() -> Any:
     _test_signals: list[dict[str, Any]] = []
     _test_predictions: list[dict[str, Any]] = []
     _test_watchlist: dict[str, dict[str, Any]] = {}
-    _test_sentiment_snapshots: list[dict[str, Any]] = []
 
     # Expose state for test assertions
     db._test_raw_messages = _test_raw_messages
     db._test_signals = _test_signals
     db._test_predictions = _test_predictions
     db._test_watchlist = _test_watchlist
-    db._test_sentiment_snapshots = _test_sentiment_snapshots
 
     async def mock_insert_raw_message(message: Any) -> str:
         _test_raw_messages.append(
@@ -248,36 +246,11 @@ def mock_db() -> Any:
             "upserted_at": datetime.now(timezone.utc),
         }
 
-    async def mock_insert_sentiment_snapshot(
-        ticker: str,
-        snapshot_time: datetime,
-        **kwargs: Any,
-    ) -> None:
-        _test_sentiment_snapshots.append(
-            {
-                "ticker": ticker,
-                "snapshot_time": snapshot_time,
-                **kwargs,
-                "inserted_at": datetime.now(timezone.utc),
-            }
-        )
-
-    async def mock_insert_sentiment_signal(signal: Any) -> None:
-        _test_signals.append(
-            {
-                "signal": signal,
-                "flow_id": "sentiment",
-                "inserted_at": datetime.now(timezone.utc),
-            }
-        )
-
     # Assign mock methods
     db.insert_raw_message = mock_insert_raw_message
     db.insert_signal = mock_insert_signal
     db.insert_prediction = mock_insert_prediction
     db.upsert_watchlist_ticker = mock_upsert_watchlist_ticker
-    db.insert_sentiment_snapshot = mock_insert_sentiment_snapshot
-    db.insert_sentiment_signal = mock_insert_sentiment_signal
     db.get_active_watchlist = AsyncMock(return_value=[])
     db.get_active_watchlist_with_metadata = AsyncMock(return_value=[])
     db.deactivate_expired_watchlist = AsyncMock(return_value=[])
@@ -313,30 +286,6 @@ def nasdaq_client(mock_redis: Any) -> Any:
     from synesis.providers.nasdaq.client import NasdaqClient
 
     return NasdaqClient(redis=mock_redis)
-
-
-@pytest.fixture
-def factset_provider() -> Any:
-    """FactSetProvider for fundamentals (requires FactSet SQL Server)."""
-    try:
-        from synesis.providers.factset.client import FactSetClient
-        from synesis.providers.factset.provider import FactSetProvider
-
-        return FactSetProvider(client=FactSetClient())
-    except Exception:
-        return None
-
-
-@pytest.fixture
-def ticker_provider(mock_redis: Any) -> Any:
-    """FactSetTickerProvider (requires FactSet SQL Server)."""
-    try:
-        from synesis.providers.factset.client import FactSetClient
-        from synesis.providers.factset.ticker import FactSetTickerProvider
-
-        return FactSetTickerProvider(client=FactSetClient(), redis=mock_redis)
-    except Exception:
-        return None
 
 
 @pytest.fixture

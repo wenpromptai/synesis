@@ -1,10 +1,9 @@
-"""Integration tests for standalone providers (SEC EDGAR, NASDAQ, FactSet).
+"""Integration tests for standalone providers (SEC EDGAR, NASDAQ).
 
 These tests call REAL APIs with no mocking. They use real Redis for caching.
 Run with: pytest tests/integration/test_providers_e2e.py -m integration -v
 
 No API keys required for SEC EDGAR or NASDAQ.
-FactSet tests are skipped automatically if SQL Server is unavailable.
 """
 
 from __future__ import annotations
@@ -302,62 +301,3 @@ class TestNasdaqIntegration:
             assert events == []
         finally:
             await client.close()
-
-
-# ─────────────────────────────────────────────────────────────
-# FactSet (skips if SQL Server unavailable)
-# ─────────────────────────────────────────────────────────────
-
-
-@pytest.mark.integration
-class TestFactSetIntegration:
-    """Tests that call the real FactSet API (requires SQL Server)."""
-
-    @pytest.mark.anyio
-    async def test_factset_fundamentals_real(self) -> None:
-        """Fetch real fundamentals from FactSet."""
-        try:
-            from synesis.providers.factset.client import FactSetClient
-            from synesis.providers.factset.provider import FactSetProvider
-
-            client = FactSetClient()
-            provider = FactSetProvider(client=client)
-            result = await provider.get_fundamentals("AAPL", "ltm", 1)
-            assert result is not None
-            print(f"  AAPL fundamentals: {result}")
-        except Exception as exc:
-            pytest.skip(f"FactSet not available: {exc}")
-
-    @pytest.mark.anyio
-    @pytest.mark.parametrize("ticker", ["AAPL", "MSFT", "TSLA"])
-    async def test_factset_ticker_verify(self, real_redis: Any, ticker: str) -> None:
-        """Verify tickers via FactSet."""
-        try:
-            from synesis.providers.factset.client import FactSetClient
-            from synesis.providers.factset.ticker import FactSetTickerProvider
-
-            client = FactSetClient()
-            provider = FactSetTickerProvider(client=client, redis=real_redis)
-            is_valid, ticker_region, name = await provider.verify_ticker(ticker)
-            assert is_valid is True
-            assert ticker_region is not None
-            assert name is not None
-            print(f"  {ticker} verified: {ticker_region} ({name})")
-        except Exception as exc:
-            pytest.skip(f"FactSet not available: {exc}")
-
-    @pytest.mark.anyio
-    async def test_factset_ticker_invalid(self, real_redis: Any) -> None:
-        """Invalid ticker returns False."""
-        try:
-            from synesis.providers.factset.client import FactSetClient
-            from synesis.providers.factset.ticker import FactSetTickerProvider
-
-            client = FactSetClient()
-            provider = FactSetTickerProvider(client=client, redis=real_redis)
-            is_valid, ticker_region, name = await provider.verify_ticker("ZZZZXYZ")
-            assert is_valid is False
-            assert ticker_region is None
-            assert name is None
-        except Exception as exc:
-            pytest.skip(f"FactSet not available: {exc}")

@@ -8,11 +8,11 @@ Tests the new Stage 1 features:
 from synesis.processing.news.categorizer import classify_urgency_by_rules
 from synesis.processing.news import (
     BeatMissStatus,
-    EventType,
     LightClassification,
     MetricReading,
     NewsCategory,
     NumericExtraction,
+    PrimaryTopic,
     UrgencyLevel,
 )
 
@@ -224,7 +224,7 @@ class TestLightClassificationWithNumericData:
 
         classification = LightClassification(
             news_category=NewsCategory.economic_calendar,
-            event_type=EventType.macro,
+            primary_topics=[PrimaryTopic.economic_data],
             summary="Australia CPI comes in below expectations",
             confidence=0.95,
             primary_entity="Australia",
@@ -243,7 +243,7 @@ class TestLightClassificationWithNumericData:
     def test_light_classification_without_numeric_data(self) -> None:
         """Test LightClassification works without numeric_data (default None)."""
         classification = LightClassification(
-            event_type=EventType.corporate,
+            primary_topics=[PrimaryTopic.corporate_actions],
             summary="Company announces merger",
             confidence=0.9,
             primary_entity="Acme Corp",
@@ -271,7 +271,7 @@ class TestLightClassificationWithNumericData:
 
         classification = LightClassification(
             news_category=NewsCategory.economic_calendar,
-            event_type=EventType.earnings,
+            primary_topics=[PrimaryTopic.earnings],
             summary="Apple beats EPS estimates",
             confidence=0.95,
             primary_entity="Apple",

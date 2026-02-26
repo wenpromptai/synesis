@@ -44,7 +44,6 @@ class TestTickerMetadata:
         meta = TickerMetadata(
             ticker="AAPL",
             source="telegram",
-            subreddit="wsb",
             added_at=now,
             last_seen_at=now,
             mention_count=5,
@@ -53,18 +52,10 @@ class TestTickerMetadata:
         restored = TickerMetadata.from_dict(d)
         assert restored.ticker == "AAPL"
         assert restored.source == "telegram"
-        assert restored.subreddit == "wsb"
         assert restored.mention_count == 5
 
-    def test_none_subreddit_handling(self) -> None:
-        meta = TickerMetadata(ticker="TSLA", source="telegram", subreddit=None)
-        d = meta.to_dict()
-        assert d["subreddit"] == ""
-        restored = TickerMetadata.from_dict(d)
-        assert restored.subreddit is None
-
     def test_to_dict_values_are_strings(self) -> None:
-        meta = TickerMetadata(ticker="GME", source="reddit", mention_count=3)
+        meta = TickerMetadata(ticker="GME", source="twitter", mention_count=3)
         d = meta.to_dict()
         for v in d.values():
             assert isinstance(v, str)
@@ -95,7 +86,7 @@ class TestWatchlistAddTicker:
         self, manager: WatchlistManager, mock_redis: AsyncMock
     ) -> None:
         mock_redis.sismember.return_value = False
-        await manager.add_ticker("tsla", "reddit")
+        await manager.add_ticker("tsla", "twitter")
         mock_redis.sadd.assert_called_once_with(WATCHLIST_KEY, "TSLA")
 
     @pytest.mark.asyncio
@@ -166,7 +157,6 @@ class TestWatchlistGetMetadata:
         mock_redis.hgetall.return_value = {
             "ticker": "AAPL",
             "source": "telegram",
-            "subreddit": "",
             "added_at": now.isoformat(),
             "last_seen_at": now.isoformat(),
             "mention_count": "3",
@@ -227,8 +217,6 @@ class TestWatchlistBulkAdd:
     ) -> None:
         # First ticker is new, second already exists
         mock_redis.sismember.side_effect = [False, True]
-        newly_added, refreshed = await manager.bulk_add(
-            ["AAPL", "TSLA"], source="reddit", subreddit="wsb"
-        )
+        newly_added, refreshed = await manager.bulk_add(["AAPL", "TSLA"], source="telegram")
         assert "AAPL" in newly_added
         assert "TSLA" in refreshed

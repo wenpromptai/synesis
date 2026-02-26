@@ -22,7 +22,7 @@ class SourcePlatform(str, Enum):
     """Platform where the message originated."""
 
     telegram = "telegram"
-    reddit = "reddit"
+    twitter = "twitter"
 
 
 class NewsCategory(str, Enum):
@@ -62,17 +62,158 @@ class UnifiedMessage(BaseModel):
 # =============================================================================
 
 
-class EventType(str, Enum):
-    """Type of market event."""
+class PrimaryTopic(str, Enum):
+    """High-level event type / asset-class classification.
 
-    macro = "macro"  # Fed, CPI, GDP
-    earnings = "earnings"  # Company results
-    geopolitical = "geopolitical"  # Wars, sanctions
-    corporate = "corporate"  # M&A, CEO changes
-    regulatory = "regulatory"  # SEC, antitrust
-    crypto = "crypto"  # ETF, exchange news
-    political = "political"  # Elections, policy
+    Stage 1 assigns 1-2 tags per news item. Pick the most specific that clearly apply.
+
+    Monetary/Economy:
+      monetary_policy  — Fed, ECB, BoJ, rate decisions, QE/QT, forward guidance
+      economic_data    — CPI, NFP, GDP, PMI, retail sales, consumer confidence
+      trade_policy     — Tariffs, export controls, trade agreements, sanctions
+      fiscal_policy    — Government budget, debt ceiling, stimulus, spending
+
+    Corporate:
+      earnings         — EPS, revenue, guidance, analyst upgrades/downgrades
+      corporate_actions — M&A, IPO, buyback, dividend, layoffs, bankruptcy
+      regulatory       — SEC, antitrust, FDA, CFTC, banking regulation
+
+    Geopolitical:
+      geopolitics      — Armed conflict, sanctions, diplomacy, military action
+      political        — Elections, executive orders, legislation, cabinet
+
+    Asset Classes:
+      crypto           — BTC/ETH, exchange news, stablecoins, DeFi, ETF approval
+      commodities      — Oil/OPEC, LNG, gold, metals, agricultural
+      fixed_income     — Treasury auctions, yield curve, credit spreads, ratings
+      fx               — Currency moves, central bank intervention, carry trades
+      equities_market  — Index levels, VIX, sector rotation, flows, short squeezes
+
+    Fallback:
+      other
+    """
+
+    # Monetary/Economy
+    monetary_policy = "monetary_policy"
+    economic_data = "economic_data"
+    trade_policy = "trade_policy"
+    fiscal_policy = "fiscal_policy"
+
+    # Corporate
+    earnings = "earnings"
+    corporate_actions = "corporate_actions"
+    regulatory = "regulatory"
+
+    # Geopolitical
+    geopolitics = "geopolitics"
+    political = "political"
+
+    # Asset Classes
+    crypto = "crypto"
+    commodities = "commodities"
+    fixed_income = "fixed_income"
+    fx = "fx"
+    equities_market = "equities_market"
+
     other = "other"
+
+
+class SecondaryTopic(str, Enum):
+    """Granular industry / subsector classification.
+
+    Stage 1 assigns 0-3 tags. Leave empty if not clearly applicable.
+
+    Technology & Hardware:
+      semiconductors, optics_photonics, cloud_computing, software_saas,
+      cybersecurity, consumer_tech, ev_autonomous
+
+    Healthcare & Life Sciences:
+      biotech, pharma, medical_devices, health_insurance
+
+    Energy:
+      oil_gas, renewables, nuclear, utilities
+
+    Financials:
+      banks_lending, insurance, asset_management, private_equity, fintech_payments
+
+    Industrials:
+      defense_weapons, aerospace_space, automation_robotics, chemicals_materials
+
+    Consumer:
+      retail_ecommerce, food_beverage, media_entertainment, gaming,
+      luxury_fashion, travel_hospitality
+
+    Materials & Resources:
+      metals_mining, agriculture
+
+    Transport & Logistics:
+      shipping_maritime, automotive, logistics_freight
+
+    Real Estate:
+      residential_housing, commercial_real_estate
+
+    Telecom & Social:
+      telecom_5g, social_media_adtech
+    """
+
+    # Technology & Hardware
+    semiconductors = "semiconductors"
+    optics_photonics = "optics_photonics"
+    cloud_computing = "cloud_computing"
+    software_saas = "software_saas"
+    cybersecurity = "cybersecurity"
+    consumer_tech = "consumer_tech"
+    ev_autonomous = "ev_autonomous"
+
+    # Healthcare & Life Sciences
+    biotech = "biotech"
+    pharma = "pharma"
+    medical_devices = "medical_devices"
+    health_insurance = "health_insurance"
+
+    # Energy
+    oil_gas = "oil_gas"
+    renewables = "renewables"
+    nuclear = "nuclear"
+    utilities = "utilities"
+
+    # Financials
+    banks_lending = "banks_lending"
+    insurance = "insurance"
+    asset_management = "asset_management"
+    private_equity = "private_equity"
+    fintech_payments = "fintech_payments"
+
+    # Industrials
+    defense_weapons = "defense_weapons"
+    aerospace_space = "aerospace_space"
+    automation_robotics = "automation_robotics"
+    chemicals_materials = "chemicals_materials"
+
+    # Consumer
+    retail_ecommerce = "retail_ecommerce"
+    food_beverage = "food_beverage"
+    media_entertainment = "media_entertainment"
+    gaming = "gaming"
+    luxury_fashion = "luxury_fashion"
+    travel_hospitality = "travel_hospitality"
+
+    # Materials & Resources
+    metals_mining = "metals_mining"
+    agriculture = "agriculture"
+
+    # Transport & Logistics
+    shipping_maritime = "shipping_maritime"
+    automotive = "automotive"
+    logistics_freight = "logistics_freight"
+
+    # Real Estate
+    residential_housing = "residential_housing"
+    commercial_real_estate = "commercial_real_estate"
+
+    # Telecom & Social
+    telecom_5g = "telecom_5g"
+    social_media_adtech = "social_media_adtech"
 
 
 # =============================================================================
@@ -157,26 +298,6 @@ class Direction(str, Enum):
     neutral = "neutral"
 
 
-class GICSSector(str, Enum):
-    """GICS top-level sector classification.
-
-    The Global Industry Classification Standard (GICS) defines 11 sectors.
-    Use these for consistent sector mapping in analysis.
-    """
-
-    energy = "Energy"
-    materials = "Materials"
-    industrials = "Industrials"
-    utilities = "Utilities"
-    healthcare = "Healthcare"
-    financials = "Financials"
-    consumer_discretionary = "Consumer Discretionary"
-    consumer_staples = "Consumer Staples"
-    information_technology = "Information Technology"
-    communication_services = "Communication Services"
-    real_estate = "Real Estate"
-
-
 # =============================================================================
 # Stage 2A: Investment Analysis (NEW)
 # =============================================================================
@@ -258,8 +379,15 @@ class LightClassification(BaseModel):
         description="Category: breaking (unexpected), economic_calendar (scheduled), other",
     )
 
-    # Event classification
-    event_type: EventType
+    # Topic classification (Stage 1 fast assignment)
+    primary_topics: list[PrimaryTopic] = Field(
+        default_factory=list,
+        description="High-level event/asset-class tags (1-2). Pick the most specific that clearly apply.",
+    )
+    secondary_topics: list[SecondaryTopic] = Field(
+        default_factory=list,
+        description="Granular industry/subsector tags (0-3). Leave empty if not clearly applicable.",
+    )
     summary: str = Field(description="One-sentence summary of the event")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in classification")
 
@@ -457,7 +585,7 @@ class SmartAnalysis(BaseModel):
 class NewsSignal(BaseModel):
     """Real-time signal emitted for each news item.
 
-    This is the final output of Flow 1, written to JSONL.
+    This is the final output of Flow 1, stored in the signals hypertable and published to Redis.
     Uses the 2-stage architecture: LightClassification (Stage 1) + SmartAnalysis (Stage 2).
     """
 
@@ -492,13 +620,23 @@ class NewsSignal(BaseModel):
 
     # Convenience accessors for analysis data
     @property
+    def primary_topics(self) -> list[PrimaryTopic]:
+        """Get primary topic tags from Stage 1 extraction."""
+        return self.extraction.primary_topics
+
+    @property
+    def secondary_topics(self) -> list[SecondaryTopic]:
+        """Get secondary topic tags from Stage 1 extraction."""
+        return self.extraction.secondary_topics
+
+    @property
     def tickers(self) -> list[str]:
         """Get tickers from analysis (Stage 2, informed by research)."""
         return self.analysis.tickers if self.analysis else []
 
     @property
     def sectors(self) -> list[str]:
-        """Get sectors from analysis (Stage 2, informed by research)."""
+        """Get GICS sectors from Stage 2 analysis."""
         return self.analysis.sectors if self.analysis else []
 
     @property

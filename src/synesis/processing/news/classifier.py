@@ -36,11 +36,41 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
 
 3. **news_category**: breaking | economic_calendar | other
 
-4. **event_type**: macro | earnings | geopolitical | corporate | regulatory | crypto | political | other
+4. **primary_topics** (1-2 tags): High-level event/asset-class. Pick the most specific that clearly apply.
+   Monetary/Economy: monetary_policy | economic_data | trade_policy | fiscal_policy
+   Corporate:        earnings | corporate_actions | regulatory
+   Geopolitical:     geopolitics | political
+   Asset Classes:    crypto | commodities | fixed_income | fx | equities_market
+   Fallback:         other
 
-5. **summary**: One sentence.
+5. **secondary_topics** (0-3 tags): Specific industry/subsector. Leave empty if not clearly applicable.
+   Technology:    semiconductors | optics_photonics | cloud_computing | software_saas |
+                  cybersecurity | consumer_tech | ev_autonomous
+   Healthcare:    biotech | pharma | medical_devices | health_insurance
+   Energy:        oil_gas | renewables | nuclear | utilities
+   Financials:    banks_lending | insurance | asset_management | private_equity | fintech_payments
+   Industrials:   defense_weapons | aerospace_space | automation_robotics | chemicals_materials
+   Consumer:      retail_ecommerce | food_beverage | media_entertainment | gaming |
+                  luxury_fashion | travel_hospitality
+   Materials:     metals_mining | agriculture
+   Transport:     shipping_maritime | automotive | logistics_freight
+   Real Estate:   residential_housing | commercial_real_estate
+   Telecom:       telecom_5g | social_media_adtech
 
-6. **search_keywords**: Generate 3 web search queries for CURRENT context only:
+   Examples:
+   - "Fed cuts rates 25bps" → primary=[monetary_policy], secondary=[]
+   - "Apple Q4 earnings beat, raises guidance" → primary=[earnings], secondary=[consumer_tech]
+   - "Trump imposes 25% tariffs on China" → primary=[trade_policy, political], secondary=[]
+   - "OPEC cuts production by 1M bpd" → primary=[commodities], secondary=[oil_gas]
+   - "Bitcoin ETF approved by SEC" → primary=[crypto, regulatory], secondary=[]
+   - "NFP: +200k jobs, beats estimate" → primary=[economic_data], secondary=[]
+   - "Nvidia data center revenue surges on AI demand" → primary=[earnings], secondary=[semiconductors]
+   - "TSMC beats on strong AI chip demand" → primary=[earnings], secondary=[semiconductors]
+   - "FDA approves Pfizer drug" → primary=[regulatory], secondary=[pharma]
+
+6. **summary**: One sentence.
+
+7. **search_keywords**: Generate 3 web search queries for CURRENT context only:
 
    - Query 1: "{primary_entity} {event}"
      → Core query about what happened
@@ -62,7 +92,7 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
    - "Trump announces China tariffs" →
      ["Trump China tariff 2026", "China tariff stocks affected", "trade war market reaction"]
 
-7. **polymarket_keywords**: 3-5 keywords for prediction markets:
+8. **polymarket_keywords**: 3-5 keywords for prediction markets:
 
    Pattern: [primary phrase, 2-3 variations, related terms]
 
@@ -71,12 +101,12 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
    - "Trump China tariff" → ["Trump tariff", "China tariff", "trade war", "US China trade"]
    - "Apple earnings" → ["Apple earnings", "AAPL earnings", "Apple Q4 results"]
 
-8. **numeric_data** (economic/earnings only):
+9. **numeric_data** (economic/earnings only):
    Extract metrics: actual (required), estimate ("vs X est"), previous ("prev X"), unit (%, bps, $, B, M), period
    beat_miss: inflation lower=beat | growth higher=beat | inline if within 0.1 | unknown if no estimate
    surprise_magnitude: actual - estimate
 
-9. **urgency** + urgency_reasoning (1 sentence):
+10. **urgency** + urgency_reasoning (1 sentence):
    - critical: Surprise Fed, breaking M&A, unexpected policy
    - high: Scheduled data release, earnings beat/miss
    - normal: News with identifiable financial/market impact
@@ -89,7 +119,7 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
    - Promotional: giveaways, engagement bait, self-promotion
 
 ## DO NOT Extract (Stage 2)
-Tickers, sectors, sentiment - Stage 2 determines with research."""
+Tickers, sentiment - Stage 2 determines with research."""
 
 
 def create_classifier_agent() -> Agent[None, LightClassification]:
@@ -185,7 +215,7 @@ class NewsClassifier:
             "Stage 1 extraction complete",
             message_id=message.external_id,
             news_category=extraction.news_category.value,
-            event_type=extraction.event_type.value,
+            primary_topics=[t.value for t in extraction.primary_topics],
             primary_entity=extraction.primary_entity,
             all_entities=extraction.all_entities,
             polymarket_keywords=extraction.polymarket_keywords,

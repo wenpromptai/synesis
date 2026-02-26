@@ -2,9 +2,7 @@
 
 Submodules:
 - news: Breaking news & analysis intelligence (Flow 1)
-- sentiment: Sentiment intelligence (Flow 2)
-- market_intel: Prediction market intelligence (Flow 3, future)
-- common: Cross-flow utilities (LLM factory, web search)
+- common: Shared utilities (LLM factory, web search, watchlist)
 """
 
 # Re-exports for backward compatibility (deprecated, use submodule imports)
@@ -23,15 +21,15 @@ from synesis.processing.news.categorizer import categorize_news
 from synesis.processing.news.models import (
     BeatMissStatus,
     Direction,
-    EventType,
-    GICSSector,
     LightClassification,
     MarketEvaluation,
     MetricReading,
     NewsCategory,
     NewsSignal,
     NumericExtraction,
+    PrimaryTopic,
     ResearchQuality,
+    SecondaryTopic,
     SectorImplication,
     SmartAnalysis,
     SourcePlatform,
@@ -39,15 +37,6 @@ from synesis.processing.news.models import (
     UnifiedMessage,
     UrgencyLevel,
 )
-from synesis.processing.sentiment.models import (
-    SentimentSignal,
-    PostQualityAssessment,
-    SentimentRefinement,
-    SentimentRefinementDeps,
-    TickerSentimentSummary,
-    ValidatedTicker,
-)
-from synesis.processing.sentiment.processor import SentimentProcessor
 from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
 
 __all__ = [
@@ -58,30 +47,22 @@ __all__ = [
     # News (Flow 1) - Models
     "BeatMissStatus",
     "Direction",
-    "EventType",
-    "GICSSector",
     "LightClassification",
     "MarketEvaluation",
     "MetricReading",
     "NewsCategory",
     "NewsSignal",
     "NumericExtraction",
+    "PrimaryTopic",
     "ResearchQuality",
+    "SecondaryTopic",
     "SectorImplication",
     "SmartAnalysis",
     "SourcePlatform",
     "TickerAnalysis",
     "UnifiedMessage",
     "UrgencyLevel",
-    # Sentiment (Flow 2)
-    "SentimentProcessor",
-    "SentimentSignal",
-    "PostQualityAssessment",
-    "SentimentRefinement",
-    "SentimentRefinementDeps",
     "TickerMetadata",
-    "TickerSentimentSummary",
-    "ValidatedTicker",
     "WatchlistManager",
     # Common utilities
     "Recency",

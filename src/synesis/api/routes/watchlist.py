@@ -9,7 +9,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from synesis.core.dependencies import AgentStateDep, DbDep, RedisDep
+from synesis.core.dependencies import DbDep, RedisDep
 from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
 
 router = APIRouter()
@@ -23,7 +23,6 @@ router = APIRouter()
 class TickerMetadataResponse(BaseModel):
     ticker: str
     source: str
-    subreddit: str | None = None
     added_at: datetime
     last_seen_at: datetime
     mention_count: int = 1
@@ -32,8 +31,6 @@ class TickerMetadataResponse(BaseModel):
 class AddTickerRequest(BaseModel):
     ticker: str = Field(..., description="Ticker symbol (e.g. AAPL)")
     source: str = Field(default="api", description="Source identifier")
-    subreddit: str | None = Field(default=None, description="Subreddit if source is Reddit")
-    company_name: str | None = Field(default=None, description="Company name")
 
 
 class AddTickerResponse(BaseModel):
@@ -54,7 +51,6 @@ def _metadata_to_response(m: TickerMetadata) -> TickerMetadataResponse:
     return TickerMetadataResponse(
         ticker=m.ticker,
         source=m.source,
-        subreddit=m.subreddit,
         added_at=m.added_at,
         last_seen_at=m.last_seen_at,
         mention_count=m.mention_count,
@@ -95,8 +91,6 @@ async def add_ticker(body: AddTickerRequest, redis: RedisDep, db: DbDep) -> AddT
     is_new = await _get_manager(redis, db).add_ticker(
         ticker=body.ticker,
         source=body.source,
-        subreddit=body.subreddit,
-        company_name=body.company_name,
     )
     return AddTickerResponse(ticker=body.ticker.upper(), is_new=is_new)
 
@@ -112,16 +106,3 @@ async def remove_ticker(ticker: str, redis: RedisDep, db: DbDep) -> Response:
 @router.post("/cleanup", response_model=list[str])
 async def cleanup_expired(redis: RedisDep, db: DbDep) -> list[str]:
     return await _get_manager(redis, db).cleanup_expired()
-
-
-@router.post("/analyze", status_code=202)
-async def trigger_analysis(state: AgentStateDep) -> dict[str, str]:
-    """Trigger a manual watchlist intelligence scan."""
-    if state.scheduler and "watchlist_intel" in state.trigger_fns:
-        state.scheduler.add_job(
-            state.trigger_fns["watchlist_intel"],
-            id="watchlist_intel_manual",
-            replace_existing=True,
-        )
-        return {"status": "triggered"}
-    raise HTTPException(status_code=503, detail="Watchlist intelligence not enabled")
