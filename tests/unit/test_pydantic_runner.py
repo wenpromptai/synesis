@@ -455,10 +455,10 @@ class TestEmitSignal:
         mock_stage2.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_emit_signal_high_urgency_stage2_failed_sends_stage1_and_persists(
+    async def test_emit_signal_high_urgency_stage2_failed_persists_without_telegram(
         self,
     ) -> None:
-        """High urgency + Stage 2 failure: Stage 1 Telegram fires, DB persists with analysis=None."""
+        """High urgency + Stage 2 failure: DB persists with analysis=None, no Telegram from emit_signal (Stage 1 TG handled by callback)."""
         from synesis.core.processor import ProcessingResult
 
         message = UnifiedMessage(
@@ -496,7 +496,7 @@ class TestEmitSignal:
         ):
             await emit_signal(result, mock_redis)
 
-        mock_stage1.assert_called_once_with(message, extraction)
+        mock_stage1.assert_not_called()  # Stage 1 TG now sent via callback, not emit_signal
         mock_db.assert_called_once_with(message, extraction, None)
         mock_stage2.assert_not_called()
 
@@ -565,7 +565,7 @@ class TestEmitSignal:
         ):
             await emit_signal(result, mock_redis)
 
-        mock_stage1.assert_called_once()
+        mock_stage1.assert_not_called()  # Stage 1 TG now sent via callback, not emit_signal
         mock_db.assert_called_once_with(message, extraction, analysis)
         mock_pred.assert_called_once()  # predictions still stored
         mock_stage2.assert_not_called()  # Stage 2 Telegram skipped

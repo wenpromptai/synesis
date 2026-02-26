@@ -18,6 +18,7 @@ Stage 2 (Smart Analyzer):
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
@@ -51,6 +52,8 @@ if TYPE_CHECKING:
     from synesis.providers.base import TickerProvider
 
 logger = get_logger(__name__)
+
+Stage1Callback = Callable[[UnifiedMessage, LightClassification], Awaitable[None]]
 
 
 @dataclass
@@ -121,8 +124,10 @@ class NewsProcessor:
     This class encapsulates the full news processing pipeline:
     1. Deduplication - skip already-seen messages
     2. Stage 1: Entity extraction (fast, no judgment calls)
-    3. Pre-fetch context (web search + polymarket in parallel)
-    4. Stage 2: Smart analysis (all informed judgments)
+    3. Early exit if low/normal urgency (no Stage 2)
+    4. Fire on_stage1_complete callback (e.g. Telegram notification)
+    5. Pre-fetch context (web search + polymarket in parallel)
+    6. Stage 2: Smart analysis (all informed judgments)
 
     Usage:
         processor = NewsProcessor(redis)
@@ -259,17 +264,26 @@ class NewsProcessor:
         results = await asyncio.gather(*[safe_search(q) for q in queries_to_search])
         return list(results)
 
-    async def process_message(self, message: UnifiedMessage) -> ProcessingResult:
+    async def process_message(
+        self,
+        message: UnifiedMessage,
+        on_stage1_complete: Stage1Callback | None = None,
+    ) -> ProcessingResult:
         """Process a single message through the two-stage pipeline.
 
         Flow:
         1. Check for duplicates
         2. Stage 1: Entity extraction (fast, no judgment calls)
-        3. Pre-fetch context: Web search + Polymarket (parallel)
-        4. Stage 2: Smart analysis (all informed judgments with context)
+        3. Early exit if low/normal urgency (no Stage 2)
+        4. Fire on_stage1_complete callback (e.g. Telegram notification)
+        5. Pre-fetch context: Web search + Polymarket (parallel)
+        6. Stage 2: Smart analysis (all informed judgments with context)
 
         Args:
             message: The unified message to process
+            on_stage1_complete: Optional async callback invoked after Stage 1
+                extraction, only when urgency is high/critical. Skipped for
+                low/normal urgency (which exit before reaching this point).
 
         Returns:
             ProcessingResult with extraction and analysis
@@ -338,7 +352,19 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 4. Pre-fetch context (web search + Polymarket in parallel)
+        # 4. Fire Stage 1 callback (sends notification before Stage 2 starts)
+        if on_stage1_complete:
+            try:
+                await on_stage1_complete(message, extraction)
+            except Exception:
+                log.error(
+                    "Stage 1 callback failed — early notification not sent",
+                    exc_info=True,
+                )
+        else:
+            log.warning("No Stage 1 callback provided for high-urgency message")
+
+        # 5. Pre-fetch context (web search + Polymarket in parallel)
         log.debug(
             "Pre-fetching context",
             search_keywords=extraction.search_keywords[:2],
@@ -350,7 +376,7 @@ class NewsProcessor:
             self.analyzer.search_polymarket(extraction.polymarket_keywords),
         )
 
-        # 5. Stage 2: Smart analysis (all informed judgments)
+        # 6. Stage 2: Smart analysis (all informed judgments)
         log.debug("Stage 2: Smart analysis with context")
 
         analysis = await self.analyzer.analyze(

@@ -495,6 +495,129 @@ class TestUrgencyGate:
         processor._analyzer.search_polymarket.assert_called_once()
 
 
+class TestStage1Callback:
+    """Tests for on_stage1_complete callback in process_message."""
+
+    @pytest.fixture
+    def processor(self) -> NewsProcessor:
+        """Create a NewsProcessor with mocked internals."""
+        proc = NewsProcessor(AsyncMock())
+        mock_dedup = AsyncMock()
+        mock_dedup_result = MagicMock()
+        mock_dedup_result.is_duplicate = False
+        mock_dedup.process_message = AsyncMock(return_value=mock_dedup_result)
+
+        mock_classifier = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.search_polymarket = AsyncMock(return_value="Markets found")
+        mock_analyzer.analyze = AsyncMock(return_value=create_test_analysis())
+
+        mock_polymarket = MagicMock()
+        mock_polymarket._get_client = MagicMock(return_value=MagicMock())
+
+        proc._deduplicator = mock_dedup
+        proc._classifier = mock_classifier
+        proc._analyzer = mock_analyzer
+        proc._polymarket = mock_polymarket
+        proc._initialized = True
+        return proc
+
+    @pytest.mark.asyncio
+    async def test_callback_invoked_for_critical_urgency(self, processor: NewsProcessor) -> None:
+        """Callback fires for critical urgency messages."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+        callback = AsyncMock()
+
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            await processor.process_message(create_test_message(), on_stage1_complete=callback)
+
+        callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_callback_invoked_for_high_urgency(self, processor: NewsProcessor) -> None:
+        """Callback fires for high urgency messages."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.high)
+        )
+        callback = AsyncMock()
+
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            await processor.process_message(create_test_message(), on_stage1_complete=callback)
+
+        callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_callback_not_invoked_for_low_urgency(self, processor: NewsProcessor) -> None:
+        """Callback does NOT fire for low urgency messages."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.low)
+        )
+        callback = AsyncMock()
+
+        await processor.process_message(create_test_message(), on_stage1_complete=callback)
+
+        callback.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_callback_not_invoked_for_normal_urgency(self, processor: NewsProcessor) -> None:
+        """Callback does NOT fire for normal urgency messages."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.normal)
+        )
+        callback = AsyncMock()
+
+        await processor.process_message(create_test_message(), on_stage1_complete=callback)
+
+        callback.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_callback_failure_does_not_abort_stage2(self, processor: NewsProcessor) -> None:
+        """A failing callback should not prevent Stage 2 from running."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+        callback = AsyncMock(side_effect=RuntimeError("Telegram down"))
+
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await processor.process_message(
+                create_test_message(), on_stage1_complete=callback
+            )
+
+        callback.assert_called_once()
+        assert result.analysis is not None
+
+    @pytest.mark.asyncio
+    async def test_callback_receives_correct_args(self, processor: NewsProcessor) -> None:
+        """Callback receives the original message and extraction."""
+        extraction = create_test_extraction(urgency=UrgencyLevel.critical)
+        processor._classifier.classify = AsyncMock(return_value=extraction)
+        callback = AsyncMock()
+
+        message = create_test_message()
+        with patch(
+            "synesis.core.processor.search_market_impact",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            await processor.process_message(message, on_stage1_complete=callback)
+
+        callback.assert_called_once_with(message, extraction)
+
+
 class TestNewsProcessorStage2Failure:
     """Tests for NewsProcessor when Stage 2 analysis fails."""
 

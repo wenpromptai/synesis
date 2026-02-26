@@ -242,7 +242,8 @@ async def emit_signal(
     - Publishes signal to Redis for real-time subscribers
     - Stores signal to signals table (DB)
     - Stores each prediction to predictions table (DB)
-    - Sends two-pass Telegram: [1st pass] after Stage 1, [add story] after Stage 2
+    - Sends Stage 2 Telegram (condensed signal) if confidence gate passes
+      (Stage 1 Telegram is sent earlier via on_stage1_complete callback in process_message)
 
     Args:
         result: The processing result to emit
@@ -270,16 +271,8 @@ async def emit_signal(
         await emit_signal_to_db(result.message, result.extraction, None)
         return
 
-    # High/critical urgency: send Stage 1 first-pass Telegram notification.
-    # Isolated so a formatting or send failure does not abort the DB write.
-    try:
-        await emit_stage1_telegram(result.message, result.extraction)
-    except Exception:
-        logger.error(
-            "Unexpected error sending Stage 1 Telegram",
-            message_id=result.message.external_id,
-            exc_info=True,
-        )
+    # Stage 1 Telegram is sent immediately via on_stage1_complete callback
+    # in process_worker(), so we skip it here.
 
     if result.analysis is None:
         # Stage 2 failed — store extraction-only and log for visibility.
@@ -337,7 +330,13 @@ async def process_worker(
             continue
 
         try:
-            processing_result = await processor.process_message(message)
+
+            async def _on_stage1(msg: UnifiedMessage, ext: LightClassification) -> None:
+                await emit_stage1_telegram(msg, ext)
+
+            processing_result = await processor.process_message(
+                message, on_stage1_complete=_on_stage1
+            )
             await emit_signal(processing_result, redis)
 
             # Log summary
