@@ -295,13 +295,6 @@ def format_condensed_signal(
             if ta.relevance_reason:
                 msg += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
 
-    # All sectors (one line each)
-    if analysis.sector_implications:
-        msg += "\n\n🏭 <b>Sectors</b>"
-        for si in analysis.sector_implications:
-            sec_dir = sentiment_emoji.get(si.direction.value, "⚪")
-            msg += f"\n{sec_dir} {_escape_html(si.sector)} {si.direction.value}"
-
     # Historical context (full, no truncation)
     if analysis.historical_context:
         msg += f"\n\n📜 <b>Context:</b> <i>{_escape_html(analysis.historical_context)}</i>"

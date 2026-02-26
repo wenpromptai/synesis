@@ -11,7 +11,6 @@ from synesis.processing.news import (
     NewsSignal,
     PrimaryTopic,
     ResearchQuality,
-    SectorImplication,
     SmartAnalysis,
     SourcePlatform,
     TickerAnalysis,
@@ -91,7 +90,6 @@ class TestNewsSignal:
         # Stage 2: SmartAnalysis (all informed judgments)
         analysis = SmartAnalysis(
             tickers=["SPY"],
-            sectors=["financials"],
             sentiment=Direction.bullish,
             sentiment_score=0.7,
             primary_thesis="Fed pivot bullish for equities",
@@ -109,9 +107,8 @@ class TestNewsSignal:
         )
 
         assert PrimaryTopic.monetary_policy in signal.extraction.primary_topics
-        # Tickers/sectors come from analysis (Stage 2)
+        # Tickers come from analysis (Stage 2)
         assert signal.tickers == ["SPY"]
-        assert signal.sectors == ["financials"]
 
     def test_signal_serialization(self) -> None:
         """Test JSON serialization of NewsSignal."""
@@ -159,7 +156,6 @@ class TestNewsSignal:
 
         assert signal.analysis is None
         assert signal.tickers == []  # Empty when no analysis
-        assert signal.sectors == []
         assert signal.has_edge is False
 
 
@@ -224,31 +220,6 @@ class TestTickerAnalysis:
         assert ticker.relevance_reason == ""
         assert ticker.catalysts == []
         assert ticker.risk_factors == []
-
-
-class TestSectorImplication:
-    """Tests for SectorImplication model."""
-
-    def test_create_sector_implication(self) -> None:
-        sector = SectorImplication(
-            sector="technology",
-            direction=Direction.bullish,
-            reasoning="AI spending accelerating",
-            subsectors=["semiconductors", "cloud", "software"],
-        )
-
-        assert sector.sector == "technology"
-        assert sector.direction == Direction.bullish
-        assert len(sector.subsectors) == 3
-
-    def test_empty_subsectors_default(self) -> None:
-        sector = SectorImplication(
-            sector="energy",
-            direction=Direction.bearish,
-            reasoning="Oil prices falling",
-        )
-
-        assert sector.subsectors == []
 
 
 class TestResearchQuality:

@@ -84,7 +84,6 @@ def create_test_analysis(has_edge: bool = False) -> SmartAnalysis:
     return SmartAnalysis(
         # Informed judgments (made with research context)
         tickers=["SPY", "QQQ"],
-        sectors=["financials"],
         sentiment=Direction.bullish,
         sentiment_score=0.7,
         # Thesis
@@ -186,9 +185,8 @@ class TestProcessingResult:
         assert signal.external_id == message.external_id
         assert signal.extraction == extraction
         assert signal.analysis == analysis
-        # Tickers/sectors come from analysis (Stage 2)
+        # Tickers come from analysis (Stage 2)
         assert signal.tickers == ["SPY", "QQQ"]
-        assert signal.sectors == ["financials"]
 
     def test_to_signal_none_when_skipped(self) -> None:
         """Test to_signal returns None when skipped."""
@@ -332,9 +330,8 @@ class TestProcessingResultWithNoneAnalysis:
         assert signal.external_id == message.external_id
         assert signal.extraction == extraction
         assert signal.analysis is None
-        # Tickers/sectors should be empty when analysis is None
+        # Tickers should be empty when analysis is None
         assert signal.tickers == []
-        assert signal.sectors == []
 
     def test_has_edge_false_with_none_analysis(self) -> None:
         """Test has_edge is False when analysis is None."""

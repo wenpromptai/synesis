@@ -36,11 +36,15 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
 
 3. **news_category**: breaking | economic_calendar | other
 
-4. **primary_topics** (1-2 tags): High-level event/asset-class. Pick the most specific that clearly apply.
+4. **primary_topics** (1-3 tags): Event type, asset-class, AND sector. Pick the most specific that clearly apply.
+   Always add a sector tag when the news is sector-specific.
    Monetary/Economy: monetary_policy | economic_data | trade_policy | fiscal_policy
    Corporate:        earnings | corporate_actions | regulatory
    Geopolitical:     geopolitics | political
    Asset Classes:    crypto | commodities | fixed_income | fx | equities_market
+   Sectors (GICS):   energy | materials | industrials | utilities | healthcare | financials |
+                     consumer_discretionary | consumer_staples | information_technology |
+                     communication_services | real_estate
    Fallback:         other
 
 5. **secondary_topics** (0-3 tags): Specific industry/subsector. Leave empty if not clearly applicable.
@@ -59,14 +63,16 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
 
    Examples:
    - "Fed cuts rates 25bps" → primary=[monetary_policy], secondary=[]
-   - "Apple Q4 earnings beat, raises guidance" → primary=[earnings], secondary=[consumer_tech]
+   - "Apple Q4 earnings beat, raises guidance" → primary=[earnings, information_technology], secondary=[consumer_tech]
    - "Trump imposes 25% tariffs on China" → primary=[trade_policy, political], secondary=[]
-   - "OPEC cuts production by 1M bpd" → primary=[commodities], secondary=[oil_gas]
+   - "OPEC cuts production by 1M bpd" → primary=[commodities, energy], secondary=[oil_gas]
    - "Bitcoin ETF approved by SEC" → primary=[crypto, regulatory], secondary=[]
    - "NFP: +200k jobs, beats estimate" → primary=[economic_data], secondary=[]
-   - "Nvidia data center revenue surges on AI demand" → primary=[earnings], secondary=[semiconductors]
-   - "TSMC beats on strong AI chip demand" → primary=[earnings], secondary=[semiconductors]
-   - "FDA approves Pfizer drug" → primary=[regulatory], secondary=[pharma]
+   - "Nvidia data center revenue surges on AI demand" → primary=[earnings, information_technology], secondary=[semiconductors]
+   - "TSMC beats on strong AI chip demand" → primary=[earnings, information_technology], secondary=[semiconductors]
+   - "FDA approves Pfizer drug" → primary=[regulatory, healthcare], secondary=[pharma]
+   - "JPMorgan beats Q4 earnings on strong trading" → primary=[earnings, financials], secondary=[banks_lending]
+   - "Boeing 737 MAX deliveries halted" → primary=[corporate_actions, industrials], secondary=[aerospace_space]
 
 6. **summary**: One sentence.
 

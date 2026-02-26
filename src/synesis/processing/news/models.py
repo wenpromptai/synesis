@@ -63,9 +63,10 @@ class UnifiedMessage(BaseModel):
 
 
 class PrimaryTopic(str, Enum):
-    """High-level event type / asset-class classification.
+    """High-level event type, asset-class, and sector classification.
 
-    Stage 1 assigns 1-2 tags per news item. Pick the most specific that clearly apply.
+    Stage 1 assigns 1-3 tags per news item. Pick the most specific that clearly apply.
+    Always include a sector tag when the news is sector-specific.
 
     Monetary/Economy:
       monetary_policy  — Fed, ECB, BoJ, rate decisions, QE/QT, forward guidance
@@ -88,6 +89,11 @@ class PrimaryTopic(str, Enum):
       fixed_income     — Treasury auctions, yield curve, credit spreads, ratings
       fx               — Currency moves, central bank intervention, carry trades
       equities_market  — Index levels, VIX, sector rotation, flows, short squeezes
+
+    Sectors (GICS):
+      energy, materials, industrials, utilities, healthcare, financials,
+      consumer_discretionary, consumer_staples, information_technology,
+      communication_services, real_estate
 
     Fallback:
       other
@@ -114,6 +120,19 @@ class PrimaryTopic(str, Enum):
     fixed_income = "fixed_income"
     fx = "fx"
     equities_market = "equities_market"
+
+    # Sectors (GICS)
+    energy = "energy"
+    materials = "materials"
+    industrials = "industrials"
+    utilities = "utilities"
+    healthcare = "healthcare"
+    financials = "financials"
+    consumer_discretionary = "consumer_discretionary"
+    consumer_staples = "consumer_staples"
+    information_technology = "information_technology"
+    communication_services = "communication_services"
+    real_estate = "real_estate"
 
     other = "other"
 
@@ -332,26 +351,6 @@ class TickerAnalysis(BaseModel):
     risk_factors: list[str] = Field(default_factory=list, description="Key risks to the thesis")
 
 
-class SectorImplication(BaseModel):
-    """Sector-level implication from news.
-
-    Use GICS sectors as top-level classification for consistency:
-    Energy, Materials, Industrials, Utilities, Healthcare, Financials,
-    Consumer Discretionary, Consumer Staples, Information Technology,
-    Communication Services, Real Estate.
-    """
-
-    sector: str = Field(
-        description="GICS sector name (e.g., 'Information Technology', 'Financials', 'Healthcare')"
-    )
-    subsectors: list[str] = Field(
-        default_factory=list,
-        description="Specific subsectors for granularity (e.g., 'AI chips', 'regional banks', 'biotech')",
-    )
-    direction: Direction = Field(description="Expected direction for the sector")
-    reasoning: str = Field(description="Explanation of sector impact")
-
-
 class ResearchQuality(str, Enum):
     """Quality of available research data."""
 
@@ -382,7 +381,7 @@ class LightClassification(BaseModel):
     # Topic classification (Stage 1 fast assignment)
     primary_topics: list[PrimaryTopic] = Field(
         default_factory=list,
-        description="High-level event/asset-class tags (1-2). Pick the most specific that clearly apply.",
+        description="Event type, asset-class, and sector tags (1-3). Always include sector when sector-specific.",
     )
     secondary_topics: list[SecondaryTopic] = Field(
         default_factory=list,
@@ -478,10 +477,6 @@ class SmartAnalysis(BaseModel):
         default_factory=list,
         description="Stock tickers affected (informed by research)",
     )
-    sectors: list[str] = Field(
-        default_factory=list,
-        description="Sectors affected (informed by research)",
-    )
     sentiment: Direction = Field(
         default=Direction.neutral,
         description="Sentiment (informed by research)",
@@ -509,12 +504,6 @@ class SmartAnalysis(BaseModel):
     ticker_analyses: list[TickerAnalysis] = Field(
         default_factory=list,
         description="Analysis of individual tickers affected",
-    )
-
-    # Sector implications
-    sector_implications: list[SectorImplication] = Field(
-        default_factory=list,
-        description="Sector-level impacts",
     )
 
     # Historical context
@@ -633,11 +622,6 @@ class NewsSignal(BaseModel):
     def tickers(self) -> list[str]:
         """Get tickers from analysis (Stage 2, informed by research)."""
         return self.analysis.tickers if self.analysis else []
-
-    @property
-    def sectors(self) -> list[str]:
-        """Get GICS sectors from Stage 2 analysis."""
-        return self.analysis.sectors if self.analysis else []
 
     @property
     def entities(self) -> list[str]:

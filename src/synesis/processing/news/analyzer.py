@@ -177,7 +177,7 @@ For each potential ticker, apply this relevance test:
   - ❌ TSM: Supplier, but no specific impact mentioned
 
 - News: "Fed cuts rates by 50bps"
-  - ✅ Sector-level play on Financials, Real Estate
+  - ✅ Tickers directly named or with clear NIM/rate sensitivity (e.g., regional banks, REITs)
   - ❌ Individual banks unless specifically named with impact
 
 **When to use web_search:**
@@ -212,33 +212,7 @@ For each directly affected ticker:
 - Conviction: 0.0 to 1.0
 - Time horizon: intraday | days | weeks | months
 
-### 4. Sector & Subsector Mapping
-
-**Use GICS sectors as top-level classification:**
-Energy | Materials | Industrials | Utilities | Healthcare |
-Financials | Consumer Discretionary | Consumer Staples |
-Information Technology | Communication Services | Real Estate
-
-**For each affected sector provide:**
-- `sector`: GICS sector name (e.g., "Information Technology")
-- `subsectors`: 1-3 specific subsectors for granularity
-- `direction`: bullish | bearish | neutral
-- `reasoning`: One sentence explaining the sector impact
-
-**Subsector Examples by Sector:**
-- Information Technology: AI chips, cloud computing, cybersecurity, enterprise software, consumer electronics
-- Financials: regional banks, investment banks, insurance, fintech, payment processors, asset managers
-- Healthcare: biotech, pharma, medical devices, healthcare services, managed care
-- Energy: oil & gas exploration, refiners, renewables, utilities
-- Consumer Discretionary: luxury goods, auto manufacturers, e-commerce, restaurants, travel
-- Communication Services: social media, streaming, telecom, advertising, gaming
-- Industrials: defense, aerospace, construction, logistics, machinery
-- Materials: mining, chemicals, steel, packaging
-- Real Estate: REITs, commercial, residential, data centers
-- Consumer Staples: food & beverage, household products, tobacco, retail grocery
-- Utilities: electric, gas, water, renewable energy generators
-
-### 5. Historical Context & Market Reaction Patterns
+### 4. Historical Context & Market Reaction Patterns
 
 **Use the web_search tool to find RELEVANT historical precedent. If nothing matches, skip this section.**
 
@@ -268,12 +242,12 @@ Provide structured historical analysis ONLY if you found relevant similar events
 - DO NOT fabricate or force irrelevant historical data
 - Better to have NO historical section than misleading context
 
-### 6. Sentiment (DECLARE based on analysis above)
+### 5. Sentiment (DECLARE based on analysis above)
 - **sentiment**: bullish | bearish | neutral
 - **sentiment_score**: -1.0 (max bearish) to 1.0 (max bullish)
 - State label and score directly. Your reasoning is already in the thesis.
 
-### 7. Evaluate Prediction Markets
+### 6. Evaluate Prediction Markets
 **CRITICAL: You MUST return a MarketEvaluation object for EVERY market in the table below.**
 
 For each market row in the Polymarket table:
@@ -655,12 +629,11 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             market_instructions = ""
 
         user_prompt = f"""Analyze this news. Determine:
-1. Affected tickers and sectors (use research to validate)
+1. Affected tickers (use research to validate)
 2. Primary investment thesis with confidence score
 3. Ticker-level analysis with bull/bear thesis for each
-4. Sector implications
-5. Historical precedents from web research
-6. Sentiment and sentiment score (based on your analysis above)
+4. Historical precedents from web research
+5. Sentiment and sentiment score (based on your analysis above)
 {market_instructions}
 
 Focus on DIRECT impacts. Be conservative with confidence scores."""

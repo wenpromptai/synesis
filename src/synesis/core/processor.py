@@ -398,7 +398,6 @@ class NewsProcessor:
             log.info(
                 "Stage 2 complete",
                 tickers=analysis.tickers,
-                sectors=analysis.sectors,
                 sentiment=analysis.sentiment.value,
                 sentiment_score=analysis.sentiment_score,
                 thesis=analysis.primary_thesis[:100] if analysis.primary_thesis else "None",

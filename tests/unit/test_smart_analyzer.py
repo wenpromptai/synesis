@@ -88,7 +88,6 @@ class TestSmartAnalyzerSystemPrompt:
     def test_prompt_contains_key_sections(self) -> None:
         """Test that system prompt contains key sections."""
         assert "tickers" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
-        assert "sectors" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
         assert "impact" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
         assert "market_evaluations" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
         assert "thesis" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
