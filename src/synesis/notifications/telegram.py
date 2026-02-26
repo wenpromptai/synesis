@@ -224,13 +224,18 @@ def format_stage1_signal(
         "",
         f"<blockquote>{_escape_html(original_text)}</blockquote>",
         "",
-        f"📌 {primary + '  ·  ' + secondary if secondary else primary}",
-        "",
-        f"👤 {_escape_html(entities)}",
     ]
 
     if extraction.summary:
-        lines += ["", _escape_html(extraction.summary)]
+        lines += ["📝 <b>Summary</b>", _escape_html(extraction.summary), ""]
+
+    lines += [
+        "📌 <b>Topics</b>",
+        primary + "  ·  " + secondary if secondary else primary,
+        "",
+        "👤 <b>Entities</b>",
+        _escape_html(entities),
+    ]
 
     return "\n".join(lines)
 
