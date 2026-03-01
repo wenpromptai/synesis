@@ -17,7 +17,7 @@ Architecture follows PydanticAI best practices:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import httpx
 from pydantic_ai import Agent, RunContext
@@ -82,8 +82,10 @@ Your job is to make ALL informed judgments about this news.
 
 ## Research Process (MANDATORY before making predictions)
 
-Use `web_search` (with recency="year" or "month") to find historical precedent BEFORE forming your thesis.
-You need to understand how markets reacted to similar events in the past.
+You MUST call `web_search` to find historical precedent BEFORE forming your thesis.
+Your training data is useful for identifying relevant events, but ALWAYS supplement with
+web search to get precise dates, magnitudes, and sourced data.
+Use recency="all" for precedents older than 1 year, or "year" for recent ones.
 
 **What to search for, by event type:**
 
@@ -202,7 +204,8 @@ For each ticker from Task 1:
 ### 4. Historical Context & Market Patterns
 
 Synthesize the historical research you did earlier (Research Process) into structured output.
-If you haven't searched yet, use `web_search` now — do NOT skip this for high/medium impact events.
+You MUST have called `web_search` at least once for precedent by this point.
+Supplement training-data knowledge with web search for precise, sourced data.
 
 **a) Precedent Events** — cite 1-3 events, most-recent-first, with SIMILAR characteristics
   - Include the date, what happened, and the market conditions at the time
@@ -432,9 +435,10 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             - "week": Recent analysis, market commentary (last 7 days) - GOOD DEFAULT
             - "month": Recent context, analyst reports (last 30 days)
             - "year": Historical precedent, similar past events (last 12 months)
+            - "all": No date filter — use for historical precedent beyond 1 year
 
             WHEN TO USE:
-            1. Find historical precedent for similar events (recency="year" or "month")
+            1. Find historical precedent (recency="all" for broad search, "year" for recent-only)
                - Search for events with SIMILAR characteristics (magnitude, surprise, sector)
                - "Fed rate cut 25bps market reaction"
                - "earnings beat 10% stock reaction"
@@ -448,7 +452,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
 
             Args:
                 query: Search query (be specific about what pattern you're looking for)
-                recency: Time range - "day", "week", "month", or "year" (default: "week")
+                recency: Time range - "day", "week", "month", "year", or "all" (default: "week")
 
             Returns:
                 Formatted search results
@@ -462,9 +466,13 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
                     search_market_impact,
                 )
 
-                # Validate recency parameter
-                valid_recency: Literal["day", "week", "month", "year"] = (
-                    recency if recency in ("day", "week", "month", "year") else "week"  # type: ignore[assignment]
+                from synesis.processing.common.web_search import Recency
+
+                # Map "all" -> "none" (no date filter), validate others
+                recency_map = {"all": "none"}
+                mapped = recency_map.get(recency, recency)
+                valid_recency: Recency = (
+                    mapped if mapped in ("day", "week", "month", "year", "none") else "week"  # type: ignore[assignment]
                 )
                 results = await search_market_impact(query, count=5, recency=valid_recency)
                 return format_search_results(results)
