@@ -15,18 +15,39 @@ Real-time financial news analysis and prediction market trading system. Transfor
 
 ## Quickstart
 
-```bash
-# Start infrastructure
-docker compose up -d
+### First-time setup
 
-# Install dependencies
+Telegram requires an interactive login on first run, so the app cannot start in Docker until a session file exists.
+
+```bash
+# 1. Install dependencies
 uv sync
 
-# Run (production - server + agent in one process)
-uv run synesis
+# 2. Start infrastructure only (DB, Redis, SearXNG, Crawl4AI)
+docker compose up -d timescaledb redis searxng crawl4ai
 
-# Run (development - auto-reload on file save)
-uv run synesis --reload
+# 3. Run app locally to generate Telegram session
+uv run synesis
+# Wait for "Signed in successfully", then Ctrl+C
+
+# 4. Start the full stack including the app
+docker compose up -d
+```
+
+### Already set up
+
+```bash
+# Start everything
+docker compose up -d
+
+# Restart app only (e.g. after code changes)
+docker compose build synesis && docker compose up -d synesis
+
+# View app logs
+docker compose logs -f synesis
+
+# Run locally with auto-reload (stop the Docker app first)
+docker compose stop synesis && uv run synesis --reload
 ```
 
 ## Project Structure

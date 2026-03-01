@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 # =============================================================================
@@ -135,6 +135,27 @@ class PrimaryTopic(str, Enum):
     real_estate = "real_estate"
 
     other = "other"
+
+
+# Topics that indicate broad macro / cross-asset impact.
+# When Stage 1 assigns any of these, Stage 2 should consider macro ETF proxies.
+MACRO_TOPICS: frozenset[PrimaryTopic] = frozenset(
+    {
+        PrimaryTopic.geopolitics,
+        PrimaryTopic.monetary_policy,
+        PrimaryTopic.trade_policy,
+        PrimaryTopic.fiscal_policy,
+        PrimaryTopic.economic_data,
+        PrimaryTopic.commodities,
+        PrimaryTopic.fixed_income,
+        PrimaryTopic.fx,
+        PrimaryTopic.equities_market,
+    }
+)
+
+# Canonical set of macro asset-class ETF proxy tickers used in Stage 2.
+# Referenced in: analyzer.py (prompt + post-processing), telegram.py (display grouping).
+MACRO_ETF_TICKERS: frozenset[str] = frozenset({"GLD", "USO", "SPY", "TLT", "UUP", "VIXY", "EEM"})
 
 
 class SecondaryTopic(str, Enum):
@@ -527,6 +548,12 @@ class SmartAnalysis(BaseModel):
         default=ResearchQuality.medium,
         description="Quality of available research data",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_macro_impact(self) -> bool:
+        """True when ticker_analyses includes macro asset-class ETF proxies."""
+        return any(t.ticker in MACRO_ETF_TICKERS for t in self.ticker_analyses)
 
     @property
     def has_tradable_edge(self) -> bool:

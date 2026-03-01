@@ -26,14 +26,37 @@ uv run mypy src/
 # Test
 uv run pytest
 
-# Run (production — server + agent in one process)
-uv run synesis
-
-# Run (development — auto-reload on file save)
+# Run locally (development — auto-reload on file save)
 uv run synesis --reload
+```
 
-# Docker services (PostgreSQL, Redis)
+### Docker Setup (first time)
+
+Telegram requires an interactive login on first run, so the app cannot start in Docker until a session file exists.
+
+```bash
+# 1. Start infrastructure only (DB, Redis, SearXNG, Crawl4AI)
+docker compose up -d timescaledb redis searxng crawl4ai
+
+# 2. Run app locally to generate Telegram session (shared/sessions/synesis.session)
+uv run synesis
+# Wait for "Signed in successfully", then Ctrl+C
+
+# 3. Now start the full stack including the app
 docker compose up -d
+```
+
+### Docker (already set up)
+
+```bash
+# Start everything
+docker compose up -d
+
+# Restart app only (e.g. after code changes)
+docker compose build synesis && docker compose up -d synesis
+
+# View app logs
+docker compose logs -f synesis
 ```
 
 ## Project Structure

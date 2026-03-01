@@ -113,8 +113,8 @@ CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords,
    surprise_magnitude: actual - estimate
 
 10. **urgency** + urgency_reasoning (1 sentence):
-   - critical: Surprise Fed, breaking M&A, unexpected policy
-   - high: Scheduled data release, earnings beat/miss
+   - critical: Surprise Fed, breaking M&A, unexpected policy, major geopolitical escalation (military strikes, invasion, nuclear threats)
+   - high: Scheduled data release, earnings beat/miss, new sanctions/tariffs, geopolitical tensions (troop movements, diplomatic breakdown, territorial disputes)
    - normal: News with identifiable financial/market impact
    - low: No financial relevance, opinions, social banter, promotional
 

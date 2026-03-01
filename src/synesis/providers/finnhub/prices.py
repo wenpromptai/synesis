@@ -410,7 +410,7 @@ class FinnhubPriceProvider:
     def _get_http_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=30.0)
+            self._http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         return self._http_client
 
     async def fetch_quote(self, ticker: str) -> Decimal | None:

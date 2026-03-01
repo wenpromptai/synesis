@@ -201,6 +201,42 @@ services:
           memory: 256M
     logging: *default-logging
 
+  synesis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: synesis-app
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    networks:
+      - synesis
+    ports:
+      - "7337:7337"
+    env_file:
+      - .env
+      - .env.docker
+    volumes:
+      - ./shared:/app/shared
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7337/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging: *default-logging
+
 networks:
   synesis:
     driver: bridge

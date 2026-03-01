@@ -18,6 +18,7 @@ from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
     from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
+    from synesis.processing.news.models import TickerAnalysis
 
 logger = get_logger(__name__)
 
@@ -285,15 +286,29 @@ def format_condensed_signal(
 💡 <b>Thesis:</b> {_escape_html(analysis.primary_thesis)}
 <i>Confidence: {analysis.thesis_confidence:.0%}</i>"""
 
-    # All tickers (one line each)
-    if analysis.ticker_analyses:
-        msg += "\n\n📊 <b>Tickers</b>"
-        for ta in analysis.ticker_analyses:
+    # Split tickers into stock tickers vs macro ETF proxies
+    from synesis.processing.news.models import MACRO_ETF_TICKERS
+
+    stock_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker not in MACRO_ETF_TICKERS]
+    macro_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker in MACRO_ETF_TICKERS]
+
+    def _format_ticker_lines(tickers: list[TickerAnalysis]) -> str:
+        lines = ""
+        for ta in tickers:
             ticker_dir = sentiment_emoji.get(ta.net_direction.value, "⚪")
             company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
-            msg += f"\n{ticker_dir} <code>${ta.ticker}</code>{company_name} {ta.net_direction.value} ({ta.conviction:.0%})"
+            lines += f"\n{ticker_dir} <code>${ta.ticker}</code>{company_name} {ta.net_direction.value} ({ta.conviction:.0%})"
             if ta.relevance_reason:
-                msg += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
+                lines += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
+        return lines
+
+    if stock_tickers:
+        msg += "\n\n📊 <b>Tickers</b>"
+        msg += _format_ticker_lines(stock_tickers)
+
+    if macro_tickers:
+        msg += "\n\n🌍 <b>Macro Impact</b>"
+        msg += _format_ticker_lines(macro_tickers)
 
     # Historical context (full, no truncation)
     if analysis.historical_context:
