@@ -33,7 +33,7 @@ NASDAQ_CACHE_TTL_EARNINGS = 21600  # 6 hours for earnings calendar
 # ─────────────────────────────────────────────────────────────
 # Default Thresholds (can be overridden in Settings)
 # ─────────────────────────────────────────────────────────────
-DEFAULT_SIMILARITY_THRESHOLD = 0.85
+DEFAULT_SIMILARITY_THRESHOLD = 0.75
 DEFAULT_TICKER_RELEVANCE_THRESHOLD = 0.6
 DEFAULT_CONVICTION_THRESHOLD = 0.7
 
@@ -54,4 +54,4 @@ DEFAULT_FINNHUB_API_URL = "https://finnhub.io/api/v1"
 # ─────────────────────────────────────────────────────────────
 # News Processing (Flow 1)
 # ─────────────────────────────────────────────────────────────
-MIN_THESIS_CONFIDENCE_FOR_ALERT = 0.30  # Skip Telegram alerts below this confidence
+MIN_THESIS_CONFIDENCE_FOR_ALERT = 0.30  # Skip notifications below this confidence

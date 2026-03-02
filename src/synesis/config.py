@@ -57,6 +57,18 @@ class Settings(BaseSettings):
         description="Telegram chat ID to send notifications to",
     )
 
+    # Notification channel selection
+    notification_channel: Literal["telegram", "discord"] = Field(
+        default="telegram",
+        description="Notification output channel: 'telegram' or 'discord'",
+    )
+
+    # Discord (notifications)
+    discord_webhook_url: SecretStr | None = Field(
+        default=None,
+        description="Discord webhook URL for sending notifications",
+    )
+
     @field_validator("telegram_channels", mode="before")
     @classmethod
     def parse_telegram_channels(cls, v: str | list[str] | None) -> list[str]:

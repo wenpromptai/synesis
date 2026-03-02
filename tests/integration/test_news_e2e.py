@@ -1,11 +1,12 @@
 """Integration smoke test for news processing pipeline.
 
-Uses REAL APIs (LLM, SEC EDGAR, NASDAQ, Polymarket, Telegram) with mocked storage.
+Uses REAL APIs (LLM, SEC EDGAR, NASDAQ, Polymarket, notifications) with mocked storage.
 Run with: pytest -m integration
 
 Environment variables required:
 - ANTHROPIC_API_KEY or OPENAI_API_KEY
-- TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (for notifications)
+- NOTIFICATION_CHANNEL=telegram: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+- NOTIFICATION_CHANNEL=discord: DISCORD_WEBHOOK_URL
 """
 
 from datetime import datetime, timezone
@@ -44,12 +45,12 @@ class TestNewsE2E:
         ticker_provider: Any,
         breaking_news_message: UnifiedMessage,
     ) -> None:
-        """Smoke test: Full news pipeline with real LLM + providers + Telegram.
+        """Smoke test: Full news pipeline with real LLM + providers + notifications.
 
         Verifies:
         1. Stage 1 classification works (real LLM)
         2. Stage 2 analysis works (real LLM + Polymarket)
-        3. Telegram notification sends
+        3. Notification sends (via configured channel)
         4. Mock storage captures data correctly
         """
         # Create processor with mock Redis and ticker provider
@@ -99,20 +100,13 @@ class TestNewsE2E:
                 await mock_db.insert_signal(signal)
                 await mock_redis.publish("synesis:signals", signal.model_dump_json())
 
-                # Send REAL Telegram notification
-                from synesis.notifications.telegram import (
-                    format_condensed_signal,
-                    send_long_telegram,
-                )
+                # Send notification via configured channel
+                from synesis.notifications.dispatcher import emit_stage2
 
                 if result.analysis:
-                    telegram_msg = format_condensed_signal(
-                        breaking_news_message,
-                        result.analysis,
-                    )
                     print(f"\n{'=' * 60}")
-                    print(f"TELEGRAM (sending {len(telegram_msg)} chars...):")
-                    sent = await send_long_telegram(telegram_msg)
+                    print("NOTIFICATION (sending via configured channel...):")
+                    sent = await emit_stage2(breaking_news_message, result.analysis)
                     print(f"  Sent: {sent}")
 
             # Verify mock storage

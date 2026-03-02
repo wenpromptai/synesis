@@ -65,7 +65,7 @@ src/synesis/
 │   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
-├── notifications/     # Telegram notifications
+├── notifications/     # Telegram & Discord notifications
 ├── storage/           # PostgreSQL + Redis clients
 ├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
 └── api/               # HTTP/WebSocket endpoints

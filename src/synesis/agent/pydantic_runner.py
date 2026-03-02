@@ -26,11 +26,7 @@ from synesis.config import get_settings
 from synesis.core.constants import MIN_THESIS_CONFIDENCE_FOR_ALERT
 from synesis.core.logging import get_logger
 from synesis.core.processor import NewsProcessor, ProcessingResult
-from synesis.notifications.telegram import (
-    format_condensed_signal,
-    format_stage1_signal,
-    send_long_telegram,
-)
+from synesis.notifications.dispatcher import emit_stage1, emit_stage2
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import (
     NewsSignal,
@@ -86,7 +82,7 @@ async def emit_signal_to_db(
     extraction: LightClassification,
     analysis: SmartAnalysis | None,
 ) -> None:
-    """Store signal to signals table (DB only, no Telegram).
+    """Store signal to signals table (DB only, no notification).
 
     Args:
         message: Original message
@@ -128,7 +124,7 @@ async def emit_signal_to_db(
 
 
 async def emit_prediction_to_db(evaluation: MarketEvaluation, message: UnifiedMessage) -> None:
-    """Store prediction to predictions table (DB only, no Telegram).
+    """Store prediction to predictions table (DB only, no notification).
 
     Args:
         evaluation: Market evaluation from Stage 2
@@ -154,11 +150,11 @@ async def emit_prediction_to_db(evaluation: MarketEvaluation, message: UnifiedMe
         )
 
 
-async def emit_stage1_telegram(
+async def emit_stage1_notification(
     message: UnifiedMessage,
     extraction: LightClassification,
 ) -> None:
-    """Send Stage 1 first-pass Telegram notification.
+    """Send Stage 1 first-pass notification via configured channel.
 
     Sent immediately after Gate 1 for high/critical urgency signals.
 
@@ -166,46 +162,39 @@ async def emit_stage1_telegram(
         message: Original message
         extraction: Stage 1 entity extraction
     """
-    telegram_msg = format_stage1_signal(message=message, extraction=extraction)
-    sent = await send_long_telegram(telegram_msg)
+    sent = await emit_stage1(message, extraction)
     if not sent:
         logger.error(
-            "Failed to send Stage 1 signal to Telegram",
+            "Failed to send Stage 1 notification",
             message_id=message.external_id,
         )
     else:
         logger.debug(
-            "Stage 1 signal sent to Telegram",
+            "Stage 1 notification sent",
             message_id=message.external_id,
             urgency=extraction.urgency.value,
         )
 
 
-async def emit_combined_telegram(
+async def emit_stage2_notification(
     message: UnifiedMessage,
     analysis: SmartAnalysis,
 ) -> None:
-    """Send ONE condensed Telegram message with signal + top polymarket.
+    """Send Stage 2 notification via configured channel.
 
     Args:
         message: Original message
         analysis: Stage 2 smart analysis
     """
-    # Format condensed message (single message, ~900-2000 chars)
-    telegram_msg = format_condensed_signal(
-        message=message,
-        analysis=analysis,
-    )
-
-    sent = await send_long_telegram(telegram_msg)
+    sent = await emit_stage2(message, analysis)
     if not sent:
         logger.error(
-            "Failed to send news signal to Telegram",
+            "Failed to send Stage 2 notification",
             message_id=message.external_id,
         )
     else:
         logger.debug(
-            "Combined signal sent to Telegram",
+            "Stage 2 notification sent",
             message_id=message.external_id,
             has_edge=analysis.has_tradable_edge,
             markets_evaluated=len(analysis.market_evaluations),
@@ -242,8 +231,8 @@ async def emit_signal(
     - Publishes signal to Redis for real-time subscribers
     - Stores signal to signals table (DB)
     - Stores each prediction to predictions table (DB)
-    - Sends Stage 2 Telegram (condensed signal) if confidence gate passes
-      (Stage 1 Telegram is sent earlier via on_stage1_complete callback in process_message)
+    - Sends Stage 2 notification (condensed signal) if confidence gate passes
+      (Stage 1 notification is sent earlier via on_stage1_complete callback in process_message)
 
     Args:
         result: The processing result to emit
@@ -271,7 +260,7 @@ async def emit_signal(
         await emit_signal_to_db(result.message, result.extraction, None)
         return
 
-    # Stage 1 Telegram is sent immediately via on_stage1_complete callback
+    # Stage 1 notification is sent immediately via on_stage1_complete callback
     # in process_worker(), so we skip it here.
 
     if result.analysis is None:
@@ -291,16 +280,16 @@ async def emit_signal(
     for evaluation in result.analysis.market_evaluations:
         await emit_prediction_to_db(evaluation, result.message)
 
-    # 3. Send Stage 2 Telegram (add story) if confidence gate passes
+    # 3. Send Stage 2 notification if confidence gate passes
     if result.analysis.thesis_confidence < MIN_THESIS_CONFIDENCE_FOR_ALERT:
         logger.info(
-            "Skipping Stage 2 Telegram alert (low confidence)",
+            "Skipping Stage 2 notification (low confidence)",
             message_id=result.message.external_id,
             thesis_confidence=f"{result.analysis.thesis_confidence:.0%}",
         )
         return
 
-    await emit_combined_telegram(result.message, result.analysis)
+    await emit_stage2_notification(result.message, result.analysis)
 
 
 async def process_worker(
@@ -332,7 +321,7 @@ async def process_worker(
         try:
 
             async def _on_stage1(msg: UnifiedMessage, ext: LightClassification) -> None:
-                await emit_stage1_telegram(msg, ext)
+                await emit_stage1_notification(msg, ext)
 
             processing_result = await processor.process_message(
                 message, on_stage1_complete=_on_stage1

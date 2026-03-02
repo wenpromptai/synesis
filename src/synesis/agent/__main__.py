@@ -187,12 +187,23 @@ async def agent_lifespan(
         else:
             logger.warning("Telegram credentials not set, Telegram listener disabled")
 
-        # Warn if Telegram notification config is incomplete
-        if not settings.telegram_bot_token or not settings.telegram_chat_id:
-            logger.warning(
-                "Telegram notification config incomplete — signals will NOT be sent to Telegram. "
-                "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env"
-            )
+        # Warn if notification config is incomplete for the chosen channel
+        if settings.notification_channel == "discord":
+            if not settings.discord_webhook_url:
+                logger.warning(
+                    "Discord webhook URL not configured — signals will NOT be sent. "
+                    "Set DISCORD_WEBHOOK_URL in .env"
+                )
+            else:
+                logger.info("Notifications configured for Discord webhook")
+        else:
+            if not settings.telegram_bot_token or not settings.telegram_chat_id:
+                logger.warning(
+                    "Telegram notification config incomplete — signals will NOT be sent. "
+                    "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env"
+                )
+            else:
+                logger.info("Notifications configured for Telegram")
 
         # Check we have at least one source
         if telegram_listener is None:

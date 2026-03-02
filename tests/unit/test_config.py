@@ -134,6 +134,15 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     # --- Telegram notifications ---
     ("telegram_bot_token", "TELEGRAM_BOT_TOKEN", "bot:token123", "bot:token123"),  # SecretStr
     ("telegram_chat_id", "TELEGRAM_CHAT_ID", "99999", "99999"),
+    # --- Notification channel ---
+    ("notification_channel", "NOTIFICATION_CHANNEL", "discord", "discord"),
+    # --- Discord notifications ---
+    (
+        "discord_webhook_url",
+        "DISCORD_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/123/abc",
+        "https://discord.com/api/webhooks/123/abc",
+    ),  # SecretStr
     # --- Twitter ---
     ("twitterapi_api_key", "TWITTERAPI_API_KEY", "twkey", "twkey"),  # SecretStr
     (
@@ -200,6 +209,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
 _SECRET_FIELDS = {
     "telegram_api_hash",
     "telegram_bot_token",
+    "discord_webhook_url",
     "twitterapi_api_key",
     "polymarket_api_key",
     "polymarket_api_secret",

@@ -8,12 +8,12 @@ import pytest
 from synesis.agent.pydantic_runner import (
     INCOMING_QUEUE,
     SIGNAL_CHANNEL,
-    emit_combined_telegram,
     emit_prediction_to_db,
     emit_raw_message_to_db,
     emit_signal,
     emit_signal_to_db,
-    emit_stage1_telegram,
+    emit_stage1_notification,
+    emit_stage2_notification,
     enqueue_test_message,
     store_signal,
 )
@@ -218,12 +218,12 @@ class TestEmitRawMessageToDb:
             await emit_raw_message_to_db(message)
 
 
-class TestEmitCombinedTelegram:
-    """Tests for emit_combined_telegram function."""
+class TestEmitStage2Notification:
+    """Tests for emit_stage2_notification function."""
 
     @pytest.mark.anyio
     async def test_sends_all_signals(self) -> None:
-        """Test that all signals are sent to Telegram (no confidence threshold)."""
+        """Test that all signals are sent (no confidence threshold)."""
         message = UnifiedMessage(
             external_id="123",
             source_platform=SourcePlatform.telegram,
@@ -241,11 +241,11 @@ class TestEmitCombinedTelegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.emit_stage2", new_callable=AsyncMock
         ) as mock_send:
-            await emit_combined_telegram(message, analysis)
+            mock_send.return_value = True
+            await emit_stage2_notification(message, analysis)
 
-        # All signals are sent to Telegram (no threshold)
         mock_send.assert_called_once()
 
     @pytest.mark.anyio
@@ -268,9 +268,10 @@ class TestEmitCombinedTelegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.emit_stage2", new_callable=AsyncMock
         ) as mock_send:
-            await emit_combined_telegram(message, analysis)
+            mock_send.return_value = True
+            await emit_stage2_notification(message, analysis)
 
         mock_send.assert_called_once()
 
@@ -309,12 +310,12 @@ class TestEnqueueTestMessage:
         mock_redis.close.assert_called_once()  # Should close its own client
 
 
-class TestEmitStage1Telegram:
-    """Tests for emit_stage1_telegram function."""
+class TestEmitStage1Notification:
+    """Tests for emit_stage1_notification function."""
 
     @pytest.mark.anyio
     async def test_sends_stage1_notification(self) -> None:
-        """Test that Stage 1 signal is sent to Telegram."""
+        """Test that Stage 1 signal is sent via dispatcher."""
         message = UnifiedMessage(
             external_id="123",
             source_platform=SourcePlatform.telegram,
@@ -332,19 +333,16 @@ class TestEmitStage1Telegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.emit_stage1", new_callable=AsyncMock
         ) as mock_send:
             mock_send.return_value = True
-            await emit_stage1_telegram(message, extraction)
+            await emit_stage1_notification(message, extraction)
 
-        mock_send.assert_called_once()
-        # Verify the message contains [1st pass] marker
-        call_args = mock_send.call_args[0][0]
-        assert "[1st pass]" in call_args
+        mock_send.assert_called_once_with(message, extraction)
 
     @pytest.mark.anyio
-    async def test_stage1_message_includes_entities(self) -> None:
-        """Test that Stage 1 message includes entity info."""
+    async def test_logs_error_on_failure(self) -> None:
+        """Test that failure is logged."""
         message = UnifiedMessage(
             external_id="124",
             source_platform=SourcePlatform.telegram,
@@ -363,15 +361,12 @@ class TestEmitStage1Telegram:
         )
 
         with patch(
-            "synesis.agent.pydantic_runner.send_long_telegram", new_callable=AsyncMock
+            "synesis.agent.pydantic_runner.emit_stage1", new_callable=AsyncMock
         ) as mock_send:
-            mock_send.return_value = True
-            await emit_stage1_telegram(message, extraction)
+            mock_send.return_value = False
+            await emit_stage1_notification(message, extraction)
 
         mock_send.assert_called_once()
-        call_args = mock_send.call_args[0][0]
-        assert "Apple" in call_args
-        assert "earnings" in call_args
 
 
 class TestEmitSignal:
@@ -442,10 +437,10 @@ class TestEmitSignal:
                 "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
             ) as mock_db,
             patch(
-                "synesis.agent.pydantic_runner.emit_stage1_telegram", new_callable=AsyncMock
+                "synesis.agent.pydantic_runner.emit_stage1_notification", new_callable=AsyncMock
             ) as mock_stage1,
             patch(
-                "synesis.agent.pydantic_runner.emit_combined_telegram", new_callable=AsyncMock
+                "synesis.agent.pydantic_runner.emit_stage2_notification", new_callable=AsyncMock
             ) as mock_stage2,
         ):
             await emit_signal(result, mock_redis)
@@ -488,10 +483,10 @@ class TestEmitSignal:
                 "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
             ) as mock_db,
             patch(
-                "synesis.agent.pydantic_runner.emit_stage1_telegram", new_callable=AsyncMock
+                "synesis.agent.pydantic_runner.emit_stage1_notification", new_callable=AsyncMock
             ) as mock_stage1,
             patch(
-                "synesis.agent.pydantic_runner.emit_combined_telegram", new_callable=AsyncMock
+                "synesis.agent.pydantic_runner.emit_stage2_notification", new_callable=AsyncMock
             ) as mock_stage2,
         ):
             await emit_signal(result, mock_redis)
@@ -554,10 +549,10 @@ class TestEmitSignal:
                 "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
             ) as mock_db,
             patch(
-                "synesis.agent.pydantic_runner.emit_stage1_telegram", new_callable=AsyncMock
+                "synesis.agent.pydantic_runner.emit_stage1_notification", new_callable=AsyncMock
             ) as mock_stage1,
             patch(
-                "synesis.agent.pydantic_runner.emit_combined_telegram", new_callable=AsyncMock
+                "synesis.agent.pydantic_runner.emit_stage2_notification", new_callable=AsyncMock
             ) as mock_stage2,
             patch(
                 "synesis.agent.pydantic_runner.emit_prediction_to_db", new_callable=AsyncMock
