@@ -55,6 +55,16 @@ from synesis.providers.nasdaq import (
     NasdaqClient,
 )
 
+# FRED implementation
+from synesis.providers.fred import (
+    FREDClient,
+    FREDObservation,
+    FREDObservations,
+    FREDRelease,
+    FREDReleaseDate,
+    FREDSeries,
+)
+
 __all__ = [
     # Protocols
     "TickerProvider",
@@ -80,6 +90,13 @@ __all__ = [
     "init_price_service",
     "close_price_service",
     "get_rate_limiter",
+    # FRED
+    "FREDClient",
+    "FREDSeries",
+    "FREDObservation",
+    "FREDObservations",
+    "FREDRelease",
+    "FREDReleaseDate",
     # Crawler
     "Crawl4AICrawlerProvider",
     "CrawlResult",

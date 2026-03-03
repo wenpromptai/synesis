@@ -182,6 +182,13 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("brave_api_key", "BRAVE_API_KEY", "brave456", "brave456"),  # SecretStr
     # --- Finnhub ---
     ("finnhub_api_key", "FINNHUB_API_KEY", "fhkey", "fhkey"),  # SecretStr
+    # --- FRED ---
+    ("fred_api_key", "FRED_API_KEY", "fredkey", "fredkey"),  # SecretStr
+    ("fred_cache_ttl_search", "FRED_CACHE_TTL_SEARCH", "1800", 1800),
+    ("fred_cache_ttl_series", "FRED_CACHE_TTL_SERIES", "21600", 21600),
+    ("fred_cache_ttl_observations", "FRED_CACHE_TTL_OBSERVATIONS", "10800", 10800),
+    ("fred_cache_ttl_releases", "FRED_CACHE_TTL_RELEASES", "21600", 21600),
+    ("fred_cache_ttl_release_dates", "FRED_CACHE_TTL_RELEASE_DATES", "10800", 10800),
     # --- SEC EDGAR ---
     ("sec_edgar_user_agent", "SEC_EDGAR_USER_AGENT", "Test test@test.com", "Test test@test.com"),
     ("sec_edgar_cache_ttl_submissions", "SEC_EDGAR_CACHE_TTL_SUBMISSIONS", "7200", 7200),
@@ -232,6 +239,7 @@ _SECRET_FIELDS = {
     "exa_api_key",
     "brave_api_key",
     "finnhub_api_key",
+    "fred_api_key",
 }
 
 

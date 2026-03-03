@@ -141,6 +141,32 @@ class Settings(BaseSettings):
         description="Finnhub API key for real-time stock prices",
     )
 
+    # FRED (Federal Reserve Economic Data)
+    fred_api_key: SecretStr | None = Field(
+        default=None,
+        description="FRED API key (free, register at https://fredaccount.stlouisfed.org)",
+    )
+    fred_cache_ttl_search: int = Field(
+        default=3600,
+        description="Cache TTL for FRED series search results (seconds)",
+    )
+    fred_cache_ttl_series: int = Field(
+        default=43200,
+        description="Cache TTL for FRED series metadata (seconds)",
+    )
+    fred_cache_ttl_observations: int = Field(
+        default=21600,
+        description="Cache TTL for FRED observations (seconds)",
+    )
+    fred_cache_ttl_releases: int = Field(
+        default=43200,
+        description="Cache TTL for FRED releases (seconds)",
+    )
+    fred_cache_ttl_release_dates: int = Field(
+        default=21600,
+        description="Cache TTL for FRED release dates (seconds)",
+    )
+
     # SEC EDGAR (free, no key required)
     sec_edgar_user_agent: str = Field(
         default="Synesis synesis@example.com",

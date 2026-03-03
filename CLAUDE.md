@@ -73,6 +73,7 @@ src/synesis/
 │   ├── nasdaq/        # NASDAQ earnings calendar
 │   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
 │   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains
+│   ├── fred/          # FRED economic data (series, releases, observations)
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram & Discord notifications
@@ -111,6 +112,7 @@ scripts/               # Utility scripts
 - **Polymarket Gamma API**: `https://gamma-api.polymarket.com` (market discovery)
 - **SEC EDGAR API**: `https://data.sec.gov` (filings, Form 4, XBRL — free, no key)
 - **NASDAQ Earnings**: `https://api.nasdaq.com` (earnings calendar — free, no key)
+- **FRED API**: `https://api.stlouisfed.org/fred` (economic data — free key required)
 
 ## API Routes
 
@@ -122,6 +124,7 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 - `/watchlist/*` — Watchlist CRUD (reads 60/min, writes 10/min)
 - `/earnings/*` — NASDAQ earnings calendar (30/min)
 - `/sec_edgar/*` — SEC filings, insider transactions, sentiment, search (60/min, earnings content 10/min)
+- `/fred/*` — FRED: series search, observations, releases (30/min, info 60/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 

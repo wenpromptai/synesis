@@ -12,6 +12,7 @@ from synesis.config import Settings, get_settings
 from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
 from synesis.providers.finnhub.prices import FinnhubPriceProvider, get_price_service
 from synesis.providers.finnhub.ticker import FinnhubTickerProvider
+from synesis.providers.fred import FREDClient
 from synesis.providers.nasdaq import NasdaqClient
 from synesis.providers.sec_edgar import SECEdgarClient
 from synesis.providers.yfinance import YFinanceClient
@@ -26,6 +27,7 @@ _sec_edgar_client: SECEdgarClient | None = None
 _nasdaq_client: NasdaqClient | None = None
 _yfinance_client: YFinanceClient | None = None
 _crawler: Crawl4AICrawlerProvider | None = None
+_fred_client: FREDClient | None = None
 _ticker_provider: FinnhubTickerProvider | None = None
 
 
@@ -88,6 +90,19 @@ async def get_ticker_provider(redis: Redis = Depends(get_redis)) -> FinnhubTicke
     return _ticker_provider
 
 
+async def get_fred_client(redis: Redis = Depends(get_redis)) -> FREDClient:
+    """Get or create singleton FRED client."""
+    global _fred_client
+    if _fred_client is None:
+        settings = get_settings()
+        if settings.fred_api_key is None:
+            raise HTTPException(
+                status_code=503, detail="FRED provider not available (no FRED_API_KEY)"
+            )
+        _fred_client = FREDClient(redis=redis)
+    return _fred_client
+
+
 def get_crawler() -> Crawl4AICrawlerProvider:
     """Get or create singleton Crawl4AI crawler."""
     global _crawler
@@ -105,4 +120,5 @@ SECEdgarClientDep = Annotated[SECEdgarClient, Depends(get_sec_edgar_client)]
 NasdaqClientDep = Annotated[NasdaqClient, Depends(get_nasdaq_client)]
 YFinanceClientDep = Annotated[YFinanceClient, Depends(get_yfinance_client)]
 TickerProviderDep = Annotated[FinnhubTickerProvider, Depends(get_ticker_provider)]
+FREDClientDep = Annotated[FREDClient, Depends(get_fred_client)]
 Crawl4AICrawlerDep = Annotated[Crawl4AICrawlerProvider, Depends(get_crawler)]

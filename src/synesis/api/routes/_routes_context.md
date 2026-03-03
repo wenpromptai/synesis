@@ -18,6 +18,8 @@ All endpoints are rate-limited per IP via slowapi.
 | `/earnings/*` | 30/min | NASDAQ (free, ~200/min) |
 | `/sec_edgar` (filings, insiders, sentiment, search) | 60/min | SEC EDGAR (10 req/sec) |
 | `/sec_edgar/earnings`, `/sec_edgar/earnings/latest` | 10/min | SEC + Crawl4AI |
+| `/fred` search, observations, release series/dates | 30/min | FRED API (120 req/min) |
+| `/fred` series info, single release | 60/min | FRED API (120 req/min) |
 
 ---
 
@@ -690,3 +692,197 @@ Most recent earnings press release with full content. Returns 404 if none found.
 ```
 curl "localhost:7337/api/v1/sec_edgar/earnings/latest?ticker=AAPL"
 ```
+
+---
+
+## FRED (`/fred`)
+
+Federal Reserve Economic Data. Free API key required (register at https://fredaccount.stlouisfed.org). ~800k+ series covering macro, rates, employment, housing, inflation, trade.
+
+### GET `/fred/search?q=&limit=&filter_variable=&filter_value=`
+Search for FRED series by keyword.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `q` | query | **required** | Search text |
+| `limit` | query | `20` | Max results (1-1000) |
+| `filter_variable` | query | none | Filter by: `frequency`, `units`, or `seasonal_adjustment` |
+| `filter_value` | query | none | Value for filter_variable |
+
+```
+curl "localhost:7337/api/v1/fred/search?q=consumer+price+index&limit=2"
+```
+```json
+{
+    "query": "consumer price index",
+    "results": [
+        {"id": "CPIAUCSL", "title": "Consumer Price Index for All Urban Consumers: All Items in U.S. City Average", "frequency": "Monthly", "units": "Index 1982-1984=100", "seasonal_adjustment": "Seasonally Adjusted", "popularity": 95, "observation_start": "1947-01-01", "observation_end": "2026-01-01"},
+        {"id": "CPILFESL", "title": "Consumer Price Index for All Items Less Food and Energy", "frequency": "Monthly", "units": "Index 1982-1984=100", "seasonal_adjustment": "Seasonally Adjusted", "popularity": 82}
+    ],
+    "count": 2
+}
+```
+
+**With filter:**
+```
+curl "localhost:7337/api/v1/fred/search?q=GDP&filter_variable=frequency&filter_value=Quarterly&limit=2"
+```
+
+### GET `/fred/series/{series_id}`
+Get metadata for a FRED series. Returns 404 if not found.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `series_id` | path | FRED series ID (e.g., `CPIAUCSL`, `GDP`, `UNRATE`, `DFF`) |
+
+```
+curl localhost:7337/api/v1/fred/series/GDP
+```
+```json
+{"id": "GDP", "title": "Gross Domestic Product", "frequency": "Quarterly", "units": "Billions of Dollars", "seasonal_adjustment": "Seasonally Adjusted Annual Rate", "last_updated": "2026-01-30 07:46:02-06", "popularity": 93, "observation_start": "1947-01-01", "observation_end": "2025-10-01"}
+```
+
+### GET `/fred/series/{series_id}/observations?start=&end=&frequency=&units=&sort_order=&limit=`
+Get time-series data points for a FRED series.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `series_id` | path | — | FRED series ID |
+| `start` | query | none | Start date `YYYY-MM-DD` |
+| `end` | query | none | End date `YYYY-MM-DD` |
+| `frequency` | query | none | Aggregation: `d`, `w`, `bw`, `m`, `q`, `sa`, `a` |
+| `units` | query | none | Transform: `lin`, `chg`, `ch1`, `pch`, `pc1`, `pca`, `cch`, `cca`, `log` |
+| `sort_order` | query | `asc` | `asc` or `desc` |
+| `limit` | query | `100000` | Max observations (1-100000) |
+
+**Recent GDP (last 4 quarters):**
+```
+curl "localhost:7337/api/v1/fred/series/GDP/observations?sort_order=desc&limit=4"
+```
+```json
+{
+    "series_id": "GDP", "title": "Gross Domestic Product", "units": "Billions of Dollars", "frequency": "Quarterly", "count": 4,
+    "observations": [
+        {"date": "2025-10-01", "value": 29719.921},
+        {"date": "2025-07-01", "value": 29374.391},
+        {"date": "2025-04-01", "value": 29087.492},
+        {"date": "2025-01-01", "value": 28876.235}
+    ]
+}
+```
+
+**CPI with percent change transformation:**
+```
+curl "localhost:7337/api/v1/fred/series/CPIAUCSL/observations?units=pch&start=2025-01-01&limit=6"
+```
+
+**Fed Funds Rate (daily):**
+```
+curl "localhost:7337/api/v1/fred/series/DFF/observations?start=2026-02-01&limit=5"
+```
+
+### GET `/fred/releases?limit=&offset=&order_by=&sort_order=`
+List all FRED releases (e.g., "Consumer Price Index", "Employment Situation").
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | query | `100` | Max results (1-1000) |
+| `offset` | query | `0` | Pagination offset |
+| `order_by` | query | `release_id` | `release_id` or `name` |
+| `sort_order` | query | `asc` | `asc` or `desc` |
+
+```
+curl "localhost:7337/api/v1/fred/releases?limit=3"
+```
+```json
+{
+    "releases": [
+        {"id": 9, "name": "Advance Monthly Sales for Retail and Food Services", "press_release": true, "link": "http://www.census.gov/retail/"},
+        {"id": 10, "name": "Consumer Price Index", "press_release": true, "link": "http://www.bls.gov/cpi/"},
+        {"id": 11, "name": "Employment Cost Index", "press_release": true, "link": "http://www.bls.gov/eci/"}
+    ],
+    "count": 3,
+    "total": 300,
+    "offset": 0
+}
+```
+
+### GET `/fred/releases/{release_id}`
+Get a single FRED release. Returns 404 if not found.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `release_id` | path | FRED release ID |
+
+```
+curl localhost:7337/api/v1/fred/releases/10
+```
+```json
+{"id": 10, "name": "Consumer Price Index", "press_release": true, "link": "http://www.bls.gov/cpi/"}
+```
+
+### GET `/fred/releases/{release_id}/series?limit=&offset=`
+Get all series within a FRED release.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `release_id` | path | — | FRED release ID |
+| `limit` | query | `100` | Max results (1-1000) |
+| `offset` | query | `0` | Pagination offset |
+
+```
+curl "localhost:7337/api/v1/fred/releases/10/series?limit=3"
+```
+```json
+{
+    "release_id": 10,
+    "series": [
+        {"id": "CPIAUCSL", "title": "Consumer Price Index for All Urban Consumers: All Items in U.S. City Average", "frequency": "Monthly", "units": "Index 1982-1984=100"},
+        {"id": "CPILFESL", "title": "Consumer Price Index for All Items Less Food and Energy in U.S. City Average", "frequency": "Monthly", "units": "Index 1982-1984=100"},
+        {"id": "CPIUFDSL", "title": "Consumer Price Index for All Urban Consumers: Food in U.S. City Average", "frequency": "Monthly", "units": "Index 1982-1984=100"}
+    ],
+    "count": 3
+}
+```
+
+### GET `/fred/releases/{release_id}/dates?include_future=&limit=`
+Get scheduled dates for a FRED release (useful for knowing when data drops).
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `release_id` | path | — | FRED release ID |
+| `include_future` | query | `true` | Include future scheduled dates |
+| `limit` | query | `100` | Max results (1-1000) |
+
+```
+curl "localhost:7337/api/v1/fred/releases/10/dates?limit=3"
+```
+```json
+{
+    "release_id": 10,
+    "dates": [
+        {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-03-12"},
+        {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-02-12"},
+        {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-01-15"}
+    ],
+    "count": 3
+}
+```
+
+### Common Series Quick Reference
+
+| Indicator | Series ID | Example |
+|-----------|-----------|---------|
+| CPI (headline inflation) | `CPIAUCSL` | `/fred/series/CPIAUCSL/observations?units=pch&sort_order=desc&limit=6` |
+| Core CPI (ex food/energy) | `CPILFESL` | `/fred/series/CPILFESL/observations?sort_order=desc&limit=6` |
+| NFP (nonfarm payrolls) | `PAYEMS` | `/fred/series/PAYEMS/observations?units=chg&sort_order=desc&limit=6` |
+| Unemployment Rate | `UNRATE` | `/fred/series/UNRATE/observations?sort_order=desc&limit=6` |
+| Fed Funds Rate | `DFF` | `/fred/series/DFF/observations?start=2026-02-01&limit=5` |
+| GDP | `GDP` | `/fred/series/GDP/observations?sort_order=desc&limit=4` |
+| 10Y-2Y Spread | `T10Y2Y` | `/fred/series/T10Y2Y/observations?sort_order=desc&limit=5` |
+| Consumer Sentiment | `UMCSENT` | `/fred/series/UMCSENT/observations?sort_order=desc&limit=6` |
+| Retail Sales | `RSAFS` | `/fred/series/RSAFS/observations?sort_order=desc&limit=6` |
+
+**Key release IDs** (for `/fred/releases/{id}/dates`): CPI = `10`, Employment Situation = `50`, GDP = `53`, PPI = `46`
+
+**Useful `units` transforms:** `lin` (default), `chg` (change), `pch` (% change), `pc1` (% change from year ago), `log` (natural log)
