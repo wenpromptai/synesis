@@ -28,6 +28,8 @@ from synesis.processing.common.llm import create_model
 from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.news.models import (
     MACRO_TOPICS,
+    SECTOR_ETF_MAP,
+    SECTOR_TOPICS,
     LightClassification,
     SmartAnalysis,
     UnifiedMessage,
@@ -119,7 +121,8 @@ Only include tickers with DIRECT, MATERIAL impact.
 3. If VERIFIED: include with the company name returned
 4. If NOT FOUND: use `web_search("{ticker} stock ticker price")` to verify
 5. If still unclear: exclude the ticker
-6. Do NOT verify macro ETF proxies (GLD, USO, SPY, TLT, UUP, VIXY, EEM) — they are pre-defined
+6. Do NOT verify macro ETF proxies (GLD, USO, SPY, TLT, UUP, VIXY, EEM) or
+   sector ETF proxies (XLK, XLF, XLE, XLV, XLI, XLC, XLY, XLP, XLB, XLRE, XLU) — they are pre-defined
 
 **Causal Link Requirements** (must meet at least ONE):
 - Revenue or earnings impact (>5% expected change)
@@ -169,6 +172,12 @@ Rules:
 - Only include ETFs with a CLEAR causal link — do NOT add all 7 for every macro story
 - Apply the SAME relevance scoring (≥ 0.6) and analysis depth as stock tickers
 - Set `company_name` to the asset class label (e.g., "Gold", "US Equities")
+
+**Sector ETF Proxies** (injected dynamically when primary_topics include GICS sectors):
+
+The system will flag relevant sector ETFs (e.g., XLF, XLK, XLE) in the dynamic context below.
+Treat them the same as macro ETFs: relevance ≥ 0.6, full bull/bear analysis,
+`company_name` = sector label (e.g., "Technology", "Financials").
 
 ### 2. Investment Thesis & Sentiment
 
@@ -258,6 +267,24 @@ For each market row:
 - `confidence`: 0.0–1.0
 - `reasoning`: ≤120 characters
 - `recommended_side`: yes | no | skip"""
+
+
+def _build_etf_suffixes(ext: LightClassification) -> str:
+    """Build conditional ETF proxy suffixes for the dynamic system prompt."""
+    suffixes: list[str] = []
+
+    if set(ext.primary_topics) & MACRO_TOPICS:
+        suffixes.append("\n\n⚠️ MACRO EVENT — include macro asset-class ETF proxies in Task 1")
+
+    matched_sectors = set(ext.primary_topics) & SECTOR_TOPICS
+    if matched_sectors:
+        etfs = [SECTOR_ETF_MAP[t] for t in matched_sectors if t in SECTOR_ETF_MAP]
+        etf_list = ", ".join(f"{ticker} ({label})" for ticker, label in etfs)
+        suffixes.append(
+            f"\n\n⚠️ SECTOR EVENT — include these sector ETF proxies in Task 1: {etf_list}"
+        )
+
+    return "".join(suffixes)
 
 
 class SmartAnalyzer:
@@ -360,11 +387,7 @@ Summary: {ext.summary}
 {web_section}
 
 ## Polymarket Markets (Pre-Searched)
-{ctx.deps.markets_text or "No prediction markets found."}""" + (
-                "\n\n⚠️ MACRO EVENT — include macro asset-class ETF proxies in Task 1"
-                if set(ext.primary_topics) & MACRO_TOPICS
-                else ""
-            )
+{ctx.deps.markets_text or "No prediction markets found."}""" + _build_etf_suffixes(ext)
 
         # Tool: Check Relevance (structured thinking tool)
         @agent.tool
@@ -601,7 +624,7 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             market_instructions = ""
 
         user_prompt = f"""Analyze this news. Determine:
-1. Affected tickers (include macro ETFs if macro event)
+1. Affected tickers (include macro ETFs if macro event, sector ETFs if sector event)
 2. Investment thesis, sentiment, and confidence
 3. Ticker-level analysis with bull/bear thesis for each
 4. Historical context from web research

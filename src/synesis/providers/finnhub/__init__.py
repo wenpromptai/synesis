@@ -10,7 +10,7 @@ Also exports backwards-compatible aliases and utility functions.
 
 from synesis.providers.finnhub.fundamentals import (
     FinnhubFundamentalsProvider,
-    FinnhubWatchlistAdapter,
+    FinnhubDataAdapter,
 )
 from synesis.providers.finnhub.prices import (
     FinnhubPriceProvider,
@@ -38,6 +38,6 @@ __all__ = [
     "FinnhubTickerProvider",
     # Fundamentals provider
     "FinnhubFundamentalsProvider",
-    # Watchlist adapter
-    "FinnhubWatchlistAdapter",
+    # Data adapter
+    "FinnhubDataAdapter",
 ]

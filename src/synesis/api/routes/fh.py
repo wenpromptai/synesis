@@ -1,4 +1,4 @@
-"""Finnhub real-time price API endpoints."""
+"""Finnhub API endpoints (prices, ticker verification, symbol search)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from synesis.core.constants import FINNHUB_WS_MAX_SYMBOLS
-from synesis.core.dependencies import PriceServiceDep
+from synesis.core.dependencies import PriceServiceDep, TickerProviderDep
 from synesis.core.logging import get_logger
 from synesis.core.rate_limit import limiter
 from synesis.providers.finnhub import QuoteData
@@ -53,7 +53,7 @@ async def get_batch_prices(
 ) -> dict[str, Any]:
     """Get full quote data for multiple tickers (comma-separated query param).
 
-    Example: GET /fh_prices?tickers=AAPL,TSLA,NVDA
+    Example: GET /fh?tickers=AAPL,TSLA,NVDA
     """
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
@@ -133,7 +133,7 @@ async def get_ws_batch_prices(
     These are real-time trade prices cached by the WebSocket connection.
     Tickers must be subscribed first via POST /subscribe.
 
-    Example: GET /fh_prices/ws/prices?tickers=AAPL,TSLA
+    Example: GET /fh/ws/prices?tickers=AAPL,TSLA
     """
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
@@ -165,6 +165,38 @@ async def get_ws_single_price(
             detail=f"No WebSocket price for {ticker.upper()}. Is it subscribed?",
         )
     return {"ticker": ticker.upper(), "price": price}
+
+
+# ─── Ticker verification & search ──────────────────────────
+
+
+@router.get("/ticker/verify/{ticker}")
+@limiter.limit("120/minute")
+async def verify_ticker(
+    request: Request,
+    ticker: str,
+    ticker_provider: TickerProviderDep,
+) -> dict[str, Any]:
+    """Check whether a ticker symbol exists on a major US exchange."""
+    valid, company_name = await ticker_provider.verify_ticker(ticker)
+    return {
+        "valid": valid,
+        "company_name": company_name,
+    }
+
+
+@router.get("/ticker/search")
+@limiter.limit("120/minute")
+async def search_ticker(
+    request: Request,
+    q: str,
+    ticker_provider: TickerProviderDep,
+) -> dict[str, Any]:
+    """Search for stock symbols matching a query."""
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
+    results = await ticker_provider.search_symbol(q)
+    return {"results": results, "count": len(results)}
 
 
 # ─── REST API quotes ────────────────────────────────────────

@@ -117,7 +117,7 @@ scripts/               # Utility scripts
 All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 
 - `/system/*` — System status (60/min)
-- `/fh_prices/*` — Finnhub real-time prices: REST quotes (60/min), WS cache reads (120/min)
+- `/fh/*` — Finnhub: ticker verify/search (120/min), REST quotes (60/min), WS cache reads (120/min)
 - `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks (30/min, chain 10/min)
 - `/watchlist/*` — Watchlist CRUD (reads 60/min, writes 10/min)
 - `/earnings/*` — NASDAQ earnings calendar (30/min)

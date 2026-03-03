@@ -32,7 +32,7 @@ async def verify_ticker(
 
     Returns:
         Verification result string describing whether the ticker is valid,
-        including the full ticker_region and company name if found.
+        including the company name if found.
     """
     ticker = ticker.upper()
 
@@ -40,9 +40,9 @@ async def verify_ticker(
         return f"Ticker provider unavailable. Use web search to verify '{ticker}' instead."
 
     try:
-        is_valid, ticker_region, company_name = await ticker_provider.verify_ticker(ticker)
+        is_valid, company_name = await ticker_provider.verify_ticker(ticker)
         if is_valid:
-            return f"VERIFIED: '{ticker}' → {ticker_region}. Company: {company_name}"
+            return f"VERIFIED: '{ticker}'. Company: {company_name}"
         return (
             f"NOT FOUND: '{ticker}' not found in major exchanges. "
             f"Could be invalid or delisted. Use web search to verify."

@@ -157,6 +157,42 @@ MACRO_TOPICS: frozenset[PrimaryTopic] = frozenset(
 # Referenced in: analyzer.py (prompt + post-processing), telegram.py (display grouping).
 MACRO_ETF_TICKERS: frozenset[str] = frozenset({"GLD", "USO", "SPY", "TLT", "UUP", "VIXY", "EEM"})
 
+# Topics that indicate sector-specific impact.
+# When Stage 1 assigns any of these, Stage 2 should consider the corresponding sector ETF proxy.
+SECTOR_TOPICS: frozenset[PrimaryTopic] = frozenset(
+    {
+        PrimaryTopic.energy,
+        PrimaryTopic.materials,
+        PrimaryTopic.industrials,
+        PrimaryTopic.utilities,
+        PrimaryTopic.healthcare,
+        PrimaryTopic.financials,
+        PrimaryTopic.consumer_discretionary,
+        PrimaryTopic.consumer_staples,
+        PrimaryTopic.information_technology,
+        PrimaryTopic.communication_services,
+        PrimaryTopic.real_estate,
+    }
+)
+
+# PrimaryTopic → (ETF ticker, sector label) for conditional injection into Stage 2.
+SECTOR_ETF_MAP: dict[PrimaryTopic, tuple[str, str]] = {
+    PrimaryTopic.energy: ("XLE", "Energy"),
+    PrimaryTopic.materials: ("XLB", "Materials"),
+    PrimaryTopic.industrials: ("XLI", "Industrials"),
+    PrimaryTopic.utilities: ("XLU", "Utilities"),
+    PrimaryTopic.healthcare: ("XLV", "Health Care"),
+    PrimaryTopic.financials: ("XLF", "Financials"),
+    PrimaryTopic.consumer_discretionary: ("XLY", "Consumer Discretionary"),
+    PrimaryTopic.consumer_staples: ("XLP", "Consumer Staples"),
+    PrimaryTopic.information_technology: ("XLK", "Technology"),
+    PrimaryTopic.communication_services: ("XLC", "Communication Services"),
+    PrimaryTopic.real_estate: ("XLRE", "Real Estate"),
+}
+
+# Canonical set of sector ETF proxy tickers used in Stage 2.
+SECTOR_ETF_TICKERS: frozenset[str] = frozenset(etf for etf, _ in SECTOR_ETF_MAP.values())
+
 
 class SecondaryTopic(str, Enum):
     """Granular industry / subsector classification.
@@ -554,6 +590,12 @@ class SmartAnalysis(BaseModel):
     def has_macro_impact(self) -> bool:
         """True when ticker_analyses includes macro asset-class ETF proxies."""
         return any(t.ticker in MACRO_ETF_TICKERS for t in self.ticker_analyses)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_sector_impact(self) -> bool:
+        """True when ticker_analyses includes sector ETF proxies."""
+        return any(t.ticker in SECTOR_ETF_TICKERS for t in self.ticker_analyses)
 
     @property
     def has_tradable_edge(self) -> bool:

@@ -1,7 +1,7 @@
-"""Finnhub fundamentals provider and WatchlistDataProvider adapter.
+"""Finnhub fundamentals provider and data adapter.
 
 FinnhubFundamentalsProvider: Shell preserved for legacy protocol methods.
-FinnhubWatchlistAdapter: Implements WatchlistDataProvider for Flow 4 using
+FinnhubDataAdapter: Implements WatchlistDataProvider for Flow 4 using
     /stock/profile2, /stock/metric, and /quote endpoints.
 
 Rate limiting: Free tier = 60 calls/min across ALL endpoints.
@@ -92,7 +92,7 @@ class FinnhubFundamentalsProvider:
 # =============================================================================
 
 
-class FinnhubWatchlistAdapter:
+class FinnhubDataAdapter:
     """Implements WatchlistDataProvider using Finnhub REST API.
 
     Endpoints used:
@@ -219,4 +219,4 @@ class FinnhubWatchlistAdapter:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
-        logger.debug("FinnhubWatchlistAdapter closed")
+        logger.debug("FinnhubDataAdapter closed")

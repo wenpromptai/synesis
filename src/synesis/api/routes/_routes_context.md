@@ -7,9 +7,10 @@ All endpoints are rate-limited per IP via slowapi.
 | Route Group | Limit | Source |
 |-------------|-------|--------|
 | `/system/*` | 60/min | Local |
-| `/fh_prices` REST (`/`, `/{ticker}`) | 60/min | Finnhub free tier (60/min) |
-| `/fh_prices` WS reads, subscriptions | 120/min | Local Redis cache |
-| `/fh_prices` subscribe/unsubscribe | 60/min | Local WebSocket mgmt |
+| `/fh` REST (`/`, `/{ticker}`) | 60/min | Finnhub free tier (60/min) |
+| `/fh/ticker/verify`, `/fh/ticker/search` | 120/min | Local Redis/memory cache |
+| `/fh` WS reads, subscriptions | 120/min | Local Redis cache |
+| `/fh` subscribe/unsubscribe | 60/min | Local WebSocket mgmt |
 | `/yf/*` (quote, history, FX, expirations) | 30/min | yfinance (no official limit) |
 | `/yf/options/{ticker}/chain` | 10/min | Heavy (chain + optional Greeks) |
 | `/watchlist` reads | 60/min | Local Redis/PG |
@@ -42,24 +43,59 @@ curl localhost:7337/api/v1/system/config
 
 ---
 
-## Finnhub Prices (`/fh_prices`)
+## Finnhub (`/fh`)
 
-Real-time stock prices via Finnhub. REST endpoints hit Finnhub API directly; WebSocket endpoints read from a local cache fed by Finnhub's streaming WebSocket.
+Finnhub ticker verification, symbol search, and real-time prices. Ticker endpoints use a bulk US symbol list cached in Redis/memory (no per-request Finnhub call). Price REST endpoints hit Finnhub API directly; WebSocket endpoints read from a local cache fed by Finnhub's streaming WebSocket.
 
-### GET `/fh_prices/{ticker}`
+### GET `/fh/ticker/verify/{ticker}`
+Check whether a ticker exists on a major US exchange. Uses bulk symbol list cached in Redis (24h) and memory — no Finnhub API call per request. Returns `valid` (bool) and `company_name`.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `ticker` | path | Ticker symbol to verify (e.g. `AAPL`, `TSLA`) |
+
+```
+curl localhost:7337/api/v1/fh/ticker/verify/AAPL
+```
+```json
+{"valid": true, "company_name": "APPLE INC"}
+```
+
+```
+curl localhost:7337/api/v1/fh/ticker/verify/ZZZZ
+```
+```json
+{"valid": false, "company_name": null}
+```
+
+### GET `/fh/ticker/search?q=`
+Search for stock symbols matching a query. Results filtered to common stocks, ETFs, ADRs, REITs.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `q` | query | **required**. Search text (ticker or company name) |
+
+```
+curl "localhost:7337/api/v1/fh/ticker/search?q=apple"
+```
+```json
+{"results": [{"symbol": "AAPL", "description": "APPLE INC", "type": "Common Stock"}], "count": 1}
+```
+
+### GET `/fh/{ticker}`
 Full quote from Finnhub REST API. Path param: any stock ticker.
 ```
-curl localhost:7337/api/v1/fh_prices/AAPL
+curl localhost:7337/api/v1/fh/AAPL
 ```
 ```json
 {"ticker": "AAPL", "current": 264.72, "change": 0.54, "percent_change": 0.2044, "high": 266.53, "low": 260.2, "open": 262.41, "previous_close": 264.18, "timestamp": 1772485200}
 ```
 
-### GET `/fh_prices?tickers={csv}`
+### GET `/fh?tickers={csv}`
 Batch quotes. Query param `tickers`: comma-separated ticker symbols.
 ```
-curl "localhost:7337/api/v1/fh_prices?tickers=AAPL,TSLA"
-curl "localhost:7337/api/v1/fh_prices?tickers=AAPL,NVDA,MSFT"
+curl "localhost:7337/api/v1/fh?tickers=AAPL,TSLA"
+curl "localhost:7337/api/v1/fh?tickers=AAPL,NVDA,MSFT"
 ```
 ```json
 {
@@ -73,19 +109,19 @@ curl "localhost:7337/api/v1/fh_prices?tickers=AAPL,NVDA,MSFT"
 }
 ```
 
-### GET `/fh_prices/subscriptions`
+### GET `/fh/subscriptions`
 List current WebSocket subscriptions. No params.
 ```
-curl localhost:7337/api/v1/fh_prices/subscriptions
+curl localhost:7337/api/v1/fh/subscriptions
 ```
 ```json
 {"subscribed_tickers": [], "count": 0, "ws_connected": true, "max_symbols": 50}
 ```
 
-### POST `/fh_prices/subscribe`
+### POST `/fh/subscribe`
 Subscribe tickers to WebSocket stream. Body: `{"tickers": ["AAPL", "TSLA"]}`. Max 50 symbols total.
 ```
-curl -X POST localhost:7337/api/v1/fh_prices/subscribe \
+curl -X POST localhost:7337/api/v1/fh/subscribe \
   -H "Content-Type: application/json" \
   -d '{"tickers":["AAPL","TSLA"]}'
 ```
@@ -93,10 +129,10 @@ curl -X POST localhost:7337/api/v1/fh_prices/subscribe \
 {"subscribed": ["AAPL", "TSLA"], "total": 2}
 ```
 
-### POST `/fh_prices/unsubscribe`
+### POST `/fh/unsubscribe`
 Unsubscribe tickers from WebSocket stream. Body: `{"tickers": ["TSLA"]}`.
 ```
-curl -X POST localhost:7337/api/v1/fh_prices/unsubscribe \
+curl -X POST localhost:7337/api/v1/fh/unsubscribe \
   -H "Content-Type: application/json" \
   -d '{"tickers":["TSLA"]}'
 ```
@@ -104,19 +140,19 @@ curl -X POST localhost:7337/api/v1/fh_prices/unsubscribe \
 {"unsubscribed": ["TSLA"], "total": 1}
 ```
 
-### GET `/fh_prices/ws/prices?tickers={csv}`
+### GET `/fh/ws/prices?tickers={csv}`
 Batch cached prices from WebSocket stream. Tickers must be subscribed first. Query param `tickers`: comma-separated.
 ```
-curl "localhost:7337/api/v1/fh_prices/ws/prices?tickers=AAPL,TSLA"
+curl "localhost:7337/api/v1/fh/ws/prices?tickers=AAPL,TSLA"
 ```
 ```json
 {"prices": {"AAPL": 264.72}, "found": 1, "missing": ["TSLA"]}
 ```
 
-### GET `/fh_prices/ws/prices/{ticker}`
+### GET `/fh/ws/prices/{ticker}`
 Single ticker from WebSocket cache. Must be subscribed. Returns 404 if not subscribed.
 ```
-curl localhost:7337/api/v1/fh_prices/ws/prices/AAPL
+curl localhost:7337/api/v1/fh/ws/prices/AAPL
 ```
 ```json
 {"ticker": "AAPL", "price": 264.72}

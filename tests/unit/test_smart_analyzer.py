@@ -19,6 +19,7 @@ from synesis.processing.news.analyzer import (
     AnalyzerDeps,
     SMART_ANALYZER_SYSTEM_PROMPT,
     SmartAnalyzer,
+    _build_etf_suffixes,
 )
 
 
@@ -98,6 +99,82 @@ class TestSmartAnalyzerSystemPrompt:
         assert "overvalued" in SMART_ANALYZER_SYSTEM_PROMPT
         assert "fair" in SMART_ANALYZER_SYSTEM_PROMPT
         assert "edge" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
+
+    def test_prompt_contains_sector_etf_table(self) -> None:
+        """Test that system prompt includes sector ETF proxy table."""
+        assert "Sector ETF Proxies" in SMART_ANALYZER_SYSTEM_PROMPT
+        assert "XLK" in SMART_ANALYZER_SYSTEM_PROMPT
+        assert "XLF" in SMART_ANALYZER_SYSTEM_PROMPT
+        assert "XLRE" in SMART_ANALYZER_SYSTEM_PROMPT
+
+    def test_prompt_excludes_sector_etfs_from_verification(self) -> None:
+        """Test that sector ETFs are listed in the 'Do NOT verify' exclusion."""
+        assert "sector ETF proxies" in SMART_ANALYZER_SYSTEM_PROMPT
+
+
+class TestBuildEtfSuffixes:
+    """Tests for _build_etf_suffixes dynamic injection."""
+
+    def test_sector_injection_triggers_for_sector_topic(self) -> None:
+        """Sector suffix appears when primary_topics include a sector."""
+        ext = LightClassification(
+            primary_topics=[PrimaryTopic.financials],
+            summary="Bank regulation news",
+            confidence=0.9,
+            primary_entity="Fed",
+        )
+        result = _build_etf_suffixes(ext)
+        assert "SECTOR EVENT" in result
+        assert "XLF (Financials)" in result
+
+    def test_sector_injection_multiple_sectors(self) -> None:
+        """Multiple sector ETFs appear when multiple sector topics present."""
+        ext = LightClassification(
+            primary_topics=[PrimaryTopic.information_technology, PrimaryTopic.energy],
+            summary="Tech and energy news",
+            confidence=0.9,
+            primary_entity="Test",
+        )
+        result = _build_etf_suffixes(ext)
+        assert "SECTOR EVENT" in result
+        assert "XLK" in result
+        assert "XLE" in result
+
+    def test_no_sector_injection_for_pure_macro(self) -> None:
+        """No sector suffix for pure macro topics."""
+        ext = LightClassification(
+            primary_topics=[PrimaryTopic.monetary_policy, PrimaryTopic.geopolitics],
+            summary="Fed rate decision amid geopolitical tension",
+            confidence=0.9,
+            primary_entity="Federal Reserve",
+        )
+        result = _build_etf_suffixes(ext)
+        assert "SECTOR EVENT" not in result
+        assert "MACRO EVENT" in result
+
+    def test_both_macro_and_sector_injection(self) -> None:
+        """Both suffixes appear when topics span macro and sector."""
+        ext = LightClassification(
+            primary_topics=[PrimaryTopic.monetary_policy, PrimaryTopic.financials],
+            summary="Fed rate cut impacts banks",
+            confidence=0.9,
+            primary_entity="Federal Reserve",
+        )
+        result = _build_etf_suffixes(ext)
+        assert "MACRO EVENT" in result
+        assert "SECTOR EVENT" in result
+        assert "XLF (Financials)" in result
+
+    def test_no_injection_for_non_macro_non_sector(self) -> None:
+        """No suffixes for topics that are neither macro nor sector."""
+        ext = LightClassification(
+            primary_topics=[PrimaryTopic.earnings],
+            summary="Apple beats earnings",
+            confidence=0.9,
+            primary_entity="Apple",
+        )
+        result = _build_etf_suffixes(ext)
+        assert result == ""
 
 
 class TestSmartAnalyzer:

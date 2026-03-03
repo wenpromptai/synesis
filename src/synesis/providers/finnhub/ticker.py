@@ -40,7 +40,7 @@ class FinnhubTickerProvider:
 
     Usage:
         provider = FinnhubTickerProvider(api_key="your_key", redis=redis_client)
-        is_valid, company = await provider.verify_ticker("AAPL")
+        is_valid, company_name = await provider.verify_ticker("AAPL")
         results = await provider.search_symbol("Apple")
         await provider.close()
     """
@@ -248,25 +248,21 @@ class FinnhubTickerProvider:
 
         return result
 
-    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None, str | None]:
+    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None]:
         """Verify if a ticker symbol exists on a major exchange (Protocol method).
 
         Uses bulk US symbol list for instant lookup (no API call per ticker).
         Falls back to search endpoint if bulk list unavailable.
 
-        Note: Finnhub only supports US tickers, so ticker_region is always {TICKER}-US.
-
         Args:
             ticker: Stock ticker symbol to verify (e.g., "AAPL")
 
         Returns:
-            Tuple of (is_valid, ticker_region, company_name):
+            Tuple of (is_valid, company_name):
             - is_valid: True if ticker exists on major exchange
-            - ticker_region: Full ticker with region (e.g., "AAPL-US")
             - company_name: Company name if found, None otherwise
         """
         ticker = ticker.upper()
-        ticker_region = f"{ticker}-US"  # Finnhub only supports US
 
         # Try bulk symbol lookup first (instant, no API call)
         us_symbols = await self._load_us_symbols()
@@ -274,17 +270,17 @@ class FinnhubTickerProvider:
             if ticker in us_symbols:
                 company_name = us_symbols[ticker]
                 logger.debug("Ticker verified (bulk)", ticker=ticker, company=company_name)
-                return True, ticker_region, company_name
+                return True, company_name
             else:
                 logger.debug("Ticker not in US symbols", ticker=ticker)
-                return False, None, None
+                return False, None
 
         # Fallback to search endpoint if bulk list unavailable
         results = await self.search_symbol(ticker)
 
         if not results:
             logger.debug("Ticker not found", ticker=ticker)
-            return False, None, None
+            return False, None
 
         # Look for exact symbol match
         for item in results:
@@ -296,7 +292,7 @@ class FinnhubTickerProvider:
                     company=company_name,
                     type=item.get("type"),
                 )
-                return True, ticker_region, company_name
+                return True, company_name
 
         # No exact match found
         logger.debug(
@@ -304,7 +300,7 @@ class FinnhubTickerProvider:
             ticker=ticker,
             similar=[r.get("symbol") for r in results[:3]],
         )
-        return False, None, None
+        return False, None
 
     # ─────────────────────────────────────────────────────────────
     # Lifecycle

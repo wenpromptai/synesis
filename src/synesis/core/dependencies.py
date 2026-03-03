@@ -11,6 +11,7 @@ from synesis.agent import AgentState
 from synesis.config import Settings, get_settings
 from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
 from synesis.providers.finnhub.prices import FinnhubPriceProvider, get_price_service
+from synesis.providers.finnhub.ticker import FinnhubTickerProvider
 from synesis.providers.nasdaq import NasdaqClient
 from synesis.providers.sec_edgar import SECEdgarClient
 from synesis.providers.yfinance import YFinanceClient
@@ -25,6 +26,7 @@ _sec_edgar_client: SECEdgarClient | None = None
 _nasdaq_client: NasdaqClient | None = None
 _yfinance_client: YFinanceClient | None = None
 _crawler: Crawl4AICrawlerProvider | None = None
+_ticker_provider: FinnhubTickerProvider | None = None
 
 
 def get_db() -> Database:
@@ -71,6 +73,21 @@ async def get_yfinance_client(redis: Redis = Depends(get_redis)) -> YFinanceClie
     return _yfinance_client
 
 
+async def get_ticker_provider(redis: Redis = Depends(get_redis)) -> FinnhubTickerProvider:
+    """Get or create singleton FinnhubTickerProvider."""
+    global _ticker_provider
+    if _ticker_provider is None:
+        settings = get_settings()
+        if settings.finnhub_api_key is None:
+            raise HTTPException(
+                status_code=503, detail="Ticker provider not available (no FINNHUB_API_KEY)"
+            )
+        _ticker_provider = FinnhubTickerProvider(
+            api_key=settings.finnhub_api_key.get_secret_value(), redis=redis
+        )
+    return _ticker_provider
+
+
 def get_crawler() -> Crawl4AICrawlerProvider:
     """Get or create singleton Crawl4AI crawler."""
     global _crawler
@@ -87,4 +104,5 @@ PriceServiceDep = Annotated[FinnhubPriceProvider, Depends(get_price_provider)]
 SECEdgarClientDep = Annotated[SECEdgarClient, Depends(get_sec_edgar_client)]
 NasdaqClientDep = Annotated[NasdaqClient, Depends(get_nasdaq_client)]
 YFinanceClientDep = Annotated[YFinanceClient, Depends(get_yfinance_client)]
+TickerProviderDep = Annotated[FinnhubTickerProvider, Depends(get_ticker_provider)]
 Crawl4AICrawlerDep = Annotated[Crawl4AICrawlerProvider, Depends(get_crawler)]

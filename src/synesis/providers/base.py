@@ -25,16 +25,15 @@ class TickerProvider(Protocol):
     - Symbol search (find tickers matching a query)
     """
 
-    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None, str | None]:
+    async def verify_ticker(self, ticker: str) -> tuple[bool, str | None]:
         """Verify if a ticker symbol exists on a major exchange.
 
         Args:
-            ticker: Stock ticker symbol to verify (e.g., "AAPL", "D05")
+            ticker: Stock ticker symbol to verify (e.g., "AAPL")
 
         Returns:
-            Tuple of (is_valid, ticker_region, company_name):
+            Tuple of (is_valid, company_name):
             - is_valid: True if ticker exists on major exchange
-            - ticker_region: Full ticker with region (e.g., "AAPL-US", "D05-SG")
             - company_name: Company name if found, None otherwise
         """
         ...

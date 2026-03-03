@@ -289,6 +289,16 @@ def nasdaq_client(mock_redis: Any) -> Any:
 
 
 @pytest.fixture
+async def ticker_provider(mock_redis: Any) -> Any:
+    """FinnhubTickerProvider for ticker verification (requires FINNHUB_API_KEY)."""
+    from synesis.providers.factory import create_ticker_provider
+
+    provider = await create_ticker_provider(mock_redis)
+    yield provider
+    await provider.close()
+
+
+@pytest.fixture
 async def real_redis() -> Any:
     """Real Redis connection for integration tests."""
     import redis.asyncio as aioredis

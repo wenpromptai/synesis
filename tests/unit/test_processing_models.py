@@ -16,6 +16,11 @@ from synesis.processing.news import (
     TickerAnalysis,
     UnifiedMessage,
 )
+from synesis.processing.news.models import (
+    SECTOR_ETF_MAP,
+    SECTOR_ETF_TICKERS,
+    SECTOR_TOPICS,
+)
 
 
 class TestSourceEnums:
@@ -467,3 +472,83 @@ class TestSmartAnalysisEdgeBoundaries:
         assert best is not None
         assert best.market_id == "m2"  # Highest edge
         assert best.edge == 0.25
+
+
+class TestSectorETFConstants:
+    """Tests for sector ETF mapping constants."""
+
+    def test_sector_etf_map_covers_all_sector_topics(self) -> None:
+        """Every PrimaryTopic in SECTOR_TOPICS has an entry in SECTOR_ETF_MAP."""
+        assert set(SECTOR_ETF_MAP.keys()) == SECTOR_TOPICS
+
+    def test_sector_etf_tickers_matches_map_values(self) -> None:
+        """SECTOR_ETF_TICKERS is the exact set of tickers from SECTOR_ETF_MAP."""
+        expected = frozenset(etf for etf, _ in SECTOR_ETF_MAP.values())
+        assert SECTOR_ETF_TICKERS == expected
+
+    def test_sector_etf_tickers_no_overlap_with_macro(self) -> None:
+        """Sector ETF tickers should not overlap with macro ETF tickers."""
+        from synesis.processing.news.models import MACRO_ETF_TICKERS
+
+        assert SECTOR_ETF_TICKERS & MACRO_ETF_TICKERS == frozenset()
+
+    def test_sector_topics_are_gics_sectors(self) -> None:
+        """All SECTOR_TOPICS are GICS sector PrimaryTopic values."""
+        gics = {
+            PrimaryTopic.energy,
+            PrimaryTopic.materials,
+            PrimaryTopic.industrials,
+            PrimaryTopic.utilities,
+            PrimaryTopic.healthcare,
+            PrimaryTopic.financials,
+            PrimaryTopic.consumer_discretionary,
+            PrimaryTopic.consumer_staples,
+            PrimaryTopic.information_technology,
+            PrimaryTopic.communication_services,
+            PrimaryTopic.real_estate,
+        }
+        assert SECTOR_TOPICS == gics
+
+    def test_has_sector_impact_true(self) -> None:
+        """has_sector_impact is True when ticker_analyses includes a sector ETF."""
+        analysis = SmartAnalysis(
+            tickers=["XLF"],
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
+            primary_thesis="Test",
+            thesis_confidence=0.5,
+            ticker_analyses=[
+                TickerAnalysis(
+                    ticker="XLF",
+                    company_name="Financials",
+                    bull_thesis="Rate sensitive",
+                    bear_thesis="Credit risk",
+                    net_direction=Direction.bullish,
+                    conviction=0.7,
+                    time_horizon="days",
+                )
+            ],
+        )
+        assert analysis.has_sector_impact is True
+
+    def test_has_sector_impact_false_for_non_sector_etf(self) -> None:
+        """has_sector_impact is False when no sector ETFs in ticker_analyses."""
+        analysis = SmartAnalysis(
+            tickers=["AAPL"],
+            sentiment=Direction.neutral,
+            sentiment_score=0.0,
+            primary_thesis="Test",
+            thesis_confidence=0.5,
+            ticker_analyses=[
+                TickerAnalysis(
+                    ticker="AAPL",
+                    company_name="Apple Inc.",
+                    bull_thesis="Strong sales",
+                    bear_thesis="Valuation",
+                    net_direction=Direction.bullish,
+                    conviction=0.7,
+                    time_horizon="days",
+                )
+            ],
+        )
+        assert analysis.has_sector_impact is False

@@ -9,12 +9,12 @@ from synesis.providers.base import CompanyInfo, FundamentalsSnapshot, PriceSnaps
 
 
 # =============================================================================
-# FinnhubWatchlistAdapter
+# FinnhubDataAdapter
 # =============================================================================
 
 
-class TestFinnhubWatchlistAdapter:
-    """Tests for FinnhubWatchlistAdapter."""
+class TestFinnhubDataAdapter:
+    """Tests for FinnhubDataAdapter."""
 
     @pytest.fixture
     def mock_redis(self) -> AsyncMock:
@@ -24,9 +24,9 @@ class TestFinnhubWatchlistAdapter:
 
     @pytest.fixture
     def adapter(self, mock_redis: AsyncMock):  # noqa: ANN201
-        from synesis.providers.finnhub.fundamentals import FinnhubWatchlistAdapter
+        from synesis.providers.finnhub.fundamentals import FinnhubDataAdapter
 
-        return FinnhubWatchlistAdapter(api_key="test_key", redis=mock_redis)
+        return FinnhubDataAdapter(api_key="test_key", redis=mock_redis)
 
     @pytest.mark.asyncio
     async def test_resolve_company(self, adapter, mock_redis: AsyncMock) -> None:  # noqa: ANN001

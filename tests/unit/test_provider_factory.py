@@ -75,7 +75,7 @@ class TestWatchlistDataProviderProtocol:
             assert hasattr(WatchlistDataProvider, method)
 
     def test_finnhub_adapter_satisfies_protocol(self) -> None:
-        from synesis.providers.finnhub.fundamentals import FinnhubWatchlistAdapter
+        from synesis.providers.finnhub.fundamentals import FinnhubDataAdapter
 
-        adapter = FinnhubWatchlistAdapter(api_key="test", redis=MagicMock())
+        adapter = FinnhubDataAdapter(api_key="test", redis=MagicMock())
         assert isinstance(adapter, WatchlistDataProvider)

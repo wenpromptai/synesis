@@ -1,4 +1,4 @@
-"""Tests for Finnhub price API endpoints."""
+"""Tests for Finnhub API endpoints."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from synesis.api.routes.fh_prices import router
-from synesis.core.dependencies import get_price_provider
+from synesis.api.routes.fh import router
+from synesis.core.dependencies import get_price_provider, get_ticker_provider
 from synesis.providers.finnhub import QuoteData
 
 
@@ -35,10 +35,16 @@ def mock_price_service():
 
 
 @pytest.fixture()
-def app(mock_price_service):
+def mock_ticker_provider():
+    return AsyncMock()
+
+
+@pytest.fixture()
+def app(mock_price_service, mock_ticker_provider):
     test_app = FastAPI()
-    test_app.include_router(router, prefix="/fh_prices")
+    test_app.include_router(router, prefix="/fh")
     test_app.dependency_overrides[get_price_provider] = lambda: mock_price_service
+    test_app.dependency_overrides[get_ticker_provider] = lambda: mock_ticker_provider
     return test_app
 
 
@@ -49,11 +55,11 @@ async def client(app):
         yield c
 
 
-PREFIX = "/fh_prices"
+PREFIX = "/fh"
 
 
 # ===========================================================================
-# GET /fh_prices/{ticker}
+# GET /fh/{ticker}
 # ===========================================================================
 
 
@@ -85,7 +91,7 @@ class TestGetSinglePrice:
 
 
 # ===========================================================================
-# GET /fh_prices?tickers=...
+# GET /fh?tickers=...
 # ===========================================================================
 
 
@@ -117,7 +123,7 @@ class TestGetBatchPrices:
 
 
 # ===========================================================================
-# GET /fh_prices/subscriptions
+# GET /fh/subscriptions
 # ===========================================================================
 
 
@@ -138,7 +144,7 @@ class TestGetSubscriptions:
 
 
 # ===========================================================================
-# POST /fh_prices/subscribe
+# POST /fh/subscribe
 # ===========================================================================
 
 
@@ -165,7 +171,7 @@ class TestSubscribe:
 
 
 # ===========================================================================
-# POST /fh_prices/unsubscribe
+# POST /fh/unsubscribe
 # ===========================================================================
 
 
@@ -185,19 +191,82 @@ class TestUnsubscribe:
 # ===========================================================================
 
 
+# ===========================================================================
+# GET /fh/ticker/verify/{ticker}
+# ===========================================================================
+
+
+class TestVerifyTicker:
+    async def test_valid_ticker(self, client: httpx.AsyncClient, mock_ticker_provider: AsyncMock):
+        mock_ticker_provider.verify_ticker.return_value = (True, "APPLE INC")
+        r = await client.get(f"{PREFIX}/ticker/verify/AAPL")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is True
+        assert body["company_name"] == "APPLE INC"
+        mock_ticker_provider.verify_ticker.assert_awaited_once_with("AAPL")
+
+    async def test_invalid_ticker(self, client: httpx.AsyncClient, mock_ticker_provider: AsyncMock):
+        mock_ticker_provider.verify_ticker.return_value = (False, None)
+        r = await client.get(f"{PREFIX}/ticker/verify/ZZZZ")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["valid"] is False
+        assert body["company_name"] is None
+
+
+# ===========================================================================
+# GET /fh/ticker/search?q=...
+# ===========================================================================
+
+
+class TestSearchTicker:
+    async def test_search_results(self, client: httpx.AsyncClient, mock_ticker_provider: AsyncMock):
+        mock_ticker_provider.search_symbol.return_value = [
+            {"symbol": "AAPL", "description": "APPLE INC", "type": "Common Stock"},
+            {"symbol": "APLE", "description": "APPLE HOSPITALITY REIT", "type": "REIT"},
+        ]
+        r = await client.get(f"{PREFIX}/ticker/search", params={"q": "apple"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 2
+        assert len(body["results"]) == 2
+        assert body["results"][0]["symbol"] == "AAPL"
+        mock_ticker_provider.search_symbol.assert_awaited_once_with("apple")
+
+    async def test_search_empty_query(self, client: httpx.AsyncClient):
+        r = await client.get(f"{PREFIX}/ticker/search", params={"q": ""})
+        assert r.status_code == 400
+
+    async def test_search_no_results(
+        self, client: httpx.AsyncClient, mock_ticker_provider: AsyncMock
+    ):
+        mock_ticker_provider.search_symbol.return_value = []
+        r = await client.get(f"{PREFIX}/ticker/search", params={"q": "xyznonexistent"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 0
+        assert body["results"] == []
+
+
+# ===========================================================================
+# 503 when PriceService not initialized
+# ===========================================================================
+
+
 class TestServiceUnavailable:
     async def test_503_when_not_initialized(self):
         """get_price_provider catches RuntimeError and returns 503."""
         from synesis.core.dependencies import get_price_provider as real_dep
 
         test_app = FastAPI()
-        test_app.include_router(router, prefix="/fh_prices")
+        test_app.include_router(router, prefix="/fh")
         # Use the real dependency — no global singleton means RuntimeError -> 503
         test_app.dependency_overrides.pop(get_price_provider, None)
         test_app.dependency_overrides[get_price_provider] = real_dep
 
         transport = httpx.ASGITransport(app=test_app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            r = await c.get("/fh_prices/subscriptions")
+            r = await c.get("/fh/subscriptions")
             assert r.status_code == 503
             assert "not available" in r.json()["detail"].lower()
