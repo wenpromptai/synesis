@@ -51,14 +51,16 @@ async def emit_stage2(message: UnifiedMessage, analysis: SmartAnalysis) -> bool:
     Returns:
         True if sent successfully
     """
-    channel = get_settings().notification_channel
+    settings = get_settings()
+    channel = settings.notification_channel
 
     try:
         if channel == "discord":
             from synesis.notifications.discord import format_stage2_embed, send_discord
 
             embeds = format_stage2_embed(message, analysis)
-            return await send_discord(embeds)
+            webhook = settings.discord2_webhook_url or settings.discord_webhook_url
+            return await send_discord(embeds, webhook_url_override=webhook)
         else:
             from synesis.notifications.telegram import format_condensed_signal, send_long_telegram
 

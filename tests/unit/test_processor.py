@@ -615,6 +615,119 @@ class TestStage1Callback:
         callback.assert_called_once_with(message, extraction)
 
 
+class TestStage2DisabledConfig:
+    """Tests for STAGE2_ENABLED=false config gate."""
+
+    @pytest.fixture
+    def processor(self) -> NewsProcessor:
+        """Create a NewsProcessor with mocked internals."""
+        proc = NewsProcessor(AsyncMock())
+        mock_dedup = AsyncMock()
+        mock_dedup_result = MagicMock()
+        mock_dedup_result.is_duplicate = False
+        mock_dedup.process_message = AsyncMock(return_value=mock_dedup_result)
+
+        mock_classifier = MagicMock()
+        mock_analyzer = MagicMock()
+        mock_analyzer.search_polymarket = AsyncMock(return_value="Markets found")
+        mock_analyzer.analyze = AsyncMock(return_value=create_test_analysis())
+
+        mock_polymarket = MagicMock()
+        mock_polymarket._get_client = MagicMock(return_value=MagicMock())
+
+        proc._deduplicator = mock_dedup
+        proc._classifier = mock_classifier
+        proc._analyzer = mock_analyzer
+        proc._polymarket = mock_polymarket
+        proc._initialized = True
+        return proc
+
+    @pytest.mark.asyncio
+    async def test_stage2_disabled_skips_analysis(self, processor: NewsProcessor) -> None:
+        """When stage2_enabled=False, Stage 2 is skipped even for critical urgency."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+
+        with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.stage2_enabled = False
+            result = await processor.process_message(create_test_message())
+
+        assert result.analysis is None
+        processor._analyzer.analyze.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stage2_disabled_still_runs_stage1(self, processor: NewsProcessor) -> None:
+        """When stage2_enabled=False, Stage 1 extraction still runs."""
+        extraction = create_test_extraction(urgency=UrgencyLevel.critical)
+        processor._classifier.classify = AsyncMock(return_value=extraction)
+
+        with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.stage2_enabled = False
+            result = await processor.process_message(create_test_message())
+
+        assert result.extraction == extraction
+        assert result.skipped is False
+
+    @pytest.mark.asyncio
+    async def test_stage2_disabled_callback_still_fires_for_high_urgency(
+        self, processor: NewsProcessor
+    ) -> None:
+        """When stage2_enabled=False, on_stage1_complete callback is still fired for high urgency."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+        callback = AsyncMock()
+
+        with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.stage2_enabled = False
+            await processor.process_message(create_test_message(), on_stage1_complete=callback)
+
+        callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stage2_disabled_skips_web_search_and_polymarket(
+        self, processor: NewsProcessor
+    ) -> None:
+        """When stage2_enabled=False, web search and Polymarket are not called."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+
+        with (
+            patch("synesis.core.processor.get_settings") as mock_settings,
+            patch(
+                "synesis.core.processor.search_market_impact",
+                new_callable=AsyncMock,
+            ) as mock_search,
+        ):
+            mock_settings.return_value.stage2_enabled = False
+            await processor.process_message(create_test_message())
+
+        mock_search.assert_not_called()
+        processor._analyzer.search_polymarket.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stage2_enabled_runs_normally(self, processor: NewsProcessor) -> None:
+        """When stage2_enabled=True (default), Stage 2 runs for critical urgency."""
+        processor._classifier.classify = AsyncMock(
+            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
+        )
+
+        with (
+            patch("synesis.core.processor.get_settings") as mock_settings,
+            patch(
+                "synesis.core.processor.search_market_impact",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            mock_settings.return_value.stage2_enabled = True
+            result = await processor.process_message(create_test_message())
+
+        assert result.analysis is not None
+
+
 class TestNewsProcessorStage2Failure:
     """Tests for NewsProcessor when Stage 2 analysis fails."""
 

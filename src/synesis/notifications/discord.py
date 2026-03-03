@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from pydantic import SecretStr
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
@@ -31,18 +32,23 @@ COLOR_URGENT = 0xE67E22  # Orange
 COLOR_CRITICAL = 0xED4245  # Red
 
 
-async def send_discord(embeds: list[dict[str, Any]], content: str | None = None) -> bool:
-    """Send embed message(s) to the configured Discord webhook.
+async def send_discord(
+    embeds: list[dict[str, Any]],
+    content: str | None = None,
+    webhook_url_override: SecretStr | None = None,
+) -> bool:
+    """Send embed message(s) to a Discord webhook.
 
     Args:
         embeds: List of embed dicts (max 10 per message)
         content: Optional plain text above the embeds
+        webhook_url_override: Use this webhook instead of the default
 
     Returns:
         True if sent successfully, False otherwise
     """
-    settings = get_settings()
-    webhook_secret = settings.discord_webhook_url
+    webhook_secret = webhook_url_override or get_settings().discord_webhook_url
+    is_override = webhook_url_override is not None
 
     if not webhook_secret:
         logger.warning("Discord webhook URL not configured, skipping notification")
@@ -70,7 +76,7 @@ async def send_discord(embeds: list[dict[str, Any]], content: str | None = None)
                 try:
                     retry_after = response.json().get("retry_after", 1.0)
                 except Exception:
-                    pass
+                    logger.debug("Could not parse retry_after from rate-limit response")
                 logger.warning(
                     "Discord rate limited, retrying after delay",
                     retry_after=retry_after,
@@ -102,7 +108,8 @@ async def send_discord(embeds: list[dict[str, Any]], content: str | None = None)
         return False
     except httpx.ConnectError as e:
         logger.error(
-            "Discord webhook connection failed — check DISCORD_WEBHOOK_URL",
+            "Discord webhook connection failed",
+            webhook_source="override" if is_override else "DISCORD_WEBHOOK_URL",
             error=str(e),
         )
         return False

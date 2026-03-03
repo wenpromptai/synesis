@@ -62,11 +62,19 @@ class Settings(BaseSettings):
         default="telegram",
         description="Notification output channel: 'telegram' or 'discord'",
     )
+    stage2_enabled: bool = Field(
+        default=True,
+        description="Enable Stage 2 processing (LLM analysis, market matching, notification)",
+    )
 
     # Discord (notifications)
     discord_webhook_url: SecretStr | None = Field(
         default=None,
-        description="Discord webhook URL for sending notifications",
+        description="Discord webhook URL for Stage 1 notifications",
+    )
+    discord2_webhook_url: SecretStr | None = Field(
+        default=None,
+        description="Discord webhook URL for Stage 2 notifications (falls back to discord_webhook_url)",
     )
 
     @field_validator("telegram_channels", mode="before")

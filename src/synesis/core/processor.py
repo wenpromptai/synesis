@@ -275,9 +275,10 @@ class NewsProcessor:
         1. Check for duplicates
         2. Stage 1: Entity extraction (fast, no judgment calls)
         3. Early exit if low/normal urgency (no Stage 2)
-        4. Fire on_stage1_complete callback (e.g. Telegram notification)
-        5. Pre-fetch context: Web search + Polymarket (parallel)
-        6. Stage 2: Smart analysis (all informed judgments with context)
+        4. Fire on_stage1_complete callback (e.g. notification)
+        5. Early exit if Stage 2 disabled by config
+        6. Pre-fetch context: Web search + Polymarket (parallel)
+        7. Stage 2: Smart analysis (all informed judgments with context)
 
         Args:
             message: The unified message to process
@@ -327,16 +328,14 @@ class NewsProcessor:
             urgency=extraction.urgency.value,
         )
 
-        # 3. Early exit based on urgency (only critical/high pass to Stage 2)
-        should_skip_stage2 = extraction.urgency in (
-            UrgencyLevel.low,
-            UrgencyLevel.normal,
-        )
+        # 3. Early exit for low/normal urgency (no Stage 1 callback, no Stage 2)
+        low_urgency = extraction.urgency in (UrgencyLevel.low, UrgencyLevel.normal)
 
-        if should_skip_stage2:
+        if low_urgency:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
-                "Skipping Stage 2 (filtered by urgency)",
+                "Skipping Stage 2",
+                skip_reason="filtered by urgency",
                 urgency=extraction.urgency.value,
                 urgency_reason=extraction.urgency_reasoning,
                 processing_time_ms=f"{elapsed_ms:.1f}",
@@ -352,7 +351,7 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 4. Fire Stage 1 callback (sends notification before Stage 2 starts)
+        # 4. Fire Stage 1 callback (sends notification regardless of stage2_enabled)
         if on_stage1_complete:
             try:
                 await on_stage1_complete(message, extraction)
@@ -364,7 +363,29 @@ class NewsProcessor:
         else:
             log.warning("No Stage 1 callback provided for high-urgency message")
 
-        # 5. Pre-fetch context (web search + Polymarket in parallel)
+        # 5. Early exit if Stage 2 is disabled by config
+        stage2_disabled = not get_settings().stage2_enabled
+
+        if stage2_disabled:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            log.info(
+                "Skipping Stage 2",
+                skip_reason="disabled by config",
+                urgency=extraction.urgency.value,
+                processing_time_ms=f"{elapsed_ms:.1f}",
+            )
+            return ProcessingResult(
+                message=message,
+                skipped=False,
+                skip_reason=None,
+                extraction=extraction,
+                analysis=None,
+                is_duplicate=False,
+                duplicate_of=None,
+                processing_time_ms=elapsed_ms,
+            )
+
+        # 6. Pre-fetch context (web search + Polymarket in parallel)
         log.debug(
             "Pre-fetching context",
             search_keywords=extraction.search_keywords[:2],
@@ -376,7 +397,7 @@ class NewsProcessor:
             self.analyzer.search_polymarket(extraction.polymarket_keywords),
         )
 
-        # 6. Stage 2: Smart analysis (all informed judgments)
+        # 7. Stage 2: Smart analysis (all informed judgments)
         log.debug("Stage 2: Smart analysis with context")
 
         analysis = await self.analyzer.analyze(
