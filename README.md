@@ -10,7 +10,7 @@ Real-time financial news analysis and prediction market trading system. Transfor
 - **Database:** PostgreSQL 16 + TimescaleDB
 - **Cache/Queue:** Redis
 - **LLM:** PydanticAI (Claude / OpenAI)
-- **Data Providers:** SEC EDGAR, NASDAQ, Finnhub
+- **Data Providers:** SEC EDGAR, NASDAQ, Finnhub, yfinance
 - **Trading:** Polymarket (Gamma API + CLOB API)
 
 ## Quickstart
@@ -63,6 +63,7 @@ src/synesis/
 │   ├── finnhub/       # Real-time prices, fundamentals
 │   ├── nasdaq/        # NASDAQ earnings calendar
 │   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
+│   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram & Discord notifications

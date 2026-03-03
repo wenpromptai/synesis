@@ -6,9 +6,11 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Query
+from starlette.requests import Request
 
 from synesis.core.dependencies import NasdaqClientDep, RedisDep
 from synesis.core.logging import get_logger
+from synesis.core.rate_limit import limiter
 from synesis.processing.common.watchlist import WatchlistManager
 
 logger = get_logger(__name__)
@@ -17,7 +19,9 @@ router = APIRouter()
 
 
 @router.get("/calendar")
+@limiter.limit("30/minute")
 async def get_earnings_calendar(
+    request: Request,
     client: NasdaqClientDep,
     target_date: date = Query(
         default_factory=date.today,
@@ -35,7 +39,9 @@ async def get_earnings_calendar(
 
 
 @router.get("/upcoming")
+@limiter.limit("30/minute")
 async def get_upcoming_earnings(
+    request: Request,
     client: NasdaqClientDep,
     redis: RedisDep,
     days: int = Query(14, ge=1, le=90, description="Days to look ahead"),
@@ -56,7 +62,9 @@ async def get_upcoming_earnings(
 
 
 @router.get("/upcoming/{ticker}")
+@limiter.limit("30/minute")
 async def get_upcoming_earnings_for_ticker(
+    request: Request,
     ticker: str,
     client: NasdaqClientDep,
     days: int = Query(14, ge=1, le=90, description="Days to look ahead"),

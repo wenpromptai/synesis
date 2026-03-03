@@ -13,6 +13,7 @@ from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
 from synesis.providers.finnhub.prices import FinnhubPriceProvider, get_price_service
 from synesis.providers.nasdaq import NasdaqClient
 from synesis.providers.sec_edgar import SECEdgarClient
+from synesis.providers.yfinance import YFinanceClient
 from synesis.storage.database import Database, get_database
 from synesis.storage.redis import get_redis
 
@@ -22,6 +23,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 # Module-level singletons (initialised lazily on first use)
 _sec_edgar_client: SECEdgarClient | None = None
 _nasdaq_client: NasdaqClient | None = None
+_yfinance_client: YFinanceClient | None = None
 _crawler: Crawl4AICrawlerProvider | None = None
 
 
@@ -61,6 +63,14 @@ async def get_nasdaq_client(redis: Redis = Depends(get_redis)) -> NasdaqClient:
     return _nasdaq_client
 
 
+async def get_yfinance_client(redis: Redis = Depends(get_redis)) -> YFinanceClient:
+    """Get or create singleton yfinance client."""
+    global _yfinance_client
+    if _yfinance_client is None:
+        _yfinance_client = YFinanceClient(redis=redis)
+    return _yfinance_client
+
+
 def get_crawler() -> Crawl4AICrawlerProvider:
     """Get or create singleton Crawl4AI crawler."""
     global _crawler
@@ -76,4 +86,5 @@ AgentStateDep = Annotated[AgentState, Depends(get_agent_state)]
 PriceServiceDep = Annotated[FinnhubPriceProvider, Depends(get_price_provider)]
 SECEdgarClientDep = Annotated[SECEdgarClient, Depends(get_sec_edgar_client)]
 NasdaqClientDep = Annotated[NasdaqClient, Depends(get_nasdaq_client)]
+YFinanceClientDep = Annotated[YFinanceClient, Depends(get_yfinance_client)]
 Crawl4AICrawlerDep = Annotated[Crawl4AICrawlerProvider, Depends(get_crawler)]

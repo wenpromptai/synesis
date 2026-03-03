@@ -8,8 +8,10 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
+from starlette.requests import Request
 
 from synesis.core.dependencies import DbDep, RedisDep
+from synesis.core.rate_limit import limiter
 from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
 
 router = APIRouter()
@@ -63,23 +65,33 @@ def _metadata_to_response(m: TickerMetadata) -> TickerMetadataResponse:
 
 
 @router.get("/", response_model=list[str])
-async def list_tickers(redis: RedisDep, db: DbDep) -> list[str]:
+@limiter.limit("60/minute")
+async def list_tickers(request: Request, redis: RedisDep, db: DbDep) -> list[str]:
     return await _get_manager(redis, db).get_all()
 
 
 @router.get("/stats")
-async def watchlist_stats(redis: RedisDep, db: DbDep) -> dict[str, int | dict[str, int]]:
+@limiter.limit("60/minute")
+async def watchlist_stats(
+    request: Request, redis: RedisDep, db: DbDep
+) -> dict[str, int | dict[str, int]]:
     return await _get_manager(redis, db).get_stats()
 
 
 @router.get("/detailed", response_model=list[TickerMetadataResponse])
-async def list_tickers_detailed(redis: RedisDep, db: DbDep) -> list[TickerMetadataResponse]:
+@limiter.limit("60/minute")
+async def list_tickers_detailed(
+    request: Request, redis: RedisDep, db: DbDep
+) -> list[TickerMetadataResponse]:
     metadata_list = await _get_manager(redis, db).get_all_with_metadata()
     return [_metadata_to_response(m) for m in metadata_list]
 
 
 @router.get("/{ticker}", response_model=TickerMetadataResponse)
-async def get_ticker(ticker: str, redis: RedisDep, db: DbDep) -> TickerMetadataResponse:
+@limiter.limit("60/minute")
+async def get_ticker(
+    request: Request, ticker: str, redis: RedisDep, db: DbDep
+) -> TickerMetadataResponse:
     m = await _get_manager(redis, db).get_metadata(ticker)
     if not m:
         raise HTTPException(404, detail=f"Ticker '{ticker.upper()}' not on watchlist")
@@ -87,7 +99,10 @@ async def get_ticker(ticker: str, redis: RedisDep, db: DbDep) -> TickerMetadataR
 
 
 @router.post("/", response_model=AddTickerResponse, status_code=201)
-async def add_ticker(body: AddTickerRequest, redis: RedisDep, db: DbDep) -> AddTickerResponse:
+@limiter.limit("10/minute")
+async def add_ticker(
+    request: Request, body: AddTickerRequest, redis: RedisDep, db: DbDep
+) -> AddTickerResponse:
     is_new = await _get_manager(redis, db).add_ticker(
         ticker=body.ticker,
         source=body.source,
@@ -96,7 +111,8 @@ async def add_ticker(body: AddTickerRequest, redis: RedisDep, db: DbDep) -> AddT
 
 
 @router.delete("/{ticker}", status_code=204)
-async def remove_ticker(ticker: str, redis: RedisDep, db: DbDep) -> Response:
+@limiter.limit("10/minute")
+async def remove_ticker(request: Request, ticker: str, redis: RedisDep, db: DbDep) -> Response:
     removed = await _get_manager(redis, db).remove_ticker(ticker)
     if not removed:
         raise HTTPException(404, detail=f"Ticker '{ticker.upper()}' not on watchlist")
@@ -104,5 +120,6 @@ async def remove_ticker(ticker: str, redis: RedisDep, db: DbDep) -> Response:
 
 
 @router.post("/cleanup", response_model=list[str])
-async def cleanup_expired(redis: RedisDep, db: DbDep) -> list[str]:
+@limiter.limit("10/minute")
+async def cleanup_expired(request: Request, redis: RedisDep, db: DbDep) -> list[str]:
     return await _get_manager(redis, db).cleanup_expired()

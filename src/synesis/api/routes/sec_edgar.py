@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from starlette.requests import Request
 
 from synesis.core.dependencies import Crawl4AICrawlerDep, SECEdgarClientDep
 from synesis.core.logging import get_logger
+from synesis.core.rate_limit import limiter
 
 logger = get_logger(__name__)
 
@@ -15,7 +17,9 @@ router = APIRouter()
 
 
 @router.get("/filings")
+@limiter.limit("60/minute")
 async def get_filings(
+    request: Request,
     client: SECEdgarClientDep,
     ticker: str = Query(..., description="Stock ticker symbol"),
     forms: str | None = Query(None, description="Comma-separated form types (e.g., 8-K,10-K)"),
@@ -32,7 +36,9 @@ async def get_filings(
 
 
 @router.get("/insiders")
+@limiter.limit("60/minute")
 async def get_insider_transactions(
+    request: Request,
     client: SECEdgarClientDep,
     ticker: str = Query(..., description="Stock ticker symbol"),
     limit: int = Query(10, ge=1, le=50),
@@ -47,7 +53,9 @@ async def get_insider_transactions(
 
 
 @router.get("/insiders/sells")
+@limiter.limit("60/minute")
 async def get_insider_sells(
+    request: Request,
     client: SECEdgarClientDep,
     ticker: str = Query(..., description="Stock ticker symbol"),
     min_value: float = Query(0, ge=0, description="Minimum transaction value"),
@@ -68,7 +76,9 @@ async def get_insider_sells(
 
 
 @router.get("/sentiment")
+@limiter.limit("60/minute")
 async def get_insider_sentiment(
+    request: Request,
     client: SECEdgarClientDep,
     ticker: str = Query(..., description="Stock ticker symbol"),
 ) -> dict[str, Any]:
@@ -80,7 +90,9 @@ async def get_insider_sentiment(
 
 
 @router.get("/search")
+@limiter.limit("60/minute")
 async def search_filings(
+    request: Request,
     client: SECEdgarClientDep,
     query: str = Query(..., min_length=1, description="Search query"),
     forms: str | None = Query(None, description="Comma-separated form types"),
@@ -105,7 +117,9 @@ async def search_filings(
 
 
 @router.get("/earnings")
+@limiter.limit("10/minute")
 async def get_earnings_releases(
+    request: Request,
     client: SECEdgarClientDep,
     crawler: Crawl4AICrawlerDep,
     ticker: str = Query(..., description="Stock ticker symbol"),
@@ -121,7 +135,9 @@ async def get_earnings_releases(
 
 
 @router.get("/earnings/latest")
+@limiter.limit("10/minute")
 async def get_latest_earnings_release(
+    request: Request,
     client: SECEdgarClientDep,
     crawler: Crawl4AICrawlerDep,
     ticker: str = Query(..., description="Stock ticker symbol"),

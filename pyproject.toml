@@ -47,6 +47,9 @@ dependencies = [
     "pymssql>=2.3.11",
     "defusedxml>=0.7.1",
     "apscheduler>=3.11,<4",
+    "yfinance>=1.2.0",
+    "scipy>=1.17.1",
+    "lxml>=6.0.2",
 ]
 
 [project.scripts]
@@ -93,6 +96,9 @@ module = [
     "feedparser.*",
     "finnhub",
     "finnhub.*",
+    "yfinance",
+    "yfinance.*",
+    "scipy.*",
 ]
 ignore_missing_imports = true
 

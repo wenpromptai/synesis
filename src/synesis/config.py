@@ -165,6 +165,24 @@ class Settings(BaseSettings):
         description="Number of days to look ahead for upcoming earnings",
     )
 
+    # yfinance (free, no key required)
+    yfinance_cache_ttl_quote: int = Field(
+        default=60,
+        description="Cache TTL for yfinance quote snapshots (seconds)",
+    )
+    yfinance_cache_ttl_history: int = Field(
+        default=300,
+        description="Cache TTL for yfinance OHLCV history (seconds)",
+    )
+    yfinance_cache_ttl_options: int = Field(
+        default=120,
+        description="Cache TTL for yfinance options data (seconds)",
+    )
+    yfinance_cache_ttl_fx: int = Field(
+        default=30,
+        description="Cache TTL for yfinance FX rates (seconds)",
+    )
+
     # Crawl4AI (web crawling)
     crawl4ai_url: str = Field(
         default="http://localhost:11235",

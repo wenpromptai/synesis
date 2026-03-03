@@ -189,6 +189,11 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     # --- NASDAQ ---
     ("nasdaq_cache_ttl_earnings", "NASDAQ_CACHE_TTL_EARNINGS", "10800", 10800),
     ("nasdaq_earnings_lookahead_days", "NASDAQ_EARNINGS_LOOKAHEAD_DAYS", "7", 7),
+    # --- yfinance ---
+    ("yfinance_cache_ttl_quote", "YFINANCE_CACHE_TTL_QUOTE", "120", 120),
+    ("yfinance_cache_ttl_history", "YFINANCE_CACHE_TTL_HISTORY", "600", 600),
+    ("yfinance_cache_ttl_options", "YFINANCE_CACHE_TTL_OPTIONS", "240", 240),
+    ("yfinance_cache_ttl_fx", "YFINANCE_CACHE_TTL_FX", "60", 60),
     # --- Crawl4AI ---
     ("crawl4ai_url", "CRAWL4AI_URL", "http://crawl:11235", "http://crawl:11235"),
     # --- Trading ---

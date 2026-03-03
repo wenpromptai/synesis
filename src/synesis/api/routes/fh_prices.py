@@ -8,10 +8,12 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from starlette.requests import Request
 
 from synesis.core.constants import FINNHUB_WS_MAX_SYMBOLS
 from synesis.core.dependencies import PriceServiceDep
 from synesis.core.logging import get_logger
+from synesis.core.rate_limit import limiter
 from synesis.providers.finnhub import QuoteData
 
 logger = get_logger(__name__)
@@ -31,7 +33,8 @@ def _quote_to_response(quote: QuoteData) -> dict[str, Any]:
 
 
 @router.get("/subscriptions")
-async def get_subscriptions(price_service: PriceServiceDep) -> dict[str, Any]:
+@limiter.limit("120/minute")
+async def get_subscriptions(request: Request, price_service: PriceServiceDep) -> dict[str, Any]:
     """List subscribed tickers and WebSocket status."""
     return {
         "subscribed_tickers": sorted(price_service._subscribed_tickers),
@@ -42,7 +45,9 @@ async def get_subscriptions(price_service: PriceServiceDep) -> dict[str, Any]:
 
 
 @router.get("")
+@limiter.limit("60/minute")
 async def get_batch_prices(
+    request: Request,
     tickers: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
@@ -63,7 +68,9 @@ async def get_batch_prices(
 
 
 @router.post("/subscribe")
+@limiter.limit("60/minute")
 async def subscribe_tickers(
+    request: Request,
     body: TickerListRequest,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
@@ -93,7 +100,9 @@ async def subscribe_tickers(
 
 
 @router.post("/unsubscribe")
+@limiter.limit("60/minute")
 async def unsubscribe_tickers(
+    request: Request,
     body: TickerListRequest,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
@@ -113,7 +122,9 @@ async def unsubscribe_tickers(
 
 
 @router.get("/ws/prices")
+@limiter.limit("120/minute")
 async def get_ws_batch_prices(
+    request: Request,
     tickers: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
@@ -137,7 +148,9 @@ async def get_ws_batch_prices(
 
 
 @router.get("/ws/prices/{ticker}")
+@limiter.limit("120/minute")
 async def get_ws_single_price(
+    request: Request,
     ticker: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
@@ -157,7 +170,9 @@ async def get_ws_single_price(
 # ─── REST API quotes ────────────────────────────────────────
 # /{ticker} MUST be last — path param would shadow fixed paths
 @router.get("/{ticker}")
+@limiter.limit("60/minute")
 async def get_single_price(
+    request: Request,
     ticker: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:

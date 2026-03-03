@@ -72,6 +72,7 @@ src/synesis/
 │   ├── finnhub/       # Real-time prices, fundamentals
 │   ├── nasdaq/        # NASDAQ earnings calendar
 │   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
+│   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram & Discord notifications
@@ -113,13 +114,16 @@ scripts/               # Utility scripts
 
 ## API Routes
 
-All routes are mounted under `/api/v1/`:
+All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 
-- `/fh_prices/*` — Finnhub real-time prices (WebSocket management)
-- `/sec_edgar/*` — SEC filings, insider transactions, insider sentiment, earnings content
-- `/earnings/*` — NASDAQ earnings calendar
-- `/watchlist/*` — Watchlist management
-- `/system/*` — System status
+- `/system/*` — System status (60/min)
+- `/fh_prices/*` — Finnhub real-time prices: REST quotes (60/min), WS cache reads (120/min)
+- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks (30/min, chain 10/min)
+- `/watchlist/*` — Watchlist CRUD (reads 60/min, writes 10/min)
+- `/earnings/*` — NASDAQ earnings calendar (30/min)
+- `/sec_edgar/*` — SEC filings, insider transactions, sentiment, search (60/min, earnings content 10/min)
+
+See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 
 ## Trading Strategy
 
