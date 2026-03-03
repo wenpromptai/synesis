@@ -1,24 +1,25 @@
 """Watchlist CRUD endpoints.
 
-Note: Adding a ticker via API adds it to Redis/PG but does NOT auto-subscribe
+Note: Adding a ticker via API adds it to PostgreSQL but does NOT auto-subscribe
 to Finnhub WebSocket — that only happens on the agent's WatchlistManager instance.
 """
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
-from synesis.core.dependencies import DbDep, RedisDep
+from synesis.core.dependencies import DbDep
 from synesis.core.rate_limit import limiter
-from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
+from synesis.processing.common.watchlist import WatchlistManager
 
 router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# Pydantic models (TickerMetadata is a dataclass, so wrap for serialization)
+# Pydantic models
 # ---------------------------------------------------------------------------
 
 
@@ -26,8 +27,7 @@ class TickerMetadataResponse(BaseModel):
     ticker: str
     source: str
     added_at: datetime
-    last_seen_at: datetime
-    mention_count: int = 1
+    expires_at: datetime
 
 
 class AddTickerRequest(BaseModel):
@@ -45,17 +45,16 @@ class AddTickerResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _get_manager(redis: RedisDep, db: DbDep) -> WatchlistManager:
-    return WatchlistManager(redis=redis, db=db)
+def _get_manager(db: DbDep) -> WatchlistManager:
+    return WatchlistManager(db)
 
 
-def _metadata_to_response(m: TickerMetadata) -> TickerMetadataResponse:
+def _record_to_response(r: dict[str, Any]) -> TickerMetadataResponse:
     return TickerMetadataResponse(
-        ticker=m.ticker,
-        source=m.source,
-        added_at=m.added_at,
-        last_seen_at=m.last_seen_at,
-        mention_count=m.mention_count,
+        ticker=r["ticker"],
+        source=r.get("added_by", "unknown"),
+        added_at=r["added_at"],
+        expires_at=r["expires_at"],
     )
 
 
@@ -66,44 +65,36 @@ def _metadata_to_response(m: TickerMetadata) -> TickerMetadataResponse:
 
 @router.get("/", response_model=list[str])
 @limiter.limit("60/minute")
-async def list_tickers(request: Request, redis: RedisDep, db: DbDep) -> list[str]:
-    return await _get_manager(redis, db).get_all()
+async def list_tickers(request: Request, db: DbDep) -> list[str]:
+    return await _get_manager(db).get_all()
 
 
 @router.get("/stats")
 @limiter.limit("60/minute")
-async def watchlist_stats(
-    request: Request, redis: RedisDep, db: DbDep
-) -> dict[str, int | dict[str, int]]:
-    return await _get_manager(redis, db).get_stats()
+async def watchlist_stats(request: Request, db: DbDep) -> dict[str, Any]:
+    return await _get_manager(db).get_stats()
 
 
 @router.get("/detailed", response_model=list[TickerMetadataResponse])
 @limiter.limit("60/minute")
-async def list_tickers_detailed(
-    request: Request, redis: RedisDep, db: DbDep
-) -> list[TickerMetadataResponse]:
-    metadata_list = await _get_manager(redis, db).get_all_with_metadata()
-    return [_metadata_to_response(m) for m in metadata_list]
+async def list_tickers_detailed(request: Request, db: DbDep) -> list[TickerMetadataResponse]:
+    metadata_list = await _get_manager(db).get_all_with_metadata()
+    return [_record_to_response(r) for r in metadata_list]
 
 
 @router.get("/{ticker}", response_model=TickerMetadataResponse)
 @limiter.limit("60/minute")
-async def get_ticker(
-    request: Request, ticker: str, redis: RedisDep, db: DbDep
-) -> TickerMetadataResponse:
-    m = await _get_manager(redis, db).get_metadata(ticker)
-    if not m:
+async def get_ticker(request: Request, ticker: str, db: DbDep) -> TickerMetadataResponse:
+    record = await _get_manager(db).get_metadata(ticker)
+    if not record:
         raise HTTPException(404, detail=f"Ticker '{ticker.upper()}' not on watchlist")
-    return _metadata_to_response(m)
+    return _record_to_response(record)
 
 
 @router.post("/", response_model=AddTickerResponse, status_code=201)
 @limiter.limit("10/minute")
-async def add_ticker(
-    request: Request, body: AddTickerRequest, redis: RedisDep, db: DbDep
-) -> AddTickerResponse:
-    is_new = await _get_manager(redis, db).add_ticker(
+async def add_ticker(request: Request, body: AddTickerRequest, db: DbDep) -> AddTickerResponse:
+    is_new = await _get_manager(db).add_ticker(
         ticker=body.ticker,
         source=body.source,
     )
@@ -112,8 +103,8 @@ async def add_ticker(
 
 @router.delete("/{ticker}", status_code=204)
 @limiter.limit("10/minute")
-async def remove_ticker(request: Request, ticker: str, redis: RedisDep, db: DbDep) -> Response:
-    removed = await _get_manager(redis, db).remove_ticker(ticker)
+async def remove_ticker(request: Request, ticker: str, db: DbDep) -> Response:
+    removed = await _get_manager(db).remove_ticker(ticker)
     if not removed:
         raise HTTPException(404, detail=f"Ticker '{ticker.upper()}' not on watchlist")
     return Response(status_code=204)
@@ -121,5 +112,5 @@ async def remove_ticker(request: Request, ticker: str, redis: RedisDep, db: DbDe
 
 @router.post("/cleanup", response_model=list[str])
 @limiter.limit("10/minute")
-async def cleanup_expired(request: Request, redis: RedisDep, db: DbDep) -> list[str]:
-    return await _get_manager(redis, db).cleanup_expired()
+async def cleanup_expired(request: Request, db: DbDep) -> list[str]:
+    return await _get_manager(db).cleanup_expired()

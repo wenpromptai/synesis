@@ -8,7 +8,7 @@ Cross-flow utilities:
 
 from synesis.processing.common.llm import create_model
 from synesis.processing.common.ticker_tools import verify_ticker
-from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
+from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.common.web_search import (
     Recency,
     SearchProvidersExhaustedError,
@@ -20,7 +20,6 @@ from synesis.processing.common.web_search import (
 __all__ = [
     "Recency",
     "SearchProvidersExhaustedError",
-    "TickerMetadata",
     "WatchlistManager",
     "create_model",
     "format_search_results",

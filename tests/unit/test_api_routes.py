@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -55,27 +56,24 @@ def mock_agent_state():
 
 @pytest.fixture()
 def mock_redis_dep():
-    """Mock Redis for watchlist endpoints."""
+    """Mock Redis for non-watchlist endpoints that still need it."""
     redis = AsyncMock()
-    # smembers returns empty set by default
-    redis.smembers.return_value = set()
-    redis.sismember.return_value = False
-    redis.sadd.return_value = 1
-    redis.srem.return_value = 1
-    redis.hgetall.return_value = {}
-    redis.pipeline.return_value = AsyncMock()
-    redis.set.return_value = True
-    redis.hset.return_value = 1
-    redis.expire.return_value = True
-    redis.hincrby.return_value = 2
-    redis.delete.return_value = 1
-    redis.register_script = MagicMock(return_value=AsyncMock(return_value=0))
     return redis
 
 
 @pytest.fixture()
 def mock_db_dep():
-    return MagicMock()
+    """Mock Database for watchlist endpoints (DB-only)."""
+    db = AsyncMock()
+    db.get_active_watchlist = AsyncMock(return_value=[])
+    db.get_active_watchlist_with_metadata = AsyncMock(return_value=[])
+    db.get_watchlist_metadata = AsyncMock(return_value=None)
+    db.get_watchlist_stats = AsyncMock(return_value={"total_tickers": 0, "sources": {}})
+    db.upsert_watchlist_ticker = AsyncMock(return_value=True)
+    db.remove_watchlist_ticker = AsyncMock(return_value=True)
+    db.watchlist_contains = AsyncMock(return_value=False)
+    db.deactivate_expired_watchlist = AsyncMock(return_value=[])
+    return db
 
 
 @pytest.fixture()
@@ -162,8 +160,8 @@ class TestWatchlistList:
         assert r.status_code == 200
         assert r.json() == []
 
-    async def test_list_with_tickers(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.smembers.return_value = {"AAPL", "MSFT"}
+    async def test_list_with_tickers(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.get_active_watchlist.return_value = ["AAPL", "MSFT"]
         r = await client.get(f"{WL_PREFIX}/")
         assert r.status_code == 200
         data = r.json()
@@ -171,71 +169,151 @@ class TestWatchlistList:
 
 
 class TestWatchlistAdd:
-    async def test_add_ticker(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.sismember.return_value = False
+    async def test_add_ticker(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.upsert_watchlist_ticker.return_value = True
         r = await client.post(f"{WL_PREFIX}/", json={"ticker": "AAPL", "source": "api"})
         assert r.status_code == 201
         body = r.json()
         assert body["ticker"] == "AAPL"
         assert body["is_new"] is True
 
+    async def test_add_existing_ticker(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.upsert_watchlist_ticker.return_value = False
+        r = await client.post(f"{WL_PREFIX}/", json={"ticker": "AAPL", "source": "api"})
+        assert r.status_code == 201
+        body = r.json()
+        assert body["ticker"] == "AAPL"
+        assert body["is_new"] is False
+
+    async def test_add_lowercased_ticker_uppercased_in_response(
+        self, client: httpx.AsyncClient, mock_db_dep
+    ):
+        mock_db_dep.upsert_watchlist_ticker.return_value = True
+        r = await client.post(f"{WL_PREFIX}/", json={"ticker": "tsla", "source": "telegram"})
+        assert r.status_code == 201
+        assert r.json()["ticker"] == "TSLA"
+
 
 class TestWatchlistGetTicker:
-    async def test_get_ticker(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.hgetall.return_value = {
+    async def test_get_ticker(self, client: httpx.AsyncClient, mock_db_dep):
+        now = datetime.now(UTC)
+        mock_db_dep.get_watchlist_metadata.return_value = {
             "ticker": "AAPL",
-            "source": "api",
-            "added_at": "2024-01-15T10:00:00+00:00",
-            "last_seen_at": "2024-01-15T10:00:00+00:00",
-            "mention_count": "1",
+            "added_by": "api",
+            "added_reason": "Signal from api",
+            "added_at": now,
+            "expires_at": now + timedelta(days=7),
         }
         r = await client.get(f"{WL_PREFIX}/AAPL")
         assert r.status_code == 200
         body = r.json()
         assert body["ticker"] == "AAPL"
 
-    async def test_get_ticker_not_found(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.hgetall.return_value = {}
+    async def test_get_ticker_response_fields(self, client: httpx.AsyncClient, mock_db_dep):
+        now = datetime.now(UTC)
+        expires = now + timedelta(days=7)
+        mock_db_dep.get_watchlist_metadata.return_value = {
+            "ticker": "NVDA",
+            "added_by": "telegram",
+            "added_reason": "Signal from telegram",
+            "added_at": now,
+            "expires_at": expires,
+        }
+        r = await client.get(f"{WL_PREFIX}/NVDA")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ticker"] == "NVDA"
+        assert body["source"] == "telegram"
+        assert "added_at" in body
+        assert "expires_at" in body
+
+    async def test_get_ticker_not_found(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.get_watchlist_metadata.return_value = None
         r = await client.get(f"{WL_PREFIX}/INVALID")
         assert r.status_code == 404
 
 
 class TestWatchlistStats:
-    async def test_stats(self, client: httpx.AsyncClient, mock_redis_dep):
-        # get_stats calls get_all_with_metadata which calls get_all then pipeline
-        mock_redis_dep.smembers.return_value = set()
+    async def test_stats_empty(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.get_watchlist_stats.return_value = {
+            "total_tickers": 0,
+            "sources": {},
+        }
         r = await client.get(f"{WL_PREFIX}/stats")
         assert r.status_code == 200
         body = r.json()
-        assert "total_tickers" in body
+        assert body["total_tickers"] == 0
+        assert body["sources"] == {}
+
+    async def test_stats_populated(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.get_watchlist_stats.return_value = {
+            "total_tickers": 5,
+            "sources": {"telegram": 3, "api": 2},
+        }
+        r = await client.get(f"{WL_PREFIX}/stats")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["total_tickers"] == 5
+        assert body["sources"]["telegram"] == 3
 
 
 class TestWatchlistDetailed:
-    async def test_detailed_empty(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.smembers.return_value = set()
+    async def test_detailed_empty(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.get_active_watchlist_with_metadata.return_value = []
         r = await client.get(f"{WL_PREFIX}/detailed")
         assert r.status_code == 200
         assert r.json() == []
 
+    async def test_detailed_with_records(self, client: httpx.AsyncClient, mock_db_dep):
+        now = datetime.now(UTC)
+        mock_db_dep.get_active_watchlist_with_metadata.return_value = [
+            {
+                "ticker": "AAPL",
+                "added_by": "telegram",
+                "added_at": now,
+                "expires_at": now + timedelta(days=7),
+            },
+            {
+                "ticker": "TSLA",
+                "added_by": "api",
+                "added_at": now,
+                "expires_at": now + timedelta(days=3),
+            },
+        ]
+        r = await client.get(f"{WL_PREFIX}/detailed")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) == 2
+        assert data[0]["ticker"] == "AAPL"
+        assert data[0]["source"] == "telegram"
+        assert data[1]["ticker"] == "TSLA"
+        assert data[1]["source"] == "api"
+
 
 class TestWatchlistDelete:
-    async def test_delete_ticker(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.sismember.return_value = True
+    async def test_delete_ticker(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.remove_watchlist_ticker.return_value = True
         r = await client.delete(f"{WL_PREFIX}/AAPL")
         assert r.status_code == 204
 
-    async def test_delete_not_found(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.sismember.return_value = False
+    async def test_delete_not_found(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.remove_watchlist_ticker.return_value = False
         r = await client.delete(f"{WL_PREFIX}/NOTHERE")
         assert r.status_code == 404
 
 
 class TestWatchlistCleanup:
-    async def test_cleanup(self, client: httpx.AsyncClient, mock_redis_dep):
-        mock_redis_dep.smembers.return_value = set()
+    async def test_cleanup_empty(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.deactivate_expired_watchlist.return_value = []
         r = await client.post(f"{WL_PREFIX}/cleanup")
         assert r.status_code == 200
         assert r.json() == []
+
+    async def test_cleanup_with_expired(self, client: httpx.AsyncClient, mock_db_dep):
+        mock_db_dep.deactivate_expired_watchlist.return_value = ["AAPL", "GME"]
+        r = await client.post(f"{WL_PREFIX}/cleanup")
+        assert r.status_code == 200
+        assert sorted(r.json()) == ["AAPL", "GME"]
 
 
 # ===========================================================================

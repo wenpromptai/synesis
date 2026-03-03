@@ -294,15 +294,73 @@ class Database:
         """Get all active watchlist tickers with metadata.
 
         Returns:
-            List of records with ticker, added_by, added_reason, added_at
+            List of records with ticker, added_by, added_reason, added_at, expires_at
         """
         query = """
-            SELECT ticker, added_by, added_reason, added_at
+            SELECT ticker, added_by, added_reason, added_at, expires_at
             FROM watchlist
             WHERE is_active = TRUE
             ORDER BY ticker
         """
         return await self.fetch(query)
+
+    async def remove_watchlist_ticker(self, ticker: str) -> bool:
+        """Deactivate a specific ticker from watchlist.
+
+        Returns:
+            True if ticker was deactivated, False if not found/already inactive
+        """
+        query = """
+            UPDATE watchlist
+            SET is_active = FALSE
+            WHERE ticker = $1 AND is_active = TRUE
+            RETURNING ticker
+        """
+        result = await self.fetchval(query, ticker)
+        return result is not None
+
+    async def get_watchlist_metadata(self, ticker: str) -> asyncpg.Record | None:
+        """Get metadata for a single watchlist ticker.
+
+        Returns:
+            Record with ticker, added_by, added_reason, added_at, expires_at
+            or None if not found/inactive
+        """
+        query = """
+            SELECT ticker, added_by, added_reason, added_at, expires_at
+            FROM watchlist
+            WHERE ticker = $1 AND is_active = TRUE
+        """
+        return await self.fetchrow(query, ticker)
+
+    async def get_watchlist_stats(self) -> dict[str, int | dict[str, int]]:
+        """Get watchlist statistics.
+
+        Returns:
+            Dict with total_tickers, sources breakdown, ttl_days
+        """
+        count_query = "SELECT COUNT(*) FROM watchlist WHERE is_active = TRUE"
+        total = await self.fetchval(count_query) or 0
+
+        sources_query = """
+            SELECT added_by, COUNT(*) as cnt
+            FROM watchlist
+            WHERE is_active = TRUE
+            GROUP BY added_by
+        """
+        rows = await self.fetch(sources_query)
+        sources = {row["added_by"]: row["cnt"] for row in rows}
+
+        return {
+            "total_tickers": total,
+            "sources": sources,
+        }
+
+    async def watchlist_contains(self, ticker: str) -> bool:
+        """Check if a ticker is active in the watchlist."""
+        query = "SELECT 1 FROM watchlist WHERE ticker = $1 AND is_active = TRUE"
+        result = await self.fetchval(query, ticker)
+        return result is not None
 
     # -------------------------------------------------------------------------
     # Flow 1: Signal and Prediction Storage (continued)

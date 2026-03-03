@@ -562,3 +562,222 @@ class TestDatabaseWatchlistOperations:
         result = await db.get_active_watchlist()
 
         assert result == []
+
+    @pytest.mark.anyio
+    async def test_remove_watchlist_ticker_found(self) -> None:
+        """Test removing an active ticker returns True."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value="AAPL")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.remove_watchlist_ticker("AAPL")
+
+        assert result is True
+        call_args = mock_conn.fetchval.call_args
+        assert "UPDATE watchlist" in call_args[0][0]
+        assert "SET is_active = FALSE" in call_args[0][0]
+        assert call_args[0][1] == "AAPL"
+
+    @pytest.mark.anyio
+    async def test_remove_watchlist_ticker_not_found(self) -> None:
+        """Test removing a non-existent or inactive ticker returns False."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=None)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.remove_watchlist_ticker("NOTHERE")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_get_watchlist_metadata_found(self) -> None:
+        """Test getting metadata for an active ticker."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        now = datetime.now(timezone.utc)
+        mock_row = {
+            "ticker": "AAPL",
+            "added_by": "telegram",
+            "added_reason": "Signal from telegram",
+            "added_at": now,
+            "expires_at": now,
+        }
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=mock_row)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_watchlist_metadata("AAPL")
+
+        assert result is not None
+        assert result["ticker"] == "AAPL"
+        call_args = mock_conn.fetchrow.call_args
+        assert "is_active = TRUE" in call_args[0][0]
+        assert call_args[0][1] == "AAPL"
+
+    @pytest.mark.anyio
+    async def test_get_watchlist_metadata_not_found(self) -> None:
+        """Test getting metadata for missing ticker returns None."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=None)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_watchlist_metadata("MISSING")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_get_watchlist_stats(self) -> None:
+        """Test getting watchlist statistics."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        # First call: COUNT, second call: GROUP BY
+        mock_conn.fetchval = AsyncMock(return_value=5)
+        mock_conn.fetch = AsyncMock(
+            return_value=[
+                {"added_by": "telegram", "cnt": 3},
+                {"added_by": "api", "cnt": 2},
+            ]
+        )
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_watchlist_stats()
+
+        assert result["total_tickers"] == 5
+        assert result["sources"] == {"telegram": 3, "api": 2}
+
+    @pytest.mark.anyio
+    async def test_get_watchlist_stats_empty(self) -> None:
+        """Test getting stats when watchlist is empty."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=0)
+        mock_conn.fetch = AsyncMock(return_value=[])
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_watchlist_stats()
+
+        assert result["total_tickers"] == 0
+        assert result["sources"] == {}
+
+    @pytest.mark.anyio
+    async def test_watchlist_contains_true(self) -> None:
+        """Test watchlist_contains returns True when ticker is active."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=1)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.watchlist_contains("AAPL")
+
+        assert result is True
+
+    @pytest.mark.anyio
+    async def test_watchlist_contains_false(self) -> None:
+        """Test watchlist_contains returns False when ticker is not active."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.fetchval = AsyncMock(return_value=None)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.watchlist_contains("MISSING")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_get_active_watchlist_with_metadata(self) -> None:
+        """Test getting active watchlist with full metadata."""
+        db = Database(dsn="postgresql://localhost/db")
+
+        now = datetime.now(timezone.utc)
+        mock_rows = [
+            {
+                "ticker": "AAPL",
+                "added_by": "telegram",
+                "added_reason": "Signal",
+                "added_at": now,
+                "expires_at": now,
+            },
+        ]
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=mock_rows)
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        result = await db.get_active_watchlist_with_metadata()
+
+        assert len(result) == 1
+        assert result[0]["ticker"] == "AAPL"
+        call_args = mock_conn.fetch.call_args
+        assert "expires_at" in call_args[0][0]

@@ -11,9 +11,8 @@ import pytest
 from fastapi import FastAPI
 
 from synesis.api.routes.earnings import router
-from synesis.core.dependencies import get_nasdaq_client
+from synesis.core.dependencies import get_db, get_nasdaq_client
 from synesis.providers.nasdaq.models import EarningsEvent
-from synesis.storage.redis import get_redis
 
 
 # ---------------------------------------------------------------------------
@@ -45,18 +44,18 @@ def mock_nasdaq_client():
 
 
 @pytest.fixture()
-def mock_redis():
-    redis = AsyncMock()
-    redis.smembers.return_value = {b"AAPL", b"TSLA"}
-    return redis
+def mock_db():
+    db = AsyncMock()
+    db.get_active_watchlist = AsyncMock(return_value=["AAPL", "TSLA"])
+    return db
 
 
 @pytest.fixture()
-def app(mock_nasdaq_client, mock_redis):
+def app(mock_nasdaq_client, mock_db):
     test_app = FastAPI()
     test_app.include_router(router, prefix="/api/v1/earnings")
     test_app.dependency_overrides[get_nasdaq_client] = lambda: mock_nasdaq_client
-    test_app.dependency_overrides[get_redis] = lambda: mock_redis
+    test_app.dependency_overrides[get_db] = lambda: mock_db
     return test_app
 
 
@@ -91,6 +90,19 @@ class TestCalendarEndpoint:
         assert r.status_code == 200
         assert r.json()["count"] == 0
 
+    async def test_get_calendar_earnings_fields(
+        self, client: httpx.AsyncClient, mock_nasdaq_client
+    ):
+        mock_nasdaq_client.get_earnings_by_date.return_value = [_sample_event()]
+        r = await client.get("/api/v1/earnings/calendar?date=2026-02-13")
+
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["earnings"]) == 1
+        event = data["earnings"][0]
+        assert event["ticker"] == "AAPL"
+        assert event["company_name"] == "Apple Inc."
+
 
 class TestUpcomingEndpoint:
     async def test_upcoming_with_watchlist(self, client: httpx.AsyncClient, mock_nasdaq_client):
@@ -102,14 +114,23 @@ class TestUpcomingEndpoint:
         assert data["tickers_checked"] == 2  # AAPL, TSLA from mock
         assert data["count"] == 1
 
-    async def test_upcoming_empty_watchlist(self, client: httpx.AsyncClient, mock_redis):
-        mock_redis.smembers.return_value = set()
+    async def test_upcoming_empty_watchlist(self, client: httpx.AsyncClient, mock_db):
+        mock_db.get_active_watchlist.return_value = []
         r = await client.get("/api/v1/earnings/upcoming")
 
         assert r.status_code == 200
         data = r.json()
         assert data["tickers_checked"] == 0
         assert data["count"] == 0
+
+    async def test_upcoming_default_days(self, client: httpx.AsyncClient, mock_nasdaq_client):
+        mock_nasdaq_client.get_upcoming_earnings.return_value = []
+        r = await client.get("/api/v1/earnings/upcoming")
+
+        assert r.status_code == 200
+        mock_nasdaq_client.get_upcoming_earnings.assert_called_once()
+        call_kwargs = mock_nasdaq_client.get_upcoming_earnings.call_args
+        assert call_kwargs.kwargs["days"] == 14
 
 
 class TestUpcomingTickerEndpoint:
@@ -130,3 +151,25 @@ class TestUpcomingTickerEndpoint:
         assert r.status_code == 200
         data = r.json()
         assert data["next_earnings"] is None
+
+    async def test_upcoming_for_ticker_all_in_range(
+        self, client: httpx.AsyncClient, mock_nasdaq_client
+    ):
+        mock_nasdaq_client.get_upcoming_earnings.return_value = [
+            _sample_event(),
+            _sample_event(earnings_date=date(2026, 5, 1)),
+        ]
+        r = await client.get("/api/v1/earnings/upcoming/AAPL")
+
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["all_in_range"]) == 2
+
+    async def test_upcoming_for_ticker_uppercases(
+        self, client: httpx.AsyncClient, mock_nasdaq_client
+    ):
+        mock_nasdaq_client.get_upcoming_earnings.return_value = []
+        r = await client.get("/api/v1/earnings/upcoming/aapl")
+
+        assert r.status_code == 200
+        assert r.json()["ticker"] == "AAPL"

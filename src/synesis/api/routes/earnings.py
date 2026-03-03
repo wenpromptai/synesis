@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from starlette.requests import Request
 
-from synesis.core.dependencies import NasdaqClientDep, RedisDep
+from synesis.core.dependencies import DbDep, NasdaqClientDep
 from synesis.core.logging import get_logger
 from synesis.core.rate_limit import limiter
 from synesis.processing.common.watchlist import WatchlistManager
@@ -43,11 +43,11 @@ async def get_earnings_calendar(
 async def get_upcoming_earnings(
     request: Request,
     client: NasdaqClientDep,
-    redis: RedisDep,
+    db: DbDep,
     days: int = Query(14, ge=1, le=90, description="Days to look ahead"),
 ) -> dict[str, Any]:
     """Get upcoming earnings for watchlist tickers."""
-    watchlist = WatchlistManager(redis=redis)
+    watchlist = WatchlistManager(db)
     tickers = await watchlist.get_all()
     if not tickers:
         return {"tickers_checked": 0, "earnings": [], "count": 0}

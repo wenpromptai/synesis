@@ -434,10 +434,8 @@ async def run_pydantic_agent(
 
         # Use shared watchlist (passed from __main__.py)
         # If not provided (standalone mode), create local instance
-        if watchlist is None:
-            watchlist = WatchlistManager(redis, db=db)
-            if db:
-                await watchlist.sync_from_db()
+        if watchlist is None and db is not None:
+            watchlist = WatchlistManager(db)
             logger.debug("Created local WatchlistManager (standalone mode)")
 
         processor = NewsProcessor(

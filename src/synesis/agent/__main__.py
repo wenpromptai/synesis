@@ -160,15 +160,8 @@ async def agent_lifespan(
         else:
             logger.info("No FINNHUB_API_KEY configured, price tracking disabled")
 
-        # 2c. Initialize shared WatchlistManager
-        watchlist = WatchlistManager(
-            redis,
-            db=db,
-        )
-
-        # Sync from DB
-        if db:
-            await watchlist.sync_from_db()
+        # 2c. Initialize shared WatchlistManager (DB-only)
+        watchlist = WatchlistManager(db) if db else None
 
         # 3. Start Telegram listener (if configured)
         if settings.telegram_api_id and settings.telegram_api_hash:
@@ -220,7 +213,7 @@ async def agent_lifespan(
             scheduler.add_job(
                 watchlist_cleanup_job,
                 IntervalTrigger(minutes=5),
-                args=[db, watchlist],
+                args=[db],
                 id="watchlist_cleanup",
                 max_instances=1,
             )

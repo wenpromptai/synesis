@@ -36,7 +36,7 @@ from synesis.processing.news.models import (
     UnifiedMessage,
     UrgencyLevel,
 )
-from synesis.processing.common.watchlist import TickerMetadata, WatchlistManager
+from synesis.processing.common.watchlist import WatchlistManager
 
 __all__ = [
     # News (Flow 1) - Analyzer
@@ -60,7 +60,6 @@ __all__ = [
     "TickerAnalysis",
     "UnifiedMessage",
     "UrgencyLevel",
-    "TickerMetadata",
     "WatchlistManager",
     # Common utilities
     "Recency",
