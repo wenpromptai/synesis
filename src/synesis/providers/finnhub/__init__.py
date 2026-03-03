@@ -15,6 +15,7 @@ from synesis.providers.finnhub.fundamentals import (
 from synesis.providers.finnhub.prices import (
     FinnhubPriceProvider,
     PriceService,  # Backwards compat alias
+    QuoteData,
     RateLimiter,
     close_price_service,
     get_price_service,
@@ -27,6 +28,7 @@ __all__ = [
     # Price provider
     "FinnhubPriceProvider",
     "PriceService",  # Backwards compat
+    "QuoteData",
     "RateLimiter",
     "get_price_service",
     "init_price_service",

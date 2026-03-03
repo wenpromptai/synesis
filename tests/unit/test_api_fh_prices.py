@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import httpx
@@ -11,6 +10,20 @@ from fastapi import FastAPI
 
 from synesis.api.routes.fh_prices import router
 from synesis.core.dependencies import get_price_provider
+from synesis.providers.finnhub import QuoteData
+
+
+def _make_quote(price: float = 185.50) -> QuoteData:
+    return QuoteData(
+        current=price,
+        change=0.54,
+        percent_change=0.20,
+        high=price + 2,
+        low=price - 5,
+        open=price - 1,
+        previous_close=price - 0.54,
+        timestamp=1772485200,
+    )
 
 
 @pytest.fixture()
@@ -46,25 +59,29 @@ PREFIX = "/fh_prices"
 
 class TestGetSinglePrice:
     async def test_cached_price(self, client: httpx.AsyncClient, mock_price_service: AsyncMock):
-        mock_price_service.get_price.return_value = Decimal("185.50")
+        mock_price_service.get_quote.return_value = _make_quote(185.50)
         r = await client.get(f"{PREFIX}/aapl")
         assert r.status_code == 200
         body = r.json()
         assert body["ticker"] == "AAPL"
-        assert body["price"] == 185.50
-        mock_price_service.get_price.assert_awaited_once_with("AAPL")
+        assert body["current"] == 185.50
+        assert body["change"] == 0.54
+        assert body["percent_change"] == 0.20
+        assert "high" in body
+        assert "low" in body
+        mock_price_service.get_quote.assert_awaited_once_with("AAPL")
 
     async def test_not_found(self, client: httpx.AsyncClient, mock_price_service: AsyncMock):
-        mock_price_service.get_price.return_value = None
+        mock_price_service.get_quote.side_effect = ValueError("No valid price for ZZZZ")
         r = await client.get(f"{PREFIX}/ZZZZ")
         assert r.status_code == 404
 
     async def test_rest_fallback(self, client: httpx.AsyncClient, mock_price_service: AsyncMock):
-        """get_price already has REST fallback built in."""
-        mock_price_service.get_price.return_value = Decimal("42.00")
+        """get_quote fetches directly from Finnhub REST API."""
+        mock_price_service.get_quote.return_value = _make_quote(42.00)
         r = await client.get(f"{PREFIX}/NVDA")
         assert r.status_code == 200
-        assert r.json()["price"] == 42.00
+        assert r.json()["current"] == 42.00
 
 
 # ===========================================================================
@@ -74,20 +91,20 @@ class TestGetSinglePrice:
 
 class TestGetBatchPrices:
     async def test_batch(self, client: httpx.AsyncClient, mock_price_service: AsyncMock):
-        mock_price_service.get_prices.return_value = {
-            "AAPL": Decimal("185.50"),
-            "TSLA": Decimal("250.00"),
+        mock_price_service.get_quotes.return_value = {
+            "AAPL": _make_quote(185.50),
+            "TSLA": _make_quote(250.00),
         }
         r = await client.get(f"{PREFIX}", params={"tickers": "AAPL,TSLA"})
         assert r.status_code == 200
         body = r.json()
-        assert body["prices"]["AAPL"] == 185.50
-        assert body["prices"]["TSLA"] == 250.00
+        assert body["quotes"]["AAPL"]["current"] == 185.50
+        assert body["quotes"]["TSLA"]["current"] == 250.00
         assert body["found"] == 2
         assert body["missing"] == []
 
     async def test_batch_partial(self, client: httpx.AsyncClient, mock_price_service: AsyncMock):
-        mock_price_service.get_prices.return_value = {"AAPL": Decimal("185.50")}
+        mock_price_service.get_quotes.return_value = {"AAPL": _make_quote(185.50)}
         r = await client.get(f"{PREFIX}", params={"tickers": "AAPL,ZZZZ"})
         assert r.status_code == 200
         body = r.json()

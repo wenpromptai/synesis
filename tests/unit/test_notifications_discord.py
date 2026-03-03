@@ -86,7 +86,9 @@ class TestFormatStage1Embed:
     """Tests for format_stage1_embed."""
 
     def test_critical_urgency_color_and_title(self) -> None:
-        embed = format_stage1_embed(_make_message(), _make_extraction(urgency=UrgencyLevel.critical))
+        embed = format_stage1_embed(
+            _make_message(), _make_extraction(urgency=UrgencyLevel.critical)
+        )
         assert embed[0]["color"] == COLOR_CRITICAL
         assert "1st Pass" in embed[0]["title"]
 
@@ -272,7 +274,9 @@ class TestDispatcherStage2Routing:
 
         with (
             patch("synesis.notifications.dispatcher.get_settings") as mock_settings,
-            patch("synesis.notifications.discord.send_discord", new_callable=AsyncMock) as mock_send,
+            patch(
+                "synesis.notifications.discord.send_discord", new_callable=AsyncMock
+            ) as mock_send,
         ):
             mock_settings.return_value.notification_channel = "discord"
             mock_settings.return_value.discord2_webhook_url = discord2_url
@@ -293,7 +297,9 @@ class TestDispatcherStage2Routing:
 
         with (
             patch("synesis.notifications.dispatcher.get_settings") as mock_settings,
-            patch("synesis.notifications.discord.send_discord", new_callable=AsyncMock) as mock_send,
+            patch(
+                "synesis.notifications.discord.send_discord", new_callable=AsyncMock
+            ) as mock_send,
         ):
             mock_settings.return_value.notification_channel = "discord"
             mock_settings.return_value.discord2_webhook_url = None
@@ -312,7 +318,9 @@ class TestDispatcherStage2Routing:
         """emit_stage1 uses default webhook (no override)."""
         with (
             patch("synesis.notifications.dispatcher.get_settings") as mock_settings,
-            patch("synesis.notifications.discord.send_discord", new_callable=AsyncMock) as mock_send,
+            patch(
+                "synesis.notifications.discord.send_discord", new_callable=AsyncMock
+            ) as mock_send,
         ):
             mock_settings.return_value.notification_channel = "discord"
             mock_send.return_value = True

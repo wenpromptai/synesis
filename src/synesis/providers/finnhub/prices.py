@@ -11,6 +11,7 @@ It includes:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -33,8 +34,22 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Redis key prefix for price cache
+# Redis key prefix for WebSocket price cache
 PRICE_CACHE_PREFIX = "synesis:prices"
+
+
+@dataclass(frozen=True, slots=True)
+class QuoteData:
+    """Full quote data from Finnhub /quote endpoint."""
+
+    current: float
+    change: float
+    percent_change: float
+    high: float
+    low: float
+    open: float
+    previous_close: float
+    timestamp: int
 
 
 class RateLimiter:
@@ -80,24 +95,10 @@ def get_rate_limiter() -> RateLimiter:
 class FinnhubPriceProvider:
     """Finnhub price provider with WebSocket + REST + Redis cache.
 
-    This provider implements the PriceProvider protocol and provides:
-    - get_price(ticker) - instant lookup from Redis cache
-    - get_prices(tickers) - batch lookup for multiple tickers
+    Provides:
+    - get_quote(ticker) / get_quotes(tickers) - full quote data (cache + REST fallback)
     - subscribe/unsubscribe - real-time WebSocket streaming
     - start/close - lifecycle management
-
-    Usage:
-        provider = FinnhubPriceProvider(api_key="your_key", redis=redis_client)
-
-        # Start WebSocket for real-time updates (optional)
-        await provider.start()
-        await provider.subscribe(["AAPL", "TSLA"])
-
-        # Get prices when signal fires
-        prices = await provider.get_prices(["AAPL", "TSLA"])
-
-        # Cleanup
-        await provider.close()
     """
 
     def __init__(self, api_key: str, redis: Redis) -> None:
@@ -118,40 +119,25 @@ class FinnhubPriceProvider:
         self._http_client: httpx.AsyncClient | None = None
 
     # ─────────────────────────────────────────────────────────────
-    # Redis Cache
+    # Redis Price Cache (written/read by WebSocket path only)
     # ─────────────────────────────────────────────────────────────
 
-    async def get_cached_price(self, ticker: str) -> Decimal | None:
-        """Get latest price from Redis cache.
-
-        Args:
-            ticker: Stock ticker symbol (e.g., "AAPL")
-
-        Returns:
-            Price as Decimal, or None if not cached
-        """
+    async def get_cached_price(self, ticker: str) -> float | None:
+        """Get latest price from WebSocket cache."""
         key = f"{PRICE_CACHE_PREFIX}:{ticker.upper()}"
         price_str = await self._redis.get(key)
         if price_str:
             try:
-                return Decimal(price_str)
+                return float(price_str)
             except Exception:
                 logger.warning("Invalid cached price", ticker=ticker, value=price_str)
         return None
 
-    async def get_cached_prices(self, tickers: list[str]) -> dict[str, Decimal]:
-        """Get latest prices for multiple tickers from Redis cache.
-
-        Args:
-            tickers: List of stock ticker symbols
-
-        Returns:
-            Dict mapping ticker to price (only includes tickers with cached prices)
-        """
+    async def get_cached_prices(self, tickers: list[str]) -> dict[str, float]:
+        """Get latest prices for multiple tickers from WebSocket cache."""
         if not tickers:
             return {}
-
-        prices: dict[str, Decimal] = {}
+        prices: dict[str, float] = {}
         for ticker in tickers:
             price = await self.get_cached_price(ticker)
             if price is not None:
@@ -173,75 +159,6 @@ class FinnhubPriceProvider:
         """
         key = f"{PRICE_CACHE_PREFIX}:{ticker.upper()}"
         await self._redis.set(key, str(price), ex=ttl)
-
-    async def set_cached_prices(
-        self,
-        prices: dict[str, Decimal | float],
-        ttl: int = PRICE_CACHE_TTL_SECONDS,
-    ) -> None:
-        """Update multiple prices in Redis cache.
-
-        Args:
-            prices: Dict mapping ticker to price
-            ttl: Cache TTL in seconds
-        """
-        for ticker, price in prices.items():
-            await self.set_cached_price(ticker, price, ttl)
-
-    # ─────────────────────────────────────────────────────────────
-    # PriceProvider Protocol Implementation
-    # ─────────────────────────────────────────────────────────────
-
-    async def get_price(self, ticker: str) -> Decimal | None:
-        """Get current price for a single ticker (Protocol method).
-
-        First checks Redis cache, then falls back to REST API if needed.
-
-        Args:
-            ticker: Stock ticker symbol (e.g., "AAPL")
-
-        Returns:
-            Price as Decimal, or None if not available
-        """
-        # First, try cache
-        price = await self.get_cached_price(ticker)
-        if price is not None:
-            return price
-
-        # Fallback to REST
-        return await self.fetch_quote(ticker)
-
-    async def get_prices(
-        self,
-        tickers: list[str],
-        fallback_to_rest: bool = True,
-    ) -> dict[str, Decimal]:
-        """Get prices for multiple tickers (Protocol method).
-
-        First checks Redis cache, then falls back to REST API if needed.
-
-        Args:
-            tickers: List of ticker symbols
-            fallback_to_rest: Whether to use REST API for cache misses
-
-        Returns:
-            Dict mapping ticker to price
-        """
-        if not tickers:
-            return {}
-
-        # First, try cache
-        prices = await self.get_cached_prices(tickers)
-
-        # Find missing tickers
-        missing = [t for t in tickers if t.upper() not in prices]
-
-        if missing and fallback_to_rest:
-            logger.debug("Fetching missing prices via REST", missing=missing)
-            rest_prices = await self.fetch_quotes(missing)
-            prices.update(rest_prices)
-
-        return prices
 
     # ─────────────────────────────────────────────────────────────
     # WebSocket (real-time)
@@ -404,7 +321,7 @@ class FinnhubPriceProvider:
                 logger.debug("Unsubscribed from ticker", ticker=ticker_upper)
 
     # ─────────────────────────────────────────────────────────────
-    # REST API (fallback + outcome verification)
+    # REST API (live quotes)
     # ─────────────────────────────────────────────────────────────
 
     def _get_http_client(self) -> httpx.AsyncClient:
@@ -413,19 +330,19 @@ class FinnhubPriceProvider:
             self._http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         return self._http_client
 
-    async def fetch_quote(self, ticker: str) -> Decimal | None:
-        """Fetch current price via REST API.
+    async def get_quote(self, ticker: str) -> QuoteData:
+        """Fetch full quote data from Finnhub REST API.
 
-        This is a fallback for when the cache is empty.
-        Note: Rate limited to 60 calls/min on free tier.
+        Always makes a live API call. Raises on failure so the API route
+        can return the appropriate error to the caller.
 
         Args:
             ticker: Stock ticker symbol
 
-        Returns:
-            Current price as Decimal, or None if fetch failed
+        Raises:
+            httpx.HTTPStatusError: If Finnhub returns an HTTP error
+            ValueError: If the response contains no valid price
         """
-        # Use global rate limiter to prevent exceeding API limits
         rate_limiter = get_rate_limiter()
         await rate_limiter.acquire()
 
@@ -434,54 +351,48 @@ class FinnhubPriceProvider:
         url = f"{settings.finnhub_api_url}/quote"
         params = {"symbol": ticker.upper(), "token": self._api_key}
 
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
 
-            # Finnhub quote response: {"c": 150.25, "h": 151, "l": 149, ...}
-            current_price = data.get("c")
-            if current_price and current_price > 0:
-                price = Decimal(str(current_price))
-                # Cache the fetched price
-                await self.set_cached_price(ticker, price)
-                logger.debug("Fetched quote via REST", ticker=ticker, price=str(price))
-                return price
-            else:
-                logger.warning("Invalid quote response", ticker=ticker, data=data)
-                return None
+        current_price = data.get("c")
+        if not current_price or current_price <= 0:
+            raise ValueError(f"No valid price for {ticker.upper()}")
 
-        except httpx.HTTPStatusError as e:
-            logger.warning(
-                "Quote fetch HTTP error",
-                ticker=ticker,
-                status=e.response.status_code,
-            )
-            return None
-        except Exception as e:
-            logger.warning("Quote fetch failed", ticker=ticker, error=str(e))
-            return None
+        return QuoteData(
+            current=data["c"],
+            change=data.get("d", 0) or 0,
+            percent_change=data.get("dp", 0) or 0,
+            high=data.get("h", 0) or 0,
+            low=data.get("l", 0) or 0,
+            open=data.get("o", 0) or 0,
+            previous_close=data.get("pc", 0) or 0,
+            timestamp=data.get("t", 0) or 0,
+        )
 
-    async def fetch_quotes(self, tickers: list[str]) -> dict[str, Decimal]:
-        """Fetch prices for multiple tickers via REST API.
+    async def get_quotes(self, tickers: list[str]) -> dict[str, QuoteData]:
+        """Fetch full quote data for multiple tickers from Finnhub REST API.
 
-        Includes rate limiting (60 calls/min on free tier).
+        Calls get_quote() per ticker. Failures are logged and skipped.
 
         Args:
             tickers: List of ticker symbols
 
         Returns:
-            Dict mapping ticker to price (only includes successful fetches)
+            Dict mapping ticker to QuoteData (only successful fetches)
         """
-        prices: dict[str, Decimal] = {}
+        if not tickers:
+            return {}
 
+        quotes: dict[str, QuoteData] = {}
         for ticker in tickers:
-            # Rate limiting is handled globally by fetch_quote()
-            price = await self.fetch_quote(ticker)
-            if price is not None:
-                prices[ticker.upper()] = price
+            upper = ticker.upper()
+            try:
+                quotes[upper] = await self.get_quote(upper)
+            except Exception:
+                logger.warning("Quote fetch failed", ticker=upper)
 
-        return prices
+        return quotes
 
     # ─────────────────────────────────────────────────────────────
     # Lifecycle
