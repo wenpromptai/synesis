@@ -287,9 +287,14 @@ def format_condensed_signal(
 <i>Confidence: {analysis.thesis_confidence:.0%}</i>"""
 
     # Split tickers into stock tickers vs macro ETF proxies
-    from synesis.processing.news.models import MACRO_ETF_TICKERS
+    from synesis.processing.news.models import MACRO_ETF_TICKERS, SECTOR_ETF_TICKERS
 
-    stock_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker not in MACRO_ETF_TICKERS]
+    stock_tickers = [
+        ta
+        for ta in analysis.ticker_analyses
+        if ta.ticker not in MACRO_ETF_TICKERS and ta.ticker not in SECTOR_ETF_TICKERS
+    ]
+    sector_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker in SECTOR_ETF_TICKERS]
     macro_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker in MACRO_ETF_TICKERS]
 
     def _format_ticker_lines(tickers: list[TickerAnalysis]) -> str:
@@ -305,6 +310,10 @@ def format_condensed_signal(
     if stock_tickers:
         msg += "\n\n📊 <b>Tickers</b>"
         msg += _format_ticker_lines(stock_tickers)
+
+    if sector_tickers:
+        msg += "\n\n🏢 <b>Sector Impact</b>"
+        msg += _format_ticker_lines(sector_tickers)
 
     if macro_tickers:
         msg += "\n\n🌍 <b>Macro Impact</b>"

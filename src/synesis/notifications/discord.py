@@ -195,7 +195,7 @@ def format_stage2_embed(
     Returns:
         List of embed dicts
     """
-    from synesis.processing.news.models import MACRO_ETF_TICKERS
+    from synesis.processing.news.models import MACRO_ETF_TICKERS, SECTOR_ETF_TICKERS
 
     sentiment = analysis.sentiment.value
     sentiment_colors = {
@@ -236,7 +236,12 @@ def format_stage2_embed(
     # Ticker sections
     direction_emoji = {"bullish": "\U0001f7e2", "bearish": "\U0001f534", "neutral": "\u26aa"}
 
-    stock_tickers = [t for t in analysis.ticker_analyses if t.ticker not in MACRO_ETF_TICKERS]
+    stock_tickers = [
+        t
+        for t in analysis.ticker_analyses
+        if t.ticker not in MACRO_ETF_TICKERS and t.ticker not in SECTOR_ETF_TICKERS
+    ]
+    sector_tickers = [t for t in analysis.ticker_analyses if t.ticker in SECTOR_ETF_TICKERS]
     macro_tickers = [t for t in analysis.ticker_analyses if t.ticker in MACRO_ETF_TICKERS]
 
     def _format_ticker_lines(tickers: list[TickerAnalysis]) -> str:
@@ -255,6 +260,15 @@ def format_stage2_embed(
             {
                 "name": "Tickers",
                 "value": _format_ticker_lines(stock_tickers)[:1024],
+                "inline": False,
+            }
+        )
+
+    if sector_tickers:
+        fields.append(
+            {
+                "name": "Sector Impact",
+                "value": _format_ticker_lines(sector_tickers)[:1024],
                 "inline": False,
             }
         )
