@@ -240,7 +240,7 @@ async def agent_lifespan(
 
             scheduler.add_job(
                 twitter_agent_job,
-                CronTrigger(hour=14, minute=45, timezone="UTC"),
+                CronTrigger(hour=15, minute=0, timezone="UTC"),
                 args=[watchlist, yf_client, ticker_prov],
                 id="twitter_agent",
                 max_instances=1,
@@ -248,7 +248,7 @@ async def agent_lifespan(
             logger.info(
                 "Twitter agent digest scheduled",
                 accounts=settings.twitter_accounts,
-                schedule="14:45 UTC (10:45pm SGT)",
+                schedule="15:00 UTC (11pm SGT)",
             )
 
         scheduler.start()
