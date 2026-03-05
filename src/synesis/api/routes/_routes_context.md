@@ -13,6 +13,7 @@ All endpoints are rate-limited per IP via slowapi.
 | `/fh` subscribe/unsubscribe | 60/min | Local WebSocket mgmt |
 | `/yf/*` (quote, history, FX, expirations) | 30/min | yfinance (no official limit) |
 | `/yf/options/{ticker}/chain` | 10/min | Heavy (chain + optional Greeks) |
+| `/yf/options/{ticker}/snapshot` | 10/min | Heavy (quote + history + chain) |
 | `/watchlist` reads | 60/min | Local Redis/PG |
 | `/watchlist` writes (add, delete, cleanup) | 10/min | Local Redis/PG |
 | `/earnings/*` | 30/min | NASDAQ (free, ~200/min) |
@@ -373,6 +374,25 @@ curl "localhost:7337/api/v1/yf/options/AAPL/chain?expiration=2026-04-17&greeks=t
         "contract_symbol": "AAPL260417P00120000", "strike": 120.0, "last_price": 0.03, "bid": 0.0, "ask": 0.0, "volume": 2, "open_interest": 0, "implied_volatility": 0.500005, "in_the_money": false,
         "greeks": {"delta": -0.000002, "gamma": 0.0, "theta": -0.000005, "vega": 0.000008, "rho": -0.000001, "implied_volatility": 0.500005}
     }]
+}
+```
+
+### GET `/yf/options/{ticker}/snapshot?greeks=`
+Pre-computed options snapshot: spot price, 30d realized vol, nearest valid expiry (skips <7 DTE), ATM ±10 strikes per side.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ticker` | path | — | Stock ticker |
+| `greeks` | query | `true` | Compute Black-Scholes Greeks |
+
+```
+curl "localhost:7337/api/v1/yf/options/AAPL/snapshot"
+```
+```json
+{
+    "ticker": "AAPL", "spot": 264.72, "realized_vol_30d": 0.3245, "expiration": "2026-03-20", "days_to_expiry": 15,
+    "calls": [{"contract_symbol": "AAPL260320C00265000", "strike": 265.0, "last_price": 5.50, "bid": 5.30, "ask": 5.70, "volume": 1200, "open_interest": 8500, "implied_volatility": 0.28, "in_the_money": false, "greeks": {"delta": 0.48, "gamma": 0.02, "theta": -0.15, "vega": 0.35, "rho": 0.05, "implied_volatility": 0.28}}],
+    "puts": [{"contract_symbol": "AAPL260320P00265000", "strike": 265.0, "last_price": 5.80, "bid": 5.60, "ask": 6.00, "volume": 900, "open_interest": 7200, "implied_volatility": 0.29, "in_the_money": true, "greeks": {"delta": -0.52, "gamma": 0.02, "theta": -0.14, "vega": 0.35, "rho": -0.05, "implied_volatility": 0.29}}]
 }
 ```
 

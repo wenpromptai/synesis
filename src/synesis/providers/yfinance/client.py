@@ -15,6 +15,12 @@ import yfinance as yf
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
+from synesis.core.constants import (
+    OPTIONS_SNAPSHOT_ATM_STRIKES,
+    OPTIONS_SNAPSHOT_MIN_BARS,
+    OPTIONS_SNAPSHOT_MIN_DTE,
+    OPTIONS_SNAPSHOT_TRADING_DAYS,
+)
 from synesis.providers.yfinance.models import (
     EquityQuote,
     FXRate,
@@ -22,6 +28,7 @@ from synesis.providers.yfinance.models import (
     OptionsChain,
     OptionsContract,
     OptionsGreeks,
+    OptionsSnapshot,
 )
 
 if TYPE_CHECKING:
@@ -251,6 +258,98 @@ class YFinanceClient:
             ex=settings.yfinance_cache_ttl_options,
         )
         return chain
+
+    async def get_options_snapshot(
+        self,
+        ticker: str,
+        greeks: bool = True,
+    ) -> OptionsSnapshot:
+        """Get pre-computed options snapshot with realized vol and ATM chain.
+
+        Orchestrates existing methods: get_quote, get_history,
+        get_options_expirations, get_options_chain. Computes 30d realized vol
+        and filters chain to nearest-ATM strikes.
+        """
+        from datetime import UTC, date as date_cls, datetime
+
+        settings = get_settings()
+        ticker_up = ticker.upper()
+        cache_key = f"{CACHE_PREFIX}:snapshot:{ticker_up}:g{int(greeks)}"
+
+        cached = await self._redis.get(cache_key)
+        if cached:
+            try:
+                return OptionsSnapshot.model_validate(orjson.loads(cached))
+            except Exception as e:
+                logger.warning("Cache deserialization failed", key=cache_key, error=str(e))
+
+        # Spot price
+        quote = await self.get_quote(ticker_up)
+        spot = quote.last
+
+        # 30d realized vol from daily closes
+        realized_vol: float | None = None
+        bars = await self.get_history(ticker_up, period="1mo", interval="1d")
+        if len(bars) >= OPTIONS_SNAPSHOT_MIN_BARS:
+            closes = [b.close for b in bars if b.close is not None and b.close > 0]
+            if len(closes) >= OPTIONS_SNAPSHOT_MIN_BARS:
+                log_returns = [
+                    math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))
+                ]
+                mean_r = sum(log_returns) / len(log_returns)
+                variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
+                realized_vol = math.sqrt(variance * OPTIONS_SNAPSHOT_TRADING_DAYS)
+
+        # Select expiry: skip < MIN_DTE days, pick first valid
+        expirations = await self.get_options_expirations(ticker_up)
+        today = datetime.now(UTC).date()
+        target_exp = ""
+        days_to_expiry = 0
+        for exp_str in expirations:
+            exp_date = date_cls.fromisoformat(exp_str)
+            dte = (exp_date - today).days
+            if dte >= OPTIONS_SNAPSHOT_MIN_DTE:
+                target_exp = exp_str
+                days_to_expiry = dte
+                break
+
+        if not target_exp:
+            return OptionsSnapshot(
+                ticker=ticker_up,
+                spot=spot,
+                realized_vol_30d=realized_vol,
+                expiration="",
+                days_to_expiry=0,
+                calls=[],
+                puts=[],
+            )
+
+        chain = await self.get_options_chain(ticker_up, target_exp, greeks=greeks)
+
+        # Filter to N nearest-ATM strikes per side (skip if no spot price)
+        if spot is not None:
+            calls = sorted(chain.calls, key=lambda c: abs(c.strike - spot))[:OPTIONS_SNAPSHOT_ATM_STRIKES]
+            puts = sorted(chain.puts, key=lambda c: abs(c.strike - spot))[:OPTIONS_SNAPSHOT_ATM_STRIKES]
+        else:
+            calls = chain.calls[:OPTIONS_SNAPSHOT_ATM_STRIKES]
+            puts = chain.puts[:OPTIONS_SNAPSHOT_ATM_STRIKES]
+
+        snapshot = OptionsSnapshot(
+            ticker=ticker_up,
+            spot=spot,
+            realized_vol_30d=round(realized_vol, 6) if realized_vol is not None else None,
+            expiration=target_exp,
+            days_to_expiry=days_to_expiry,
+            calls=calls,
+            puts=puts,
+        )
+
+        await self._redis.set(
+            cache_key,
+            orjson.dumps(snapshot.model_dump(mode="json")),
+            ex=settings.yfinance_cache_ttl_options,
+        )
+        return snapshot
 
 
 # ---------------------------------------------------------------------------

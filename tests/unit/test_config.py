@@ -150,6 +150,12 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
         "https://discord.com/api/webhooks/456/def",
         "https://discord.com/api/webhooks/456/def",
     ),  # SecretStr
+    (
+        "discord_twitter_webhook_url",
+        "DISCORD_TWITTER_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/789/ghi",
+        "https://discord.com/api/webhooks/789/ghi",
+    ),  # SecretStr
     # --- Twitter ---
     ("twitterapi_api_key", "TWITTERAPI_API_KEY", "twkey", "twkey"),  # SecretStr
     (
@@ -176,6 +182,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ),
     ("llm_model", "LLM_MODEL", "gpt-4", "gpt-4"),
     ("llm_model_smart", "LLM_MODEL_SMART", "gpt-4-turbo", "gpt-4-turbo"),
+    ("llm_model_x", "LLM_MODEL_X", "claude-3-5-sonnet-20250520", "claude-3-5-sonnet-20250520"),
     # --- Web search ---
     ("searxng_url", "SEARXNG_URL", "http://search.local:8080", "http://search.local:8080"),
     ("exa_api_key", "EXA_API_KEY", "exa123", "exa123"),  # SecretStr
@@ -230,6 +237,7 @@ _SECRET_FIELDS = {
     "telegram_bot_token",
     "discord_webhook_url",
     "discord2_webhook_url",
+    "discord_twitter_webhook_url",
     "twitterapi_api_key",
     "polymarket_api_key",
     "polymarket_api_secret",

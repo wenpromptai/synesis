@@ -139,8 +139,14 @@ class TwitterClient:
             log.error("twitter_request_error", error=str(e))
             raise
 
+        # API returns {"status": "success", "data": {"tweets": [...], "next_cursor": ...}}
+        status = data.get("status")
+        if status and status != "success":
+            log.warning("twitter_api_unexpected_status", status=status)
+        inner = data.get("data", data)  # fallback to top-level if no "data" wrapper
+
         tweets: list[Tweet] = []
-        for tweet_data in data.get("tweets", []):
+        for tweet_data in inner.get("tweets", []):
             try:
                 tweet = self._parse_tweet(tweet_data)
                 tweets.append(tweet)
@@ -148,7 +154,7 @@ class TwitterClient:
                 log.warning("tweet_parse_error", error=str(e), tweet_id=tweet_data.get("id"))
                 continue
 
-        next_cursor = data.get("next_cursor")
+        next_cursor = inner.get("next_cursor")
         log.debug("fetched_tweets", count=len(tweets), has_next=bool(next_cursor))
 
         return tweets, next_cursor

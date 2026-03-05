@@ -92,3 +92,16 @@ async def get_options_chain(
     """Full options chain (calls + puts) for a given expiration."""
     chain = await client.get_options_chain(ticker, expiration=expiration, greeks=greeks)
     return chain.model_dump(mode="json")
+
+
+@router.get("/options/{ticker}/snapshot")
+@limiter.limit("10/minute")
+async def get_options_snapshot(
+    request: Request,
+    ticker: str,
+    client: YFinanceClientDep,
+    greeks: bool = Query(True, description="Compute Black-Scholes Greeks"),
+) -> dict[str, Any]:
+    """Options snapshot: spot, 30d realized vol, nearest valid expiry, ATM ±10 strikes."""
+    snapshot = await client.get_options_snapshot(ticker, greeks=greeks)
+    return snapshot.model_dump(mode="json")

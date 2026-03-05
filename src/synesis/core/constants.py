@@ -55,3 +55,11 @@ DEFAULT_FINNHUB_API_URL = "https://finnhub.io/api/v1"
 # News Processing (Flow 1)
 # ─────────────────────────────────────────────────────────────
 MIN_THESIS_CONFIDENCE_FOR_ALERT = 0.30  # Skip notifications below this confidence
+
+# ─────────────────────────────────────────────────────────────
+# Options Snapshot
+# ─────────────────────────────────────────────────────────────
+OPTIONS_SNAPSHOT_ATM_STRIKES = 10  # ±N nearest strikes per side
+OPTIONS_SNAPSHOT_MIN_DTE = 7  # Skip expirations within N days
+OPTIONS_SNAPSHOT_MIN_BARS = 5  # Min daily closes for realized vol calc
+OPTIONS_SNAPSHOT_TRADING_DAYS = 252  # Annualization factor

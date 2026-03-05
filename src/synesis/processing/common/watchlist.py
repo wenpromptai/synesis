@@ -30,20 +30,31 @@ class WatchlistManager:
         self.db = db
         self.ttl_days = ttl_days
 
-    async def add_ticker(self, ticker: str, source: str) -> bool:
+    async def add_ticker(
+        self,
+        ticker: str,
+        source: str,
+        added_reason: str | None = None,
+    ) -> bool:
         """Add ticker to watchlist or extend expiry if exists.
+
+        Args:
+            ticker: Stock ticker symbol
+            source: Account/channel name (e.g. "@Deitaone", "@aleabitoreddit")
+            added_reason: Why this ticker was added (e.g. thesis summary).
+                Falls back to "Signal from {source}" if not provided.
 
         Returns:
             True if ticker was newly added, False if refreshed
         """
         ticker = ticker.upper()
         expires_at = datetime.now(UTC) + timedelta(days=self.ttl_days)
-        added_reason = f"Signal from {source}"
+        reason = added_reason if added_reason is not None else f"Signal from {source}"
 
         is_new = await self.db.upsert_watchlist_ticker(
             ticker=ticker,
             added_by=source,
-            added_reason=added_reason,
+            added_reason=reason,
             expires_at=expires_at,
         )
 
@@ -110,8 +121,14 @@ class WatchlistManager:
         self,
         tickers: list[str],
         source: str,
+        added_reason: str | None = None,
     ) -> tuple[list[str], list[str]]:
         """Add multiple tickers to watchlist.
+
+        Args:
+            tickers: List of ticker symbols
+            source: Account/channel name (e.g. "@aleabitoreddit")
+            added_reason: Why these tickers were added (e.g. thesis summary)
 
         Returns:
             Tuple of (newly_added, refreshed) ticker lists
@@ -120,7 +137,7 @@ class WatchlistManager:
         refreshed = []
 
         for ticker in tickers:
-            is_new = await self.add_ticker(ticker, source)
+            is_new = await self.add_ticker(ticker, source, added_reason=added_reason)
             if is_new:
                 newly_added.append(ticker)
             else:

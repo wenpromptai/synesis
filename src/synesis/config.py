@@ -76,6 +76,10 @@ class Settings(BaseSettings):
         default=None,
         description="Discord webhook URL for Stage 2 notifications (falls back to discord_webhook_url)",
     )
+    discord_twitter_webhook_url: SecretStr | None = Field(
+        default=None,
+        description="Discord webhook URL for daily Twitter agent digest",
+    )
 
     @field_validator("telegram_channels", mode="before")
     @classmethod
@@ -127,6 +131,10 @@ class Settings(BaseSettings):
     # Model names
     llm_model: str = Field(default="claude-3-5-haiku-20241022")
     llm_model_smart: str = Field(default="claude-sonnet-4-20250514")
+    llm_model_x: str = Field(
+        default="claude-sonnet-4-20250514",
+        description="Model for Twitter agent pipeline (larger context window)",
+    )
 
     # Web Search APIs (for LLM tool use)
     # SearXNG (self-hosted, primary search - no API key, no rate limits)

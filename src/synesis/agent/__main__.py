@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 if TYPE_CHECKING:
@@ -218,6 +219,38 @@ async def agent_lifespan(
                 max_instances=1,
             )
 
+        # Twitter agent daily digest
+        yf_client = None
+        ticker_prov = None
+        if settings.twitterapi_api_key and settings.twitter_accounts:
+            from synesis.processing.twitter.job import twitter_agent_job
+            from synesis.providers.yfinance.client import YFinanceClient
+
+            # Create YFinanceClient for live market data in twitter analyzer
+            yf_client = YFinanceClient(redis=redis)
+
+            # Create TickerProvider for ticker verification (if Finnhub configured)
+            if settings.finnhub_api_key:
+                from synesis.providers.factory import create_ticker_provider
+
+                try:
+                    ticker_prov = await create_ticker_provider(redis)
+                except ValueError:
+                    logger.warning("Could not create TickerProvider for twitter agent")
+
+            scheduler.add_job(
+                twitter_agent_job,
+                CronTrigger(hour=14, minute=45, timezone="UTC"),
+                args=[watchlist, yf_client, ticker_prov],
+                id="twitter_agent",
+                max_instances=1,
+            )
+            logger.info(
+                "Twitter agent digest scheduled",
+                accounts=settings.twitter_accounts,
+                schedule="14:45 UTC (10:45pm SGT)",
+            )
+
         scheduler.start()
 
         # 5. Start agent processing loop
@@ -252,10 +285,21 @@ async def agent_lifespan(
             "Agent ready",
             llm_provider=settings.llm_provider,
             llm_model=settings.llm_model,
+            llm_model_smart=settings.llm_model_smart,
             telegram_enabled=telegram_listener is not None,
             db_enabled=db_initialized,
             queue=INCOMING_QUEUE,
         )
+
+        # Build trigger functions for on-demand API calls
+        trigger_fns: dict[str, Any] = {}
+        if settings.twitterapi_api_key and settings.twitter_accounts:
+            from synesis.processing.twitter.job import twitter_agent_job
+
+            async def _trigger_twitter_agent() -> None:
+                await twitter_agent_job(watchlist, yf_client, ticker_prov)
+
+            trigger_fns["twitter_agent"] = _trigger_twitter_agent
 
         yield AgentState(
             redis=redis,
@@ -265,6 +309,7 @@ async def agent_lifespan(
             telegram_enabled=telegram_listener is not None,
             db_enabled=db_initialized,
             scheduler=scheduler,
+            trigger_fns=trigger_fns,
         )
 
     finally:

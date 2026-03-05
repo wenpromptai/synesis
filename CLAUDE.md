@@ -67,6 +67,7 @@ src/synesis/
 ├── ingestion/         # Telegram, Twitter listeners
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
+│   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data providers
 │   ├── finnhub/       # Real-time prices, fundamentals
@@ -120,11 +121,12 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 
 - `/system/*` — System status (60/min)
 - `/fh/*` — Finnhub: ticker verify/search (120/min), REST quotes (60/min), WS cache reads (120/min)
-- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks (30/min, chain 10/min)
+- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks, options snapshot (30/min, chain/snapshot 10/min)
 - `/watchlist/*` — Watchlist CRUD (reads 60/min, writes 10/min)
 - `/earnings/*` — NASDAQ earnings calendar (30/min)
 - `/sec_edgar/*` — SEC filings, insider transactions, sentiment, search (60/min, earnings content 10/min)
 - `/fred/*` — FRED: series search, observations, releases (30/min, info 60/min)
+- `/twitter/*` — Twitter agent: trigger daily digest (5/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 

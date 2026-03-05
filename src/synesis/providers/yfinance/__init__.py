@@ -11,6 +11,7 @@ from synesis.providers.yfinance.models import (
     OptionsChain,
     OptionsContract,
     OptionsGreeks,
+    OptionsSnapshot,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "OptionsChain",
     "OptionsContract",
     "OptionsGreeks",
+    "OptionsSnapshot",
 ]

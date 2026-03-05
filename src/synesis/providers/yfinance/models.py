@@ -78,3 +78,15 @@ class OptionsChain(BaseModel):
     expiration: str
     calls: list[OptionsContract]
     puts: list[OptionsContract]
+
+
+class OptionsSnapshot(BaseModel):
+    """Pre-computed options snapshot with realized vol and ATM chain."""
+
+    ticker: str
+    spot: float | None = None
+    realized_vol_30d: float | None = None
+    expiration: str
+    days_to_expiry: int
+    calls: list[OptionsContract]
+    puts: list[OptionsContract]

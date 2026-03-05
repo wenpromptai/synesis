@@ -430,10 +430,12 @@ class NewsProcessor:
             # Add validated tickers to watchlist for price tracking
             # Note: Ticker verification is now done by the LLM via verify_ticker tool
             if self._watchlist and analysis.tickers:
+                reason = analysis.primary_thesis[:200] if analysis.primary_thesis else None
                 for ticker in analysis.tickers:
                     await self._watchlist.add_ticker(
                         ticker,
-                        source=message.source_platform.value,
+                        source=f"@{message.source_account}",
+                        added_reason=reason,
                     )
 
             # Log if edge found
