@@ -11,7 +11,7 @@ Real-time financial news analysis and prediction market trading system. Transfor
 - Package manager: uv
 - Database: PostgreSQL 16 + TimescaleDB
 - Cache/Queue: Redis
-- LLM: PydanticAI (Claude / OpenAI)
+- LLM: PydanticAI (Codex / OpenAI)
 - Trading: Polymarket (Gamma API for discovery, CLOB API for execution)
 
 ## Commands
@@ -108,7 +108,7 @@ scripts/               # Utility scripts
 
 ## Context
 
-- `.claude/skills/fastapi-developing/` - FastAPI patterns
+- `.Codex/skills/fastapi-developing/` - FastAPI patterns
 
 ## Key APIs
 

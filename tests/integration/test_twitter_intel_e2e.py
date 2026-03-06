@@ -164,8 +164,23 @@ class TestTwitterAgentE2E:
 
         assert result is not None
 
-        etf_symbols = {"SPY", "QQQ", "TLT", "GLD", "USO", "UUP", "VIXY", "EEM",
-                        "XLF", "XLK", "XLE", "XLV", "SMH", "IBB", "KRE"}
+        etf_symbols = {
+            "SPY",
+            "QQQ",
+            "TLT",
+            "GLD",
+            "USO",
+            "UUP",
+            "VIXY",
+            "EEM",
+            "XLF",
+            "XLK",
+            "XLE",
+            "XLV",
+            "SMH",
+            "IBB",
+            "KRE",
+        }
         for theme in result.themes:
             for tm in theme.tickers:
                 if tm.ticker in etf_symbols:
@@ -243,9 +258,7 @@ class TestYFinanceToolsDirectly:
         assert len(closes) >= 5, f"Need >=5 closes, got {len(closes)}"
 
         # Same math as the tool
-        log_returns = [
-            math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))
-        ]
+        log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
         mean_r = sum(log_returns) / len(log_returns)
         variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
         realized_vol = math.sqrt(variance * 252)
@@ -333,13 +346,9 @@ class TestYFinanceToolsDirectly:
         closes = [b.close for b in bars if b.close is not None and b.close > 0]
 
         if len(closes) >= 5:
-            log_returns = [
-                math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))
-            ]
+            log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
             mean_r = sum(log_returns) / len(log_returns)
-            variance = sum((r - mean_r) ** 2 for r in log_returns) / (
-                len(log_returns) - 1
-            )
+            variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
             realized_vol = math.sqrt(variance * 252)
             assert math.isfinite(realized_vol)
             assert 0.01 <= realized_vol <= 3.0

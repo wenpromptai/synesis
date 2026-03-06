@@ -13,8 +13,9 @@ import orjson
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import date, datetime
 
+    from synesis.processing.events.models import CalendarEvent
     from synesis.processing.news import NewsSignal, MarketEvaluation, UnifiedMessage
 
 logger = get_logger(__name__)
@@ -361,6 +362,178 @@ class Database:
         query = "SELECT 1 FROM watchlist WHERE ticker = $1 AND is_active = TRUE"
         result = await self.fetchval(query, ticker)
         return result is not None
+
+    # -------------------------------------------------------------------------
+    # Event Radar: Calendar Events
+    # -------------------------------------------------------------------------
+
+    async def upsert_calendar_event(
+        self,
+        event: "CalendarEvent",
+        title_hash: str,
+    ) -> int | None:
+        """Insert or update a calendar event (dedup by title_hash + event_date).
+
+        Returns the event id on success, None if no change.
+        """
+        query = """
+            INSERT INTO calendar_events (
+                title, description, event_date, event_end_date, category,
+                sector, region, tickers, importance, importance_reasoning,
+                source_urls, confidence, title_hash
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (title_hash, event_date) DO UPDATE SET
+                description = COALESCE(EXCLUDED.description, calendar_events.description),
+                importance = GREATEST(EXCLUDED.importance, calendar_events.importance),
+                confidence = GREATEST(EXCLUDED.confidence, calendar_events.confidence),
+                source_urls = (
+                    SELECT ARRAY(SELECT DISTINCT unnest(calendar_events.source_urls || EXCLUDED.source_urls))
+                ),
+                tickers = (
+                    SELECT ARRAY(SELECT DISTINCT unnest(calendar_events.tickers || EXCLUDED.tickers))
+                ),
+                updated_at = NOW()
+            RETURNING id
+        """
+        result = await self.fetchval(
+            query,
+            event.title,
+            event.description,
+            event.event_date,
+            event.event_end_date,
+            event.category,
+            event.sector,
+            event.region,
+            event.tickers,
+            event.importance,
+            event.importance_reasoning,
+            event.source_urls,
+            event.confidence,
+            title_hash,
+        )
+        return int(result) if result is not None else None
+
+    async def get_upcoming_events(
+        self,
+        days: int = 7,
+        *,
+        region: list[str] | None = None,
+        category: str | None = None,
+        sector: str | None = None,
+        min_importance: int = 1,
+    ) -> list[asyncpg.Record]:
+        """Get upcoming events within N days, with optional filters."""
+        conditions = [
+            "event_date >= CURRENT_DATE",
+            "event_date <= CURRENT_DATE + make_interval(days => $1)",
+        ]
+        params: list[object] = [days]
+        idx = 2
+
+        if min_importance > 1:
+            conditions.append(f"importance >= ${idx}")
+            params.append(min_importance)
+            idx += 1
+
+        if category:
+            conditions.append(f"category = ${idx}")
+            params.append(category)
+            idx += 1
+
+        if sector:
+            conditions.append(f"sector = ${idx}")
+            params.append(sector)
+            idx += 1
+
+        if region:
+            conditions.append(f"region && ${idx}")
+            params.append(region)
+            idx += 1
+
+        where = " AND ".join(conditions)
+        query = f"""
+            SELECT * FROM calendar_events
+            WHERE {where}
+            ORDER BY event_date, importance DESC
+        """
+        return await self.fetch(query, *params)
+
+    async def get_events_by_date_range(
+        self,
+        start: "date",
+        end: "date",
+    ) -> list[asyncpg.Record]:
+        """Get all events in a date range."""
+        query = """
+            SELECT * FROM calendar_events
+            WHERE event_date >= $1 AND event_date <= $2
+            ORDER BY event_date, importance DESC
+        """
+        return await self.fetch(query, start, end)
+
+    async def get_event_by_id(self, event_id: int) -> asyncpg.Record | None:
+        """Get a single event by ID."""
+        return await self.fetchrow("SELECT * FROM calendar_events WHERE id = $1", event_id)
+
+    async def get_nearby_events(
+        self,
+        event_date: "date",
+        days_range: int = 5,
+        tickers: list[str] | None = None,
+    ) -> list[asyncpg.Record]:
+        """Find events near a date, optionally filtered by overlapping tickers."""
+        if tickers:
+            query = """
+                SELECT * FROM calendar_events
+                WHERE event_date BETWEEN $1::date - $2::int AND $1::date + $2::int
+                  AND tickers && $3
+            """
+            return await self.fetch(query, event_date, days_range, tickers)
+        query = """
+            SELECT * FROM calendar_events
+            WHERE event_date BETWEEN $1::date - $2::int AND $1::date + $2::int
+        """
+        return await self.fetch(query, event_date, days_range)
+
+    async def get_events_discovered_since(
+        self,
+        since: "datetime",
+    ) -> list[int]:
+        """Get IDs of events discovered after a given timestamp."""
+        query = """
+            SELECT id FROM calendar_events
+            WHERE discovered_at > $1
+        """
+        rows = await self.fetch(query, since)
+        return [r["id"] for r in rows]
+
+    async def get_last_fomc_meeting_date(self, before_date: "date") -> "date | None":
+        """Get the most recent FOMC rate-decision date before a given date.
+
+        Used to construct the minutes URL (minutes release date != meeting date).
+        """
+        query = """
+            SELECT event_date FROM calendar_events
+            WHERE category = 'fed'
+              AND LOWER(title) NOT LIKE '%minute%'
+              AND event_date < $1
+            ORDER BY event_date DESC
+            LIMIT 1
+        """
+        result = await self.fetchval(query, before_date)
+        return cast("date | None", result)
+
+    async def delete_past_events(self, before_date: "date") -> int:
+        """Delete events older than a given date. Returns count deleted."""
+        result = await self.execute(
+            "DELETE FROM calendar_events WHERE event_date < $1", before_date
+        )
+        # result is like "DELETE 42"
+        try:
+            return int(result.split()[-1])
+        except (ValueError, IndexError):
+            return 0
 
     # -------------------------------------------------------------------------
     # Flow 1: Signal and Prediction Storage (continued)

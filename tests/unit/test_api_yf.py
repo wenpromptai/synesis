@@ -135,9 +135,7 @@ class TestOptionsSnapshot:
     async def test_snapshot_null_realized_vol(
         self, mock_yf_client: AsyncMock, client: httpx.AsyncClient
     ) -> None:
-        mock_yf_client.get_options_snapshot.return_value = _make_snapshot(
-            realized_vol_30d=None
-        )
+        mock_yf_client.get_options_snapshot.return_value = _make_snapshot(realized_vol_30d=None)
         r = await client.get(f"{PREFIX}/options/AAPL/snapshot")
         data = r.json()
         assert data["realized_vol_30d"] is None

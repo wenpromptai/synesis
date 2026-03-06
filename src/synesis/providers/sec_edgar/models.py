@@ -46,3 +46,27 @@ class InsiderTransaction(BaseModel):
     acquired_or_disposed: str  # "A" or "D"
     filing_date: date
     filing_url: str
+
+
+class Holding13F(BaseModel):
+    """A single holding from a 13F-HR InfoTable."""
+
+    name_of_issuer: str
+    title_of_class: str
+    cusip: str
+    value_thousands: int
+    shares: int
+    investment_discretion: str
+
+
+class Filing13F(BaseModel):
+    """Parsed 13F-HR filing with holdings."""
+
+    cik: str
+    fund_name: str
+    filed_date: date
+    report_date: date
+    accession_number: str
+    url: str
+    holdings: list[Holding13F]
+    total_value_thousands: int

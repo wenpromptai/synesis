@@ -21,16 +21,16 @@ def create_model(smart: bool = False, tier: str | None = None) -> str | Model:
     Args:
         smart: Use the smart/capable model (llm_model_smart) for complex tasks.
                Default uses llm_model for faster/cheaper tasks.
-        tier: Explicit model tier override. Currently supports "x" for
-              llm_model_x (Twitter agent pipeline). Takes precedence over smart.
+        tier: Explicit model tier override. Currently supports "vsmart" for
+              llm_model_vsmart (most capable model). Takes precedence over smart.
 
     Returns:
         Model string for Anthropic (e.g., "anthropic:claude-3-5-haiku-20241022")
         or OpenAIChatModel instance for OpenAI-compatible APIs.
     """
     settings = get_settings()
-    if tier == "x":
-        model_name = settings.llm_model_x
+    if tier == "vsmart":
+        model_name = settings.llm_model_vsmart
     elif smart:
         model_name = settings.llm_model_smart
     else:

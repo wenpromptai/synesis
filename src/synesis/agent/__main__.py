@@ -29,6 +29,8 @@ from redis.asyncio import Redis
 from synesis.agent.pydantic_runner import run_pydantic_agent
 from synesis.agent.scheduler import (
     create_scheduler,
+    event_digest_job,
+    event_radar_job,
     watchlist_cleanup_job,
 )
 from synesis.config import Settings
@@ -251,6 +253,49 @@ async def agent_lifespan(
                 schedule="15:00 UTC (11pm SGT)",
             )
 
+        # Event Radar jobs (require DB)
+        crawler_instance = None
+        fred_client = None
+        nasdaq_client = None
+        sec_edgar_client = None
+        if db:
+            from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
+            from synesis.providers.nasdaq import NasdaqClient
+            from synesis.providers.sec_edgar.client import SECEdgarClient
+
+            crawler_instance = Crawl4AICrawlerProvider()
+            nasdaq_client = NasdaqClient(redis=redis)
+            sec_edgar_client = SECEdgarClient(redis=redis)
+
+            if settings.fred_api_key:
+                from synesis.providers.fred import FREDClient
+
+                fred_client = FREDClient(redis=redis)
+
+            # Event discovery (structured APIs + curated crawls): 6pm ET daily
+            scheduler.add_job(
+                event_radar_job,
+                CronTrigger(hour=18, minute=0, timezone="America/New_York"),
+                args=[db, redis, crawler_instance, fred_client, nasdaq_client, sec_edgar_client],
+                id="event_radar",
+                max_instances=1,
+            )
+
+            # Daily digest (outcome enrichment + Discord): 7pm ET daily
+            scheduler.add_job(
+                event_digest_job,
+                CronTrigger(hour=19, minute=0, timezone="America/New_York"),
+                args=[db, redis, sec_edgar_client, crawler_instance, fred_client],
+                id="event_digest",
+                max_instances=1,
+            )
+
+            logger.info(
+                "Event Radar scheduled",
+                discovery="6pm ET daily",
+                digest="7pm ET daily",
+            )
+
         scheduler.start()
 
         # 5. Start agent processing loop
@@ -300,6 +345,36 @@ async def agent_lifespan(
                 await twitter_agent_job(watchlist, yf_client, ticker_prov)
 
             trigger_fns["twitter_agent"] = _trigger_twitter_agent
+
+        if db and crawler_instance:
+            from synesis.processing.events.runner import run_full_discovery
+
+            async def _trigger_event_discover() -> dict[str, int]:
+                return await run_full_discovery(
+                    db,
+                    redis,
+                    crawler_instance,
+                    fred=fred_client,
+                    nasdaq=nasdaq_client,
+                    sec_edgar=sec_edgar_client,
+                )
+
+            trigger_fns["event_discover"] = _trigger_event_discover
+
+        if db:
+
+            async def _trigger_event_digest() -> bool:
+                from synesis.processing.events.digest import send_event_digest
+
+                return await send_event_digest(
+                    db,
+                    redis=redis,
+                    sec_edgar=sec_edgar_client,
+                    crawler=crawler_instance,
+                    fred=fred_client,
+                )
+
+            trigger_fns["event_digest"] = _trigger_event_digest
 
         yield AgentState(
             redis=redis,

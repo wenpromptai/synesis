@@ -293,9 +293,7 @@ class YFinanceClient:
         if len(bars) >= OPTIONS_SNAPSHOT_MIN_BARS:
             closes = [b.close for b in bars if b.close is not None and b.close > 0]
             if len(closes) >= OPTIONS_SNAPSHOT_MIN_BARS:
-                log_returns = [
-                    math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))
-                ]
+                log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
                 mean_r = sum(log_returns) / len(log_returns)
                 variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
                 realized_vol = math.sqrt(variance * OPTIONS_SNAPSHOT_TRADING_DAYS)
@@ -328,8 +326,12 @@ class YFinanceClient:
 
         # Filter to N nearest-ATM strikes per side (skip if no spot price)
         if spot is not None:
-            calls = sorted(chain.calls, key=lambda c: abs(c.strike - spot))[:OPTIONS_SNAPSHOT_ATM_STRIKES]
-            puts = sorted(chain.puts, key=lambda c: abs(c.strike - spot))[:OPTIONS_SNAPSHOT_ATM_STRIKES]
+            calls = sorted(chain.calls, key=lambda c: abs(c.strike - spot))[
+                :OPTIONS_SNAPSHOT_ATM_STRIKES
+            ]
+            puts = sorted(chain.puts, key=lambda c: abs(c.strike - spot))[
+                :OPTIONS_SNAPSHOT_ATM_STRIKES
+            ]
         else:
             calls = chain.calls[:OPTIONS_SNAPSHOT_ATM_STRIKES]
             puts = chain.puts[:OPTIONS_SNAPSHOT_ATM_STRIKES]

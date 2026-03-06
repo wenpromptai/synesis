@@ -121,4 +121,5 @@ dev = [
     "pytest-cov>=7.0.0",
     "ruff>=0.14.13",
     "types-defusedxml>=0.7.0.20250822",
+    "types-PyYAML>=6.0",
 ]

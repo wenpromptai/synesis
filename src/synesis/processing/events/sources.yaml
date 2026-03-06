@@ -1,0 +1,165 @@
+# Event Radar — Source Configuration
+# Curated sources crawled via Crawl4AI + 13F hedge fund registry.
+# Structured APIs (FRED macro, NASDAQ earnings) are configured in crawler.py.
+# Surprise detection queries are in core/constants/events.py.
+
+# -- Curated Sources --
+# Crawled on schedule via Crawl4AI for calendar event extraction.
+curated_sources:
+
+  # ── Major Tech Conferences ─────────────────────────────
+  - name: "CES Calendar"
+    url: "https://www.ces.tech/schedule"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: []
+
+  - name: "Apple WWDC"
+    url: "https://developer.apple.com/wwdc/"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: ["AAPL"]
+
+  - name: "Computex"
+    url: "https://www.computextaipei.com.tw/en/"
+    category: conference
+    region: global
+    frequency: weekly
+    tickers: ["TSM", "NVDA", "AMD"]
+
+  - name: "AWS re:Invent"
+    url: "https://reinvent.awsevents.com/"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: ["AMZN"]
+
+  - name: "Google I/O"
+    url: "https://io.google/"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: ["GOOG"]
+
+  # ── Semiconductors & AI Infra Conferences ───────────────
+  - name: "NVIDIA GTC"
+    url: "https://www.nvidia.com/gtc/"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: ["NVDA"]
+
+  - name: "SEMI Events"
+    url: "https://www.semi.org/en/connect/events"
+    category: conference
+    region: global
+    frequency: weekly
+    tickers: []
+
+  - name: "SEMICON West"
+    url: "https://www.semi.org/en/connect/events/semicon-west"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: ["LRCX", "AMAT", "KLAC"]
+
+  - name: "Hot Chips"
+    url: "https://hotchips.org/"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: []
+
+  - name: "OFC Conference"
+    url: "https://www.ofcconference.org/"
+    category: conference
+    region: US
+    frequency: weekly
+    tickers: ["COHR", "LITE", "CIEN"]
+
+  # ── Central Banks ──────────────────────────────────────
+  - name: "Fed FOMC Calendar"
+    url: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    category: fed
+    region: US
+    frequency: monthly
+    tickers: []
+
+# -- 13F Hedge Fund Monitoring --
+# Tracked funds for automatic 13F-HR filing detection.
+# tier: "top" (importance=8) or "high" (importance=7)
+hedge_fund_13f:
+  # Top-tier funds (importance=8)
+  - cik: "1536411"
+    name: "Duquesne Family Office"  # Druckenmiller
+    tier: top
+  - cik: "1067983"
+    name: "Berkshire Hathaway"  # Buffett
+    tier: top
+  - cik: "1350694"
+    name: "Bridgewater Associates"  # Dalio
+    tier: top
+  - cik: "1336528"
+    name: "Pershing Square"  # Ackman
+    tier: top
+  - cik: "1423053"
+    name: "Citadel Advisors"  # Griffin
+    tier: top
+  - cik: "1037389"
+    name: "Renaissance Technologies"  # Simons
+    tier: top
+
+  # High-profile funds (importance=7)
+  - cik: "1656456"
+    name: "Appaloosa Management"  # Tepper
+    tier: high
+  - cik: "1029160"
+    name: "Soros Fund Management"  # Soros
+    tier: high
+  - cik: "1040273"
+    name: "Third Point"  # Loeb
+    tier: high
+  - cik: "1061768"
+    name: "Baupost Group"  # Klarman
+    tier: high
+  - cik: "1167483"
+    name: "Tiger Global Management"
+    tier: high
+  - cik: "1535392"
+    name: "Coatue Management"
+    tier: high
+  - cik: "1749849"
+    name: "D1 Capital Partners"
+    tier: high
+  - cik: "1048445"
+    name: "Elliott Management"
+    tier: high
+  - cik: "1079114"
+    name: "Greenlight Capital"  # Einhorn
+    tier: high
+  - cik: "1103804"
+    name: "Viking Global Investors"  # Halvorsen
+    tier: high
+  - cik: "1061165"
+    name: "Lone Pine Capital"  # Mandel
+    tier: high
+  - cik: "934639"
+    name: "Maverick Capital"  # Ainslie
+    tier: high
+  - cik: "1603466"
+    name: "Point72 Asset Management"  # Cohen
+    tier: high
+  - cik: "1273087"
+    name: "Millennium Management"  # Englander
+    tier: high
+  - cik: "1179392"
+    name: "Two Sigma Investments"
+    tier: high
+  - cik: "1647251"
+    name: "TCI Fund Management"  # Hohn
+    tier: high
+  - cik: "1510589"
+    name: "Hillhouse Capital"  # Zhang Lei
+    tier: high

@@ -1,8 +1,4 @@
-"""Application-wide constants.
-
-These are fixed values that don't change between environments.
-For configurable values, see config.py Settings.
-"""
+"""General application constants — rate limits, cache TTLs, thresholds, processing limits, API URLs."""
 
 # ─────────────────────────────────────────────────────────────
 # API Rate Limits (external constraints)

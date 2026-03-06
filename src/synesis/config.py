@@ -80,6 +80,10 @@ class Settings(BaseSettings):
         default=None,
         description="Discord webhook URL for daily Twitter agent digest",
     )
+    discord_events_webhook_url: SecretStr | None = Field(
+        default=None,
+        description="Discord webhook URL for Event Radar daily digest",
+    )
 
     @field_validator("telegram_channels", mode="before")
     @classmethod
@@ -131,9 +135,9 @@ class Settings(BaseSettings):
     # Model names
     llm_model: str = Field(default="claude-3-5-haiku-20241022")
     llm_model_smart: str = Field(default="claude-sonnet-4-20250514")
-    llm_model_x: str = Field(
+    llm_model_vsmart: str = Field(
         default="claude-sonnet-4-20250514",
-        description="Model for Twitter agent pipeline (larger context window)",
+        description="Most capable model for complex tasks (event synthesis, Twitter agent)",
     )
 
     # Web Search APIs (for LLM tool use)

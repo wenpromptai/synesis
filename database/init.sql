@@ -158,6 +158,65 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_expiry
     ON synesis.watchlist (expires_at) WHERE is_active = TRUE AND expires_at IS NOT NULL;
 
 
+-- -----------------------------------------------------------------------------
+-- Calendar Events
+-- Event Radar: market-relevant events discovered from crawling + APIs
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.calendar_events (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    event_date DATE NOT NULL,
+    event_end_date DATE,
+    category TEXT NOT NULL,           -- earnings | economic_data | fed | 13f_filing |
+                                      -- conference | release | regulatory | other
+    sector TEXT,                       -- ai | energy | precious_metals | NULL
+    region TEXT[] NOT NULL,            -- {'US','JP','SG','HK','global'}
+    tickers TEXT[] DEFAULT '{}',
+    importance INT NOT NULL CHECK (importance BETWEEN 1 AND 10),
+    importance_reasoning TEXT,
+    source_urls TEXT[] NOT NULL DEFAULT '{}',
+    confidence FLOAT NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+    discovered_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    title_hash TEXT NOT NULL,
+    UNIQUE (title_hash, event_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cal_events_date
+    ON synesis.calendar_events (event_date);
+CREATE INDEX IF NOT EXISTS idx_cal_events_tickers
+    ON synesis.calendar_events USING GIN (tickers);
+CREATE INDEX IF NOT EXISTS idx_cal_events_region
+    ON synesis.calendar_events USING GIN (region);
+CREATE INDEX IF NOT EXISTS idx_cal_events_sector
+    ON synesis.calendar_events (sector);
+CREATE INDEX IF NOT EXISTS idx_cal_events_category
+    ON synesis.calendar_events (category);
+
+
+-- -----------------------------------------------------------------------------
+-- Event Patterns (learning layer)
+-- Tracks recurring events to enable proactive discovery
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.event_patterns (
+    id SERIAL PRIMARY KEY,
+    event_name TEXT NOT NULL,
+    organizer TEXT,
+    category TEXT NOT NULL,
+    sector TEXT,
+    cadence TEXT NOT NULL,             -- annual | biannual | quarterly | monthly | irregular
+    typical_month INT,
+    typical_region TEXT[],
+    typical_tickers TEXT[],
+    last_occurrence DATE,
+    next_expected DATE,
+    times_seen INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+
 -- =============================================================================
 -- GRANTS (for application user)
 -- =============================================================================

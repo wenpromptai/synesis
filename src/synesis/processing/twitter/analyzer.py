@@ -194,7 +194,7 @@ class TwitterAgentAnalyzer:
         return self._agent
 
     def _create_agent(self) -> Agent[TwitterAgentDeps, TwitterAgentAnalysis]:
-        model = create_model(tier="x")
+        model = create_model(tier="vsmart")
 
         agent: Agent[TwitterAgentDeps, TwitterAgentAnalysis] = Agent(
             model,
@@ -336,7 +336,9 @@ class TwitterAgentAnalyzer:
                     return f"No options available for {ticker} (spot {spot_str})"
 
                 spot = snap.spot or 0
-                rv_str = f"{snap.realized_vol_30d:.0%}" if snap.realized_vol_30d is not None else "N/A"
+                rv_str = (
+                    f"{snap.realized_vol_30d:.0%}" if snap.realized_vol_30d is not None else "N/A"
+                )
 
                 header = (
                     f"{snap.ticker} options — exp {snap.expiration} "

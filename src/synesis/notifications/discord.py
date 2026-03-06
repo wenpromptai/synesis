@@ -14,6 +14,14 @@ import httpx
 from pydantic import SecretStr
 
 from synesis.config import get_settings
+from synesis.core.constants import (
+    COLOR_BEARISH,
+    COLOR_BULLISH,
+    COLOR_CRITICAL,
+    COLOR_NEUTRAL,
+    COLOR_URGENT,
+    SENTIMENT_ICON,
+)
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -24,13 +32,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 DISCORD_TIMEOUT = 10.0
-
-# Embed colors (decimal integers)
-COLOR_BULLISH = 0x57F287  # Green
-COLOR_BEARISH = 0xED4245  # Red
-COLOR_NEUTRAL = 0xFEE75C  # Yellow
-COLOR_URGENT = 0xE67E22  # Orange
-COLOR_CRITICAL = 0xED4245  # Red
 
 
 async def send_discord(
@@ -204,11 +205,7 @@ def format_stage2_embed(
         "bearish": COLOR_BEARISH,
         "neutral": COLOR_NEUTRAL,
     }
-    sentiment_labels = {
-        "bullish": "\U0001f7e2 BULLISH",
-        "bearish": "\U0001f534 BEARISH",
-        "neutral": "\u26aa NEUTRAL",
-    }
+    sentiment_labels = {k: f"{v} {k.upper()}" for k, v in SENTIMENT_ICON.items()}
     color = sentiment_colors.get(sentiment, COLOR_NEUTRAL)
     label = sentiment_labels.get(sentiment, "\u26aa NEUTRAL")
 
@@ -235,8 +232,6 @@ def format_stage2_embed(
     ]
 
     # Ticker sections
-    direction_emoji = {"bullish": "\U0001f7e2", "bearish": "\U0001f534", "neutral": "\u26aa"}
-
     stock_tickers = [
         t
         for t in analysis.ticker_analyses
@@ -248,7 +243,7 @@ def format_stage2_embed(
     def _format_ticker_lines(tickers: list[TickerAnalysis]) -> str:
         lines = []
         for ta in tickers:
-            emoji = direction_emoji.get(ta.net_direction.value, "\u26aa")
+            emoji = SENTIMENT_ICON.get(ta.net_direction.value, "\u26aa")
             name = f" - {ta.company_name}" if ta.company_name else ""
             line = f"{emoji} `${ta.ticker}`{name} {ta.net_direction.value} ({ta.conviction:.0%})"
             if ta.relevance_reason:
@@ -338,7 +333,6 @@ def format_twitter_agent_embeds(analysis: TwitterAgentAnalysis) -> list[list[dic
     Returns:
         List of messages, where each message is ``list[dict]`` of embeds
     """
-    direction_emoji = {"bullish": "\U0001f7e2", "bearish": "\U0001f534", "neutral": "\u26aa"}
     conviction_emoji = {"high": "\U0001f525", "medium": "\u26a1", "low": "\U0001f4ad"}
     category_emoji = {
         "macro": "\U0001f30d",
@@ -417,7 +411,7 @@ def format_twitter_agent_embeds(analysis: TwitterAgentAnalysis) -> list[list[dic
         if theme.tickers:
             ticker_lines = []
             for tm in theme.tickers:
-                emoji = direction_emoji.get(tm.direction, "\u26aa")
+                emoji = SENTIMENT_ICON.get(tm.direction, "\u26aa")
                 line = f"{emoji} `${tm.ticker}` {tm.direction} — {tm.reasoning}"
                 if tm.price_context:
                     line += f"\n> {tm.price_context}"
