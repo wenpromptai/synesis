@@ -195,28 +195,6 @@ CREATE INDEX IF NOT EXISTS idx_cal_events_category
     ON synesis.calendar_events (category);
 
 
--- -----------------------------------------------------------------------------
--- Event Patterns (learning layer)
--- Tracks recurring events to enable proactive discovery
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS synesis.event_patterns (
-    id SERIAL PRIMARY KEY,
-    event_name TEXT NOT NULL,
-    organizer TEXT,
-    category TEXT NOT NULL,
-    sector TEXT,
-    cadence TEXT NOT NULL,             -- annual | biannual | quarterly | monthly | irregular
-    typical_month INT,
-    typical_region TEXT[],
-    typical_tickers TEXT[],
-    last_occurrence DATE,
-    next_expected DATE,
-    times_seen INT DEFAULT 1,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-
 -- =============================================================================
 -- GRANTS (for application user)
 -- =============================================================================
