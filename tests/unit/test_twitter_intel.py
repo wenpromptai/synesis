@@ -54,8 +54,17 @@ def _make_tweet(
 
 
 def _make_analysis(**kwargs: object) -> TwitterAgentAnalysis:
+    from synesis.processing.twitter.models import AccountSummary
+
     defaults: dict = {
         "market_overview": "Markets rallied on strong earnings. Photonics sector led gains.",
+        "account_summaries": [
+            AccountSummary(
+                username="aleabitoreddit",
+                posted_about="Posted about AAOI earnings beat and photonics demand.",
+                theses=["Long AAOI on supply constraints"],
+            ),
+        ],
         "themes": [
             Theme(
                 title="Photonics supply chain bottleneck",
@@ -244,7 +253,7 @@ class TestFormatTwitterAgentEmbeds:
     def test_legacy_flat_wrapper_still_works(self) -> None:
         """format_twitter_agent_embed returns flat list of all embeds."""
         embeds = format_twitter_agent_embed(_make_analysis())
-        assert len(embeds) == 3  # header + 2 themes
+        assert len(embeds) == 4  # header + account summaries + 2 themes
         assert "Daily X Brief" in embeds[0]["title"]
 
 

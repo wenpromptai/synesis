@@ -30,15 +30,6 @@ NASDAQ_CACHE_TTL_EARNINGS = 21600  # 6 hours for earnings calendar
 # Default Thresholds (can be overridden in Settings)
 # ─────────────────────────────────────────────────────────────
 DEFAULT_SIMILARITY_THRESHOLD = 0.75
-DEFAULT_TICKER_RELEVANCE_THRESHOLD = 0.6
-DEFAULT_CONVICTION_THRESHOLD = 0.7
-
-# ─────────────────────────────────────────────────────────────
-# Processing Limits
-# ─────────────────────────────────────────────────────────────
-MAX_POSTS_FOR_LLM_ANALYSIS = 30
-MAX_TICKERS_DISPLAY = 50
-MAX_MARKETS_FOR_ANALYSIS = 7
 
 # ─────────────────────────────────────────────────────────────
 # API URL Defaults (used as defaults in Settings)

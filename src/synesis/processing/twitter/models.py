@@ -35,9 +35,18 @@ class Theme(BaseModel):
     research_notes: str | None = None
 
 
+class AccountSummary(BaseModel):
+    """Per-account summary of what an account posted and their investment theses."""
+
+    username: str  # without @
+    posted_about: str  # 1-2 concise sentences covering all topics/tickers/claims they posted (keep short)
+    theses: list[str]  # each distinct investment/trading thesis in one sentence (empty if none)
+
+
 class TwitterAgentAnalysis(BaseModel):
     """Full daily digest output from the Twitter agent analyzer."""
 
     market_overview: str
+    account_summaries: list[AccountSummary]
     themes: list[Theme]
     raw_tweet_count: int = 0

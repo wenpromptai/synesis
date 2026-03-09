@@ -294,12 +294,16 @@ class TestNewsProcessor:
         processor._polymarket = mock_polymarket
         processor._initialized = True
 
-        # Mock web search
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[{"title": "Test", "snippet": "Content", "url": "http://test.com"}],
+        # Mock web search and enable Stage 2
+        with (
+            patch("synesis.core.processor.get_settings") as mock_settings,
+            patch(
+                "synesis.core.processor.search_market_impact",
+                new_callable=AsyncMock,
+                return_value=[{"title": "Test", "snippet": "Content", "url": "http://test.com"}],
+            ),
         ):
+            mock_settings.return_value.stage2_enabled = True
             message = create_test_message()
             result = await processor.process_message(message)
 
@@ -372,8 +376,7 @@ class TestFetchWebResults:
         ):
             results = await processor._fetch_web_results(["query1", "query2", "query3"])
 
-        # Should only fetch 2 queries (limit)
-        assert len(results) == 2
+        assert len(results) == 3
 
     @pytest.mark.asyncio
     async def test_fetch_web_results_handles_errors(self, processor: NewsProcessor) -> None:
@@ -464,11 +467,15 @@ class TestUrgencyGate:
             return_value=create_test_extraction(urgency=UrgencyLevel.high)
         )
 
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch("synesis.core.processor.get_settings") as mock_settings,
+            patch(
+                "synesis.core.processor.search_market_impact",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
+            mock_settings.return_value.stage2_enabled = True
             message = create_test_message(text="CPI comes in hot at 3.5%")
             result = await processor.process_message(message)
 
@@ -481,11 +488,15 @@ class TestUrgencyGate:
             return_value=create_test_extraction(urgency=UrgencyLevel.critical)
         )
 
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch("synesis.core.processor.get_settings") as mock_settings,
+            patch(
+                "synesis.core.processor.search_market_impact",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
+            mock_settings.return_value.stage2_enabled = True
             message = create_test_message(text="*BREAKING* Fed cuts rates by 50bps")
             await processor.process_message(message)
 
@@ -585,11 +596,15 @@ class TestStage1Callback:
         )
         callback = AsyncMock(side_effect=RuntimeError("Telegram down"))
 
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
+        with (
+            patch("synesis.core.processor.get_settings") as mock_settings,
+            patch(
+                "synesis.core.processor.search_market_impact",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
         ):
+            mock_settings.return_value.stage2_enabled = True
             result = await processor.process_message(
                 create_test_message(), on_stage1_complete=callback
             )

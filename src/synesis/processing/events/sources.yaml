@@ -1,97 +1,10 @@
 # Event Radar — Source Configuration
-# Curated sources crawled via Crawl4AI + 13F hedge fund registry.
-# Structured APIs (FRED macro, NASDAQ earnings) are configured in crawler.py.
-# Surprise detection queries are in core/constants/events.py.
-
-# -- Curated Sources --
-# Crawled on schedule via Crawl4AI for calendar event extraction.
-curated_sources:
-
-  # ── Major Tech Conferences ─────────────────────────────
-  - name: "CES Calendar"
-    url: "https://www.ces.tech/schedule"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: []
-
-  - name: "Apple WWDC"
-    url: "https://developer.apple.com/wwdc/"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: ["AAPL"]
-
-  - name: "Computex"
-    url: "https://www.computextaipei.com.tw/en/"
-    category: conference
-    region: global
-    frequency: weekly
-    tickers: ["TSM", "NVDA", "AMD"]
-
-  - name: "AWS re:Invent"
-    url: "https://reinvent.awsevents.com/"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: ["AMZN"]
-
-  - name: "Google I/O"
-    url: "https://io.google/"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: ["GOOG"]
-
-  # ── Semiconductors & AI Infra Conferences ───────────────
-  - name: "NVIDIA GTC"
-    url: "https://www.nvidia.com/gtc/"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: ["NVDA"]
-
-  - name: "SEMI Events"
-    url: "https://www.semi.org/en/connect/events"
-    category: conference
-    region: global
-    frequency: weekly
-    tickers: []
-
-  - name: "SEMICON West"
-    url: "https://www.semi.org/en/connect/events/semicon-west"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: ["LRCX", "AMAT", "KLAC"]
-
-  - name: "Hot Chips"
-    url: "https://hotchips.org/"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: []
-
-  - name: "OFC Conference"
-    url: "https://www.ofcconference.org/"
-    category: conference
-    region: US
-    frequency: weekly
-    tickers: ["COHR", "LITE", "CIEN"]
-
-  # ── Central Banks ──────────────────────────────────────
-  - name: "Fed FOMC Calendar"
-    url: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
-    category: fed
-    region: US
-    frequency: monthly
-    tickers: []
+# Structured APIs (FRED macro, NASDAQ earnings, FOMC) are configured in fetchers.py.
 
 # -- 13F Hedge Fund Monitoring --
 # Tracked funds for automatic 13F-HR filing detection.
-# tier: "top" (importance=8) or "high" (importance=7)
 hedge_fund_13f:
-  # Top-tier funds (importance=8)
+  # Top-tier funds
   - cik: "1536411"
     name: "Duquesne Family Office"  # Druckenmiller
     tier: top
@@ -111,7 +24,7 @@ hedge_fund_13f:
     name: "Renaissance Technologies"  # Simons
     tier: top
 
-  # High-profile funds (importance=7)
+  # High-profile funds
   - cik: "1656456"
     name: "Appaloosa Management"  # Tepper
     tier: high

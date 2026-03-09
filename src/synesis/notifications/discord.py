@@ -363,6 +363,40 @@ def format_twitter_agent_embeds(analysis: TwitterAgentAnalysis) -> list[list[dic
     }
     messages.append([header_embed])
 
+    # --- Account summaries (paginated) ---
+    if analysis.account_summaries:
+        LIMIT = 3900
+        pages: list[str] = []
+        current_lines: list[str] = []
+        current_len = 0
+
+        ACCT_LIMIT = 1800
+        for acct in analysis.account_summaries:
+            line = f"**@{acct.username}**\n{acct.posted_about}"
+            if acct.theses:
+                line += "\n" + "\n".join(f"• {t}" for t in acct.theses)
+            if len(line) > ACCT_LIMIT:
+                line = line[: ACCT_LIMIT - 1] + "…"
+            entry_len = len(line) + (2 if current_lines else 0)  # +2 for "\n\n"
+            if current_lines and current_len + entry_len > LIMIT:
+                pages.append("\n\n".join(current_lines))
+                current_lines, current_len = [line], len(line)
+            else:
+                current_lines.append(line)
+                current_len += entry_len
+
+        if current_lines:
+            pages.append("\n\n".join(current_lines))
+
+        total = len(pages)
+        for idx, page_text in enumerate(pages):
+            title = "\U0001f4cb Account Summaries" if total == 1 else f"\U0001f4cb Account Summaries ({idx + 1}/{total})"
+            page_embed: dict[str, Any] = {"title": title, "color": COLOR_NEUTRAL, "description": page_text}
+            if idx == 0:
+                messages[0].append(page_embed)
+            else:
+                messages.insert(idx, [page_embed])
+
     # --- Messages 2..N: One per theme ---
     def _theme_color(theme: Theme) -> int:
         """Pick embed color from the dominant ticker direction."""

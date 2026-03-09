@@ -26,11 +26,11 @@ if TYPE_CHECKING:
 
 from redis.asyncio import Redis
 
-from synesis.agent.pydantic_runner import run_pydantic_agent
+from synesis.agent.pydantic_runner import INCOMING_QUEUE, run_pydantic_agent
 from synesis.agent.scheduler import (
     create_scheduler,
     event_digest_job,
-    event_radar_job,
+    event_fetch_job,
     watchlist_cleanup_job,
 )
 from synesis.config import Settings
@@ -43,9 +43,6 @@ from synesis.storage.database import Database, close_database, init_database
 from synesis.storage.redis import close_redis, init_redis
 
 logger = get_logger(__name__)
-
-# Redis queue key
-INCOMING_QUEUE = "synesis:queue:incoming"
 
 
 @dataclass
@@ -60,7 +57,6 @@ class AgentState:
     db_enabled: bool
     scheduler: AsyncIOScheduler | None = None
     trigger_fns: dict[str, Any] = field(default_factory=dict)
-    _background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
 
 async def push_to_queue(redis: Redis, message: UnifiedMessage) -> bool:
@@ -242,7 +238,7 @@ async def agent_lifespan(
 
             scheduler.add_job(
                 twitter_agent_job,
-                CronTrigger(hour=15, minute=0, timezone="UTC"),
+                CronTrigger(hour=10, minute=0, timezone="America/New_York"),
                 args=[watchlist, yf_client, ticker_prov],
                 id="twitter_agent",
                 max_instances=1,
@@ -250,7 +246,7 @@ async def agent_lifespan(
             logger.info(
                 "Twitter agent digest scheduled",
                 accounts=settings.twitter_accounts,
-                schedule="15:00 UTC (11pm SGT)",
+                schedule="10:00 ET (America/New_York, DST-aware)",
             )
 
         # Event Radar jobs (require DB)
@@ -272,12 +268,12 @@ async def agent_lifespan(
 
                 fred_client = FREDClient(redis=redis)
 
-            # Event discovery (structured APIs + curated crawls): 6pm ET daily
+            # Structured fetch: 6pm ET daily
             scheduler.add_job(
-                event_radar_job,
+                event_fetch_job,
                 CronTrigger(hour=18, minute=0, timezone="America/New_York"),
-                args=[db, redis, crawler_instance, fred_client, nasdaq_client, sec_edgar_client],
-                id="event_radar",
+                args=[db, redis, fred_client, nasdaq_client, sec_edgar_client],
+                id="event_fetch",
                 max_instances=1,
             )
 
@@ -292,7 +288,7 @@ async def agent_lifespan(
 
             logger.info(
                 "Event Radar scheduled",
-                discovery="6pm ET daily",
+                fetch="6pm ET daily",
                 digest="7pm ET daily",
             )
 
@@ -346,14 +342,13 @@ async def agent_lifespan(
 
             trigger_fns["twitter_agent"] = _trigger_twitter_agent
 
-        if db and crawler_instance:
-            from synesis.processing.events.runner import run_full_discovery
+        if db:
+            from synesis.processing.events.runner import run_structured_sources
 
-            async def _trigger_event_discover() -> dict[str, int]:
-                return await run_full_discovery(
+            async def _trigger_event_discover() -> int:
+                return await run_structured_sources(
                     db,
                     redis,
-                    crawler_instance,
                     fred=fred_client,
                     nasdaq=nasdaq_client,
                     sec_edgar=sec_edgar_client,

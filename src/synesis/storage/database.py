@@ -370,30 +370,18 @@ class Database:
     async def upsert_calendar_event(
         self,
         event: "CalendarEvent",
-        title_hash: str,
     ) -> int | None:
-        """Insert or update a calendar event (dedup by title_hash + event_date).
+        """Insert a calendar event, skipping duplicates (dedup by title + event_date).
 
-        Returns the event id on success, None if no change.
+        Returns the event id on insert, None if already exists.
         """
         query = """
             INSERT INTO calendar_events (
                 title, description, event_date, event_end_date, category,
-                sector, region, tickers, importance, importance_reasoning,
-                source_urls, confidence, title_hash
+                sector, region, tickers, source_urls, time_label
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (title_hash, event_date) DO UPDATE SET
-                description = COALESCE(EXCLUDED.description, calendar_events.description),
-                importance = GREATEST(EXCLUDED.importance, calendar_events.importance),
-                confidence = GREATEST(EXCLUDED.confidence, calendar_events.confidence),
-                source_urls = (
-                    SELECT ARRAY(SELECT DISTINCT unnest(calendar_events.source_urls || EXCLUDED.source_urls))
-                ),
-                tickers = (
-                    SELECT ARRAY(SELECT DISTINCT unnest(calendar_events.tickers || EXCLUDED.tickers))
-                ),
-                updated_at = NOW()
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (title, event_date) DO NOTHING
             RETURNING id
         """
         result = await self.fetchval(
@@ -406,11 +394,8 @@ class Database:
             event.sector,
             event.region,
             event.tickers,
-            event.importance,
-            event.importance_reasoning,
             event.source_urls,
-            event.confidence,
-            title_hash,
+            event.time_label,
         )
         return int(result) if result is not None else None
 
@@ -421,7 +406,6 @@ class Database:
         region: list[str] | None = None,
         category: str | None = None,
         sector: str | None = None,
-        min_importance: int = 1,
     ) -> list[asyncpg.Record]:
         """Get upcoming events within N days, with optional filters."""
         conditions = [
@@ -430,11 +414,6 @@ class Database:
         ]
         params: list[object] = [days]
         idx = 2
-
-        if min_importance > 1:
-            conditions.append(f"importance >= ${idx}")
-            params.append(min_importance)
-            idx += 1
 
         if category:
             conditions.append(f"category = ${idx}")
@@ -455,7 +434,7 @@ class Database:
         query = f"""
             SELECT * FROM calendar_events
             WHERE {where}
-            ORDER BY event_date, importance DESC
+            ORDER BY event_date
         """
         return await self.fetch(query, *params)
 
@@ -468,33 +447,13 @@ class Database:
         query = """
             SELECT * FROM calendar_events
             WHERE event_date >= $1 AND event_date <= $2
-            ORDER BY event_date, importance DESC
+            ORDER BY event_date
         """
         return await self.fetch(query, start, end)
 
     async def get_event_by_id(self, event_id: int) -> asyncpg.Record | None:
         """Get a single event by ID."""
         return await self.fetchrow("SELECT * FROM calendar_events WHERE id = $1", event_id)
-
-    async def get_nearby_events(
-        self,
-        event_date: "date",
-        days_range: int = 5,
-        tickers: list[str] | None = None,
-    ) -> list[asyncpg.Record]:
-        """Find events near a date, optionally filtered by overlapping tickers."""
-        if tickers:
-            query = """
-                SELECT * FROM calendar_events
-                WHERE event_date BETWEEN $1::date - $2::int AND $1::date + $2::int
-                  AND tickers && $3
-            """
-            return await self.fetch(query, event_date, days_range, tickers)
-        query = """
-            SELECT * FROM calendar_events
-            WHERE event_date BETWEEN $1::date - $2::int AND $1::date + $2::int
-        """
-        return await self.fetch(query, event_date, days_range)
 
     async def get_events_discovered_since(
         self,

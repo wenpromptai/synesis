@@ -35,7 +35,7 @@ Guidelines:
 - Preserve the specialist analysts' theme quality — refine, don't rewrite
 - Cross-reference across categories for deeper insight
 - Be opinionated — give expert analysis, not just summaries
-- source: preserve each theme's original source tag (calendar/surprise/analysis)
+- source: preserve each theme's original source tag (calendar/analysis)
 
 Today's date is {today}. You are analyzing events from yesterday.
 """

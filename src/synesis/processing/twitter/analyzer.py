@@ -21,6 +21,7 @@ from synesis.processing.common.llm import create_model
 from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.common.web_search import (
     Recency,
+    SearchProvidersExhaustedError,
     format_search_results,
     search_market_impact,
 )
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+_WEB_SEARCH_CAP = 7
+
 SYSTEM_PROMPT = """\
 You are a research analyst producing a daily investment digest from curated
 Twitter/X accounts. Each account has a profile in the Account Directory below
@@ -43,7 +46,7 @@ to verify claims, pull live market data, and construct actionable trade ideas.
 
 ## Ticker classification — this is critical
 
-**Deep-research tickers (TOP 3 MAX):** Pick the 3 individual stocks where options
+**Deep-research tickers (TOP 3 MAX):** Pick the 3 tickers where options
 analysis adds the most alpha — catalyst with known timing, likely vol mispricing,
 asymmetric payoff, or IV surface anomaly. These 3 get the full treatment:
 - `get_quote()` + `get_options_snapshot()` (snapshot internally fetches 1mo history,
@@ -52,44 +55,41 @@ asymmetric payoff, or IV surface anomaly. These 3 get the full treatment:
 - Selection criteria: options data should *change* the recommendation, not just confirm
   what you already know from equity analysis alone
 
-**Other individual stocks** (beyond the top 3):
-- `get_quote()` + `web_search()` only — no `get_options_snapshot()`
-- Direction + reasoning, equity-style (similar to ETF treatment)
-- If you have a strong options thesis but no budget, note it as a "watch for next session"
+**Other tickers** (beyond the top 3):
+- `get_quote()` + `web_search()` — no `get_options_snapshot()`
+- Direction + reasoning; note any options thesis for next session if budget is exhausted
 
 **Macro ETFs** (SPY, QQQ, TLT, GLD, USO, UUP, VIXY, EEM):
-- Direction only (bullish/bearish/neutral) based on your thesis
-- Do NOT call `get_quote()` or `get_options_snapshot()`
 - Use `web_search()` to verify macro claims if needed
-- Just state the view with reasoning from the tweets + web research
+- Call `get_quote()` or `get_options_snapshot()` if useful for the trade idea (counts against budget)
+- State the view with reasoning; add a specific trade idea if options data was fetched
 
 **Sector ETFs** (XLF, XLK, XLE, XLV, XLI, XLU, XLP, XLY, XLC, XLB, XLRE, SMH, IBB, KRE, XHB, etc.):
-- Same as macro — direction only, no quote/history/options tool calls
 - Use `web_search()` to verify sector-level claims if needed
-- Just state bullish/bearish/neutral with reasoning
+- Call `get_quote()` or `get_options_snapshot()` if useful for the trade idea (counts against budget)
+- State direction with reasoning; add a specific trade idea if options data was fetched
 
 The goal: spend tool budget on the 3 names where options data will most change the trade,
-not on broad ETFs or stocks where the thesis is already clear from equity analysis.
+skip when the thesis is already clear and options data won't change the recommendation.
 
 ## Workflow per theme
 
 1. **Identify themes** (3-7) from the tweets. Merge related topics.
 2. **For each theme**, follow this research loop:
-   a. **Verify tickers**: `verify_ticker()` for any individual stock ticker you're not 100% certain about — do this BEFORE fetching quotes/history/options so you don't waste calls on invalid symbols
+   a. **Verify tickers**: `verify_ticker()` for any individual stock ticker you're not 100% certain about — do this BEFORE fetching quotes/history/options so you don't waste calls on invalid symbols. Automatically searches SearXNG on NOT FOUND — review results before excluding.
    b. **Verify claims**: tweet says "DRAM prices falling" → `web_search("DRAM spot prices 2026")`
    c. **Price context** (individual stocks only): `get_quote()` — current price, MA levels, today's move
    d. **Expand thesis**: `web_search()` for deeper context on the investment thesis
-   e. **Options & trade idea** (individual stocks only): see "Options strategy thinking" below
-   f. **Macro/sector ETFs**: just assign direction based on your analysis, no tool calls needed
+   e. **Options & trade idea**: see "Options strategy thinking" below
+   f. **Macro/sector ETFs**: assign direction with reasoning; use tools if they add value to the trade idea
 3. **Synthesize** a concise market overview (3-5 sentences).
 
 ## Tool budget
 ~12-18 total tool calls. Breakdown:
-- 3 `get_options_snapshot()` calls (top 3 deep-research tickers) = ~12 yfinance calls
-- ~3-5 `get_quote()` for remaining individual stocks
-- ~4-6 `web_search()` for claim verification and macro context
+- 3 `get_options_snapshot()` calls max = ~12 yfinance calls
+- ~3-5 `get_quote()` calls
+- ~4-7 `web_search()` calls (hard cap: 7)
 - ~1-3 `verify_ticker()` as needed
-Zero tool calls on ETFs (macro or sector).
 
 ## Search tips
 - Include the current year/month in web search queries for time-sensitive data
@@ -102,7 +102,7 @@ You have a budget of 3 `get_options_snapshot()` calls. Use them on the tickers w
 the options data will most change the trade recommendation — not just confirm it.
 
 **Selecting the top 3 for deep research:**
-Before calling any tools, rank individual stocks by how much the options snapshot will
+Before calling any tools, rank tickers by how much the options snapshot will
 add. Prioritize tickers where:
 - There's a **dated catalyst** (earnings, FDA, macro event) → expiry selection matters
 - **Vol mispricing is likely** (tweet mentions IV crush, unusual activity, "cheap puts")
@@ -123,8 +123,8 @@ is fine and the snapshot won't change your recommendation.
   * Why this over equity? Explain the edge (e.g. "IV at 30% is cheap vs 45% realized,
     calls give 5x leverage vs stock")
 
-**For other individual stocks (beyond top 3):**
-- Direction + reasoning only (like ETFs but with `get_quote()` data)
+**For other tickers (beyond top 3):**
+- Direction + reasoning only — no `get_options_snapshot()`
 - If you have a strong options thesis, note it: "Options research warranted next session —
   IV likely cheap into earnings" so it's queued for future analysis
 
@@ -149,11 +149,19 @@ is fine and the snapshot won't change your recommendation.
 - Keep ticker symbols uppercase US-listed (e.g. AAPL not $AAPL).
 - On slow days with few actionable tweets, return fewer themes (even 0) with a
   brief market overview. Don't force themes that aren't there.
-- Fill in `price_context` for individual stock tickers where you called `get_quote()`.
-  Leave it None for macro/sector ETFs.
+- Fill in `price_context` for tickers where you called `get_quote()`.
 - Fill in `trade_idea` and `time_horizon` for individual stocks when you have data.
   Be specific with strikes, expiries, and reasoning when suggesting options.
 - Fill in `research_notes` on themes where web search yielded useful findings.
+
+## Account summaries
+
+For each account, produce an `AccountSummary`:
+- `username`: handle without @
+- `posted_about`: 2-3 sentences covering all topics, tickers, and key claims they raised today (keep concise — 1–2 short sentences max)
+- `theses`: list of distinct investment/trading theses or views they expressed (empty list if none stated); keep each thesis to one sentence
+
+The combined `posted_about` + `theses` for a single account must not exceed ~1800 characters. Be concise — these are summaries, not full write-ups.
 
 ## Account bias & credibility weighting
 - The Account Directory shows each poster's expertise and biases. Use it to:
@@ -175,6 +183,7 @@ class TwitterAgentDeps:
     tweets: list[Tweet]
     yfinance: YFinanceClient | None = field(default=None, repr=False)
     ticker_provider: TickerProvider | None = field(default=None, repr=False)
+    web_search_calls: int = field(default=0)  # Counter for LLM web_search tool calls (hard cap: 7)
 
     @property
     def accounts(self) -> list[str]:
@@ -255,6 +264,10 @@ class TwitterAgentAnalyzer:
                 query: Specific search query (e.g. "AAOI Q4 2025 earnings revenue")
                 recency: Time filter — "day", "week", "month", "year", or "all"
             """
+            if ctx.deps.web_search_calls >= _WEB_SEARCH_CAP:
+                return f"Web search limit reached ({_WEB_SEARCH_CAP} calls max)."
+            ctx.deps.web_search_calls += 1
+
             try:
                 recency_map = {"all": "none"}
                 mapped = recency_map.get(recency, recency)
@@ -263,6 +276,8 @@ class TwitterAgentAnalyzer:
                 )
                 results = await search_market_impact(query, count=5, recency=valid_recency)
                 return format_search_results(results)
+            except SearchProvidersExhaustedError:
+                return "All search providers are exhausted — do not retry web_search."
             except Exception as e:
                 logger.warning("Web search failed in twitter analyzer", query=query, error=str(e))
                 return "Search failed — try a different query"
@@ -324,7 +339,7 @@ class TwitterAgentAnalyzer:
             richness/cheapness.
 
             Args:
-                ticker: US stock ticker (e.g. "AAPL", "NVDA") — not ETFs
+                ticker: Any US-listed ticker (e.g. "AAPL", "NVDA", "SPY", "SMH")
             """
             if not ctx.deps.yfinance:
                 return "Options data unavailable — yfinance client not configured."
@@ -334,6 +349,15 @@ class TwitterAgentAnalyzer:
                 if not snap.expiration:
                     spot_str = f"${snap.spot:.2f}" if snap.spot else "N/A"
                     return f"No options available for {ticker} (spot {spot_str})"
+
+                # Skip if no live quotes (pre-market / market closed):
+                # if more than 3 contracts have both bid=0 and ask=0, market isn't open
+                all_contracts = snap.calls + snap.puts
+                zero_quote_count = sum(
+                    1 for c in all_contracts if (c.bid or 0.0) == 0.0 and (c.ask or 0.0) == 0.0
+                )
+                if zero_quote_count > 3:
+                    return f"No live options quotes for {ticker} (market not open yet)."
 
                 spot = snap.spot or 0
                 rv_str = (
@@ -378,13 +402,14 @@ class TwitterAgentAnalyzer:
             """Verify if a US ticker symbol exists.
 
             Use this tool to validate US tickers BEFORE including them in your analysis.
-            For non-US tickers, use web_search instead.
+            Automatically falls back to SearXNG if not found via Finnhub — no extra tool
+            call needed.
 
             Args:
                 ticker: The US ticker symbol to verify (e.g. "AAPL", "GME", "TSLA")
 
             Returns:
-                Verification result — either VERIFIED with company name, NOT FOUND, or error
+                VERIFIED with company name, NOT FOUND with SearXNG results, or error.
             """
             return await _verify_ticker(ticker, ctx.deps.ticker_provider)
 

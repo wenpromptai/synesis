@@ -1,7 +1,7 @@
 """Daily Event Radar digest — two-part Discord messages.
 
 Message 1: "What's Coming" — forward-looking calendar for next N days.
-Message 2: "Yesterday's Brief" — LLM analysis of yesterday's events + surprises.
+Message 2: "Yesterday's Brief" — LLM analysis of yesterday's events.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from synesis.core.constants import (
     COLOR_CALENDAR,
     COLOR_HEADER,
     DAY_NAMES,
-    DIGEST_MIN_EARNINGS_IMPORTANCE,
     DIGEST_WHATS_COMING_DAYS,
     DIRECTION_ICON,
     FRED_OUTCOME_SERIES,
@@ -31,7 +30,7 @@ from synesis.core.constants import (
     SOURCE_LABEL,
     THEME_EMOJI,
 )
-from synesis.processing.events.crawler import load_hedge_fund_registry
+from synesis.processing.events.fetchers import load_hedge_fund_registry
 from synesis.core.logging import get_logger
 from synesis.notifications.discord import send_discord
 from synesis.processing.events.models import YesterdayBriefAnalysis, YesterdayTheme
@@ -92,12 +91,6 @@ async def _send_whats_coming(
     end = today + timedelta(days=DIGEST_WHATS_COMING_DAYS)
 
     rows = await db.get_events_by_date_range(today, end)
-    # Filter out small-cap earnings — keep all non-earnings events
-    rows = [
-        r
-        for r in rows
-        if r["category"] != "earnings" or r["importance"] >= DIGEST_MIN_EARNINGS_IMPORTANCE
-    ]
     if not rows:
         logger.info("No upcoming events for What's Coming")
         return False
@@ -212,7 +205,8 @@ def _format_whats_coming_embeds(
             ticker_str = " ".join(f"`${t}`" for t in tickers[:5]) if tickers else ""
 
             badge = "\U0001f195 " if row.get("id") in newly_discovered else ""
-            parts = [p for p in [regions, ticker_str] if p]
+            time_label = row.get("time_label") or ""
+            parts = [p for p in [regions, time_label, ticker_str] if p]
             suffix = f" \u2014 {' | '.join(parts)}" if parts else ""
             lines.append(f"{badge}{emoji} {row['title']}{suffix}")
         lines.append("")
@@ -267,7 +261,7 @@ def _split_content(text: str, max_len: int) -> list[str]:
 # ─────────────────────────────────────────────────────────────
 
 
-async def _enrich_with_outcomes(
+async def _fetch_outcomes(
     events: list[dict[str, Any]],
     redis: Redis | None,
     sec_edgar: SECEdgarClient | None = None,
@@ -276,13 +270,11 @@ async def _enrich_with_outcomes(
     db: Database | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich calendar events with actual outcomes via specialized sources."""
-    from synesis.processing.common.web_search import search_market_impact
-
     sem = asyncio.Semaphore(5)
 
-    async def _enrich_one(ev: dict[str, Any]) -> None:
+    async def _fetch_one(ev: dict[str, Any]) -> None:
         category = ev.get("category", "")
-        # 13F filings are already enriched via QoQ diff
+        # 13F filings already have QoQ diff in description — no outcome to fetch
         if category == "13f_filing":
             return
 
@@ -299,22 +291,20 @@ async def _enrich_with_outcomes(
                     # Minutes: look up meeting date from DB, crawl Fed minutes URL
                     outcome = await _get_fomc_minutes_outcome(ev, db, crawler)
                 else:
-                    # Conferences, regulatory, etc.: web search for coverage
-                    title = ev.get("title", "")
-                    results = await search_market_impact(f"{title} results", count=3, recency="day")
-                    if results:
-                        snippets = [r.get("snippet", "") for r in results if r.get("snippet")]
-                        outcome = " | ".join(snippets)[:500] if snippets else ""
-                    else:
-                        outcome = ""
+                    outcome = ""
             except Exception:
-                logger.warning("Outcome enrichment failed", title=ev.get("title"), exc_info=True)
+                logger.warning(
+                    "Outcome fetch failed",
+                    title=ev.get("title"),
+                    category=category,
+                    exc_info=True,
+                )
                 outcome = ""
 
         if outcome:
             ev["outcome"] = outcome
 
-    await asyncio.gather(*[_enrich_one(ev) for ev in events])
+    await asyncio.gather(*[_fetch_one(ev) for ev in events])
     return events
 
 
@@ -331,7 +321,7 @@ async def _get_earnings_outcome(
     try:
         releases = await sec_edgar.get_earnings_releases(ticker, limit=1)
         if releases and releases[0].content:
-            return releases[0].content[:800]
+            return releases[0].content[:3000]
     except Exception:
         logger.warning("SEC earnings release fetch failed", ticker=ticker, exc_info=True)
     return ""
@@ -400,7 +390,8 @@ async def _get_fomc_minutes_outcome(
     try:
         result = await crawler.crawl(url)
         if result.success and result.markdown.strip():
-            return result.markdown[:500]
+            logger.debug("FOMC minutes crawled", url=url, chars=len(result.markdown))
+            return result.markdown
     except Exception:
         logger.warning("FOMC minutes crawl failed", url=url, exc_info=True)
     return ""
@@ -436,7 +427,8 @@ async def _get_crawled_outcome(
     try:
         result = await crawler.crawl(url)
         if result.success and result.markdown.strip():
-            return result.markdown[:500]
+            logger.debug("Outcome crawled", url=url, chars=len(result.markdown))
+            return result.markdown
     except Exception:
         logger.warning("Crawl4AI outcome fetch failed", url=url, exc_info=True)
     return ""
@@ -458,7 +450,7 @@ async def _get_market_data(redis: Redis) -> tuple[str, str]:
                 quote = await client.get_quote(ticker)
                 return (ticker, quote.last, quote.prev_close)
             except Exception:
-                logger.warning("Market data fetch failed", ticker=ticker)
+                logger.warning("Market data fetch failed", ticker=ticker, exc_info=True)
                 return (ticker, None, None)
 
     all_tickers = BENCHMARK_TICKERS + SECTOR_TICKERS
@@ -535,19 +527,7 @@ async def _send_yesterday_brief(
     yesterday_events = [dict(r) for r in yesterday_rows]
 
     # Enrich calendar events with actual outcomes
-    yesterday_events = await _enrich_with_outcomes(
-        yesterday_events, redis, sec_edgar, crawler, fred, db
-    )
-
-    # Gather surprise events
-    surprise_events: list[dict[str, Any]] = []
-    if redis:
-        try:
-            from synesis.processing.events.yesterday.surprise import detect_surprise_events
-
-            surprise_events = await detect_surprise_events(redis)
-        except Exception:
-            logger.warning("Surprise event detection failed", exc_info=True)
+    yesterday_events = await _fetch_outcomes(yesterday_events, redis, sec_edgar, crawler, fred, db)
 
     # Gather SEC data: 13F filings
     filing_briefs: list[dict[str, Any]] = []
@@ -555,7 +535,7 @@ async def _send_yesterday_brief(
         filing_briefs = await _get_yesterday_13f_briefs(sec_edgar, yesterday_rows)
 
     # Skip if nothing happened
-    if not yesterday_events and not surprise_events and not filing_briefs:
+    if not yesterday_events and not filing_briefs:
         logger.info("No yesterday events for brief")
         return False
 
@@ -571,7 +551,6 @@ async def _send_yesterday_brief(
     # LLM synthesis
     analysis = await synthesize_yesterday_brief(
         yesterday_events,
-        surprise_events,
         filing_briefs,
         market_data=market_data_text,
     )
@@ -583,10 +562,8 @@ async def _send_yesterday_brief(
             analysis.market_snapshot.sector_performance = sector_display
         messages = _format_yesterday_brief_rich(analysis, yesterday, now_iso)
     else:
-        logger.warning("Yesterday brief LLM synthesis failed, using fallback")
-        messages = _format_yesterday_brief_fallback(
-            yesterday_events, surprise_events, yesterday, now_iso
-        )
+        logger.error("Yesterday brief LLM synthesis failed, using fallback")
+        messages = _format_yesterday_brief_fallback(yesterday_events, yesterday, now_iso)
 
     sent_ok = 0
     for i, embeds in enumerate(messages):
@@ -600,7 +577,6 @@ async def _send_yesterday_brief(
         "Yesterday's Brief sent",
         messages=sent_ok,
         calendar_events=len(yesterday_events),
-        surprises=len(surprise_events),
         filings=len(filing_briefs),
         llm_synthesis=analysis is not None,
     )
@@ -760,7 +736,6 @@ def _format_synthesis_embed(
 
 def _format_yesterday_brief_fallback(
     yesterday_events: list[dict[str, Any]],
-    surprise_events: list[dict[str, Any]],
     yesterday: date,
     now_iso: str,
 ) -> list[list[dict[str, Any]]]:
@@ -774,11 +749,6 @@ def _format_yesterday_brief_fallback(
             emoji = CATEGORY_EMOJI.get(ev.get("category", "other"), "\U0001f4cb")
             lines.append(f"{emoji} {ev.get('title', '')}")
         lines.append("")
-
-    if surprise_events:
-        lines.append("**Surprise Events**")
-        for ev in surprise_events:
-            lines.append(f"\u26a1 {ev.get('title', '')}")
 
     embed: dict[str, Any] = {
         "title": f"\U0001f4f0 Yesterday's Brief \u2014 {yesterday.strftime('%b %d')}",

@@ -14,14 +14,9 @@ from synesis.processing.news.analyzer import (
 )
 from synesis.processing.news.categorizer import (
     categorize_by_rules,
-    categorize_news,
     classify_urgency_by_rules,
 )
-from synesis.processing.news.classifier import (
-    NewsClassifier,
-    classify_message,
-    get_classifier,
-)
+from synesis.processing.news.classifier import NewsClassifier
 from synesis.processing.news.deduplication import (
     DeduplicationResult,
     MessageDeduplicator,
@@ -52,12 +47,9 @@ __all__ = [
     "SmartAnalyzer",
     # Categorizer
     "categorize_by_rules",
-    "categorize_news",
     "classify_urgency_by_rules",
     # Classifier (Stage 1)
     "NewsClassifier",
-    "classify_message",
-    "get_classifier",
     # Deduplication
     "DeduplicationResult",
     "MessageDeduplicator",

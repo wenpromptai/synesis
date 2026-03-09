@@ -1,12 +1,4 @@
-"""Event radar, 13F monitoring, surprise detection, and digest timing constants."""
-
-# ─────────────────────────────────────────────────────────────
-# Event Radar
-# ─────────────────────────────────────────────────────────────
-EVENT_RADAR_STRUCTURED_DAYS_AHEAD = 30
-EVENT_RADAR_EARNINGS_DAYS_AHEAD = 14
-EVENT_RADAR_DIGEST_DAYS = 7  # Default digest window (days)
-EVENT_RADAR_DIGEST_COMING_UP_DAYS = 14  # "Coming up" section lookahead
+"""Event radar, 13F monitoring, and digest timing constants."""
 
 # ─────────────────────────────────────────────────────────────
 # SEC 13F Hedge Fund Monitoring
@@ -24,31 +16,8 @@ SEC_13F_DEADLINES: dict[int, tuple[int, int]] = {
     9: (11, 14),  # Q3 (Sep 30) -> Nov 14
 }
 
-# Surprise event detection
-SURPRISE_SEARCH_QUERIES: list[str] = [
-    "breaking market moving news {date_range}",
-    "major corporate announcement {date_range}",
-    "central bank surprise decision {date_range}",
-    "new AI model released launched today {date_range}",
-    "new LLM foundation model open source release {date_range}",
-    "new technology breakthrough product launch announced {date_range}",
-    "major investment deal billion dollar announcement {date_range}",
-    "major partnership collaboration strategic alliance announced {date_range}",
-    "new business venture startup funding raised {date_range}",
-    "geopolitical conflict commodity oil impact {date_range}",
-    "major acquisition merger {date_range}",
-    "regulatory enforcement antitrust ruling {date_range}",
-    "earnings surprise beat miss guidance {date_range}",
-    "economic data surprise inflation jobs GDP {date_range}",
-]
-SURPRISE_MAX_RESULTS = 15
-
-EXTRACTOR_MAX_CONTENT_CHARS = 10000
-
 # Digest timing
-DIGEST_YESTERDAY_LOOKBACK_HOURS = 28  # Slightly more than 24h to avoid gaps
 DIGEST_WHATS_COMING_DAYS = 7
-DIGEST_MIN_EARNINGS_IMPORTANCE = 6
 
 # ─────────────────────────────────────────────────────────────
 # FRED series mapping for economic_data enrichment

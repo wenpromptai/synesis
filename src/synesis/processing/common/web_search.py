@@ -1,13 +1,24 @@
 """Web search utility for market impact analysis.
 
-Provides web search with fallback chain: SearXNG -> Exa -> Brave.
-Used by the LLM classifier to enrich news with:
-- Affected tickers/stocks
-- Historical precedent (similar events and outcomes)
-- Market movement analysis
+Provides web search with fallback chain: Brave -> Exa.
+Brave (2000 req/month refreshing) is primary. Exa (1000/key, finite reserve)
+is fallback. SearXNG is only used for ticker-specific searches (search_ticker_analysis).
+
+Crawl4AI enrichment applies to Brave results only (not Exa fallback):
+- Top 2 Brave result URLs are crawled in parallel (~2000 chars each)
+- Results 3+ keep the bare Brave snippet (50-300 chars)
+- If Exa is used instead, all results are bare snippets (no crawling)
+- Crawling is skipped entirely if crawl4ai_url is not configured
+
+The Brave rate limiter (_brave_lock, _brave_last_call) is a module-level singleton
+shared across all callers (news processor, twitter analyzer, etc.).
+The interval is configured via settings.brave_min_interval (default 1.5s).
 """
 
+import asyncio
 import json
+import re
+import time
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -22,6 +33,11 @@ logger = get_logger(__name__)
 EXA_API_URL = "https://api.exa.ai/search"
 BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
 
+# Brave rate limiter — module-level singleton shared across all processors.
+# Enforces brave_min_interval (default 1.5s) between calls to stay within Brave's 1 req/s limit.
+_brave_lock = asyncio.Lock()
+_brave_last_call: float = 0.0
+
 
 class SearchProvidersExhaustedError(Exception):
     """Raised when all search providers fail or are not configured."""
@@ -31,9 +47,13 @@ class SearchProvidersExhaustedError(Exception):
 
 # Timeouts
 SEARCH_TIMEOUT = 10.0
+CRAWL_TIMEOUT = 15.0
 
 # Recency options
 Recency = Literal["day", "week", "month", "year", "none"]
+
+# Max chars of crawled article content to pass to LLM
+_CRAWL_MAX_CHARS = 2000
 
 
 async def search_market_impact(
@@ -41,9 +61,10 @@ async def search_market_impact(
     count: int = 5,
     recency: Recency = "day",
 ) -> list[dict[str, Any]]:
-    """Search for market impact info with fallback chain.
+    """Search for market impact info with fallback chain: Brave -> Exa.
 
-    Tries SearXNG first (self-hosted, no limits), then Exa, then Brave.
+    Brave results: top 2 URLs crawled via Crawl4AI in parallel (~2000 chars each),
+    results 3+ keep bare snippets. Exa fallback: bare snippets only, no crawling.
 
     Args:
         query: Search query (e.g., "Fed rate cut stocks affected")
@@ -55,29 +76,7 @@ async def search_market_impact(
     """
     settings = get_settings()
 
-    # Try SearXNG first (self-hosted, free, no rate limits)
-    if settings.searxng_url:
-        try:
-            results = await _search_searxng(query, count, settings.searxng_url, recency)
-            if results:
-                logger.debug("SearXNG search successful", query=query, results=len(results))
-                return results
-        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-            logger.warning("SearXNG search failed, trying Exa", error=str(e))
-
-    # Fallback to Exa (best for financial/news content)
-    if settings.exa_api_key:
-        try:
-            results = await _search_exa(
-                query, count, settings.exa_api_key.get_secret_value(), recency
-            )
-            if results:
-                logger.debug("Exa search successful", query=query, results=len(results))
-                return results
-        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-            logger.warning("Exa search failed, trying Brave", error=str(e))
-
-    # Fallback to Brave
+    # 1. Brave — 2000 req/month (refreshing), primary provider
     if settings.brave_api_key:
         try:
             results = await _search_brave(
@@ -85,14 +84,25 @@ async def search_market_impact(
             )
             if results:
                 logger.debug("Brave search successful", query=query, results=len(results))
+                results = await _crawl_top_results(results)
                 return results
         except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-            logger.warning("Brave search failed", error=str(e))
+            logger.warning("Brave search failed, trying Exa", error=str(e))
+
+    # 2. Exa keys — finite reserve (1000/key, no monthly refresh), cycle through all
+    for i, exa_key in enumerate(settings.exa_api_keys):
+        try:
+            results = await _search_exa(query, count, exa_key, recency)
+            if results:
+                logger.debug("Exa search successful", query=query, results=len(results))
+                return results
+        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
+            logger.warning("Exa key failed, trying next", key_index=i, error=str(e))
 
     logger.error("All search providers failed or not configured", query=query)
     raise SearchProvidersExhaustedError(
         "All search providers failed or not configured. "
-        "Configure at least one of: SEARXNG_URL, EXA_API_KEY, or BRAVE_API_KEY"
+        "Configure at least one of: BRAVE_API_KEY or EXA_API_KEY"
     )
 
 
@@ -103,26 +113,22 @@ async def search_ticker_analysis(
 ) -> list[dict[str, Any]]:
     """Search for recent analyst ratings, price targets, and news for a ticker.
 
-    Uses the same SearXNG → Exa → Brave fallback chain but with a
-    financial-research-optimized query and news-specific parameters.
-
-    Args:
-        ticker: Stock ticker symbol (e.g., "AAPL")
-        company_name: Optional company name for better search results
-        count: Number of results to return
-
-    Returns:
-        List of dicts with 'title', 'snippet', and 'url' keys.
-        Returns empty list if all providers fail (non-fatal).
+    Uses SearXNG only (free, self-hosted) to avoid spending Brave/Exa quota
+    on ticker lookups. Returns empty list if SearXNG is not configured.
     """
+    settings = get_settings()
+    if not settings.searxng_url:
+        logger.debug("SearXNG not configured — ticker analysis search skipped", ticker=ticker)
+        return []
+
     year = date.today().year
     name_part = f" {company_name}" if company_name else ""
     query = f"{ticker}{name_part} analyst rating price target upgrade downgrade forecast {year}"
 
     try:
-        return await search_market_impact(query, count=count, recency="month")
-    except SearchProvidersExhaustedError:
-        logger.warning("News search: all providers exhausted", ticker=ticker)
+        return await _search_searxng(query, count, settings.searxng_url, recency="month")
+    except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
+        logger.warning("SearXNG ticker search failed", ticker=ticker, error=str(e))
         return []
 
 
@@ -138,6 +144,81 @@ def _get_date_range(recency: Recency) -> tuple[date | None, date]:
     elif recency == "year":
         return today - timedelta(days=365), today
     return None, today
+
+
+def _extract_article_content(markdown: str, max_chars: int = _CRAWL_MAX_CHARS) -> str:
+    """Extract article body from crawled markdown, skipping nav and image noise.
+
+    Finds the first heading to skip nav menus, then strips image/social-share
+    lines and collapses blank lines.
+    """
+    # Start from first heading to skip nav menus at the top
+    heading_match = re.search(r"^#{1,3}\s+\S", markdown, re.MULTILINE)
+    start = heading_match.start() if heading_match else 0
+    content = markdown[start:]
+
+    # Strip pure image lines: ![alt](url)
+    # Strip bare-link lines used for social share / nav (standalone or as list items):
+    #   [ ](url)  or  * [ ](url)  or  - [ ](url)
+    lines = content.split("\n")
+    cleaned = [
+        line
+        for line in lines
+        if not re.match(r"^\s*!\[.*?\]\(.*?\)\s*$", line)
+        and not re.match(r"^\s*(?:[\*\-]\s*)*\[\s*\]\(.*?\)\s*$", line)
+    ]
+
+    result = "\n".join(cleaned)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result[:max_chars].strip()
+
+
+async def _crawl_top_results(
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Crawl the top 2 result URLs via Crawl4AI in parallel and replace their snippets with article content.
+
+    Returns the original results unchanged if crawling fails or is unavailable.
+    """
+    settings = get_settings()
+    if not settings.crawl4ai_url:
+        return results
+
+    # Crawl top 2 results in parallel
+    indices_to_crawl = [i for i in range(min(2, len(results))) if results[i].get("url")]
+    if not indices_to_crawl:
+        return results
+
+    from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
+
+    crawler = Crawl4AICrawlerProvider(base_url=settings.crawl4ai_url, timeout=CRAWL_TIMEOUT)
+
+    async def _crawl_one(idx: int) -> tuple[int, str | None]:
+        url = results[idx]["url"]
+        try:
+            crawl_result = await crawler.crawl(url)
+            if crawl_result.success and crawl_result.markdown:
+                content = _extract_article_content(crawl_result.markdown)
+                if content:
+                    logger.debug("Crawl4AI enrichment successful", url=url, chars=len(content))
+                    return idx, content
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Crawl4AI enrichment failed, using Brave snippet", url=url, error=str(e))
+        return idx, None
+
+    try:
+        crawl_results = await asyncio.gather(*[_crawl_one(i) for i in indices_to_crawl])
+    finally:
+        await crawler.close()
+
+    enriched = list(results)
+    for idx, content in crawl_results:
+        if content:
+            enriched[idx] = {**results[idx], "snippet": content}
+
+    return enriched
 
 
 async def _search_searxng(
@@ -217,7 +298,19 @@ async def _search_exa(
 async def _search_brave(
     query: str, count: int, api_key: str, recency: Recency
 ) -> list[dict[str, Any]]:
-    """Search using Brave Search API."""
+    """Search using Brave Search API.
+
+    Rate-limited by the module-level _brave_lock singleton using
+    settings.brave_min_interval (default 1.5s) between calls.
+    """
+    global _brave_last_call
+    min_interval = get_settings().brave_min_interval
+    async with _brave_lock:
+        elapsed = time.monotonic() - _brave_last_call
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+        _brave_last_call = time.monotonic()
+
     params: dict[str, Any] = {"q": query, "count": count}
 
     # Brave uses freshness parameter: pd (past day), pw (past week), pm (past month), py (past year)

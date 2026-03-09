@@ -10,13 +10,12 @@ Stage 1 makes minimal judgment calls (urgency only).
 Tickers, sectors, sentiment deferred to Stage 2 Smart Analyzer.
 """
 
-from functools import lru_cache
-
 from pydantic_ai import Agent
 from pydantic_ai.output import PromptedOutput
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
+from synesis.processing.news.categorizer import categorize_by_rules, classify_urgency_by_rules
 from synesis.processing.news.models import (
     LightClassification,
     UnifiedMessage,
@@ -183,11 +182,6 @@ class NewsClassifier:
         Returns:
             LightClassification with extracted information
         """
-        from synesis.processing.news.categorizer import (
-            categorize_by_rules,
-            classify_urgency_by_rules,
-        )
-
         # Try rule-based categorization first
         rule_category = categorize_by_rules(message.text)
         rule_urgency = classify_urgency_by_rules(message.text)
@@ -244,22 +238,3 @@ Message:
 Focus on the PRIMARY ENTITY affected (not peripheral mentions).
 Extract ALL entities mentioned for the all_entities list.
 Generate search keywords for web research and Polymarket."""
-
-
-@lru_cache(maxsize=1)
-def get_classifier() -> NewsClassifier:
-    """Get the singleton classifier instance (thread-safe via lru_cache)."""
-    return NewsClassifier()
-
-
-async def classify_message(message: UnifiedMessage) -> LightClassification:
-    """Convenience function to classify a message.
-
-    Args:
-        message: The message to classify
-
-    Returns:
-        LightClassification with extracted information
-    """
-    classifier = get_classifier()
-    return await classifier.classify(message)

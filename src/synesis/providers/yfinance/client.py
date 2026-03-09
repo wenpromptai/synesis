@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from datetime import UTC, date as date_cls, datetime
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -270,8 +271,6 @@ class YFinanceClient:
         get_options_expirations, get_options_chain. Computes 30d realized vol
         and filters chain to nearest-ATM strikes.
         """
-        from datetime import UTC, date as date_cls, datetime
-
         settings = get_settings()
         ticker_up = ticker.upper()
         cache_key = f"{CACHE_PREFIX}:snapshot:{ticker_up}:g{int(greeks)}"
@@ -417,8 +416,6 @@ def _fetch_options_chain(ticker: str, expiration: str, compute_greeks: bool) -> 
     spot = _safe_float((t.info or {}).get("regularMarketPrice")) or 0.0
 
     # Time to expiry in years
-    from datetime import date as date_cls
-
     exp_date = date_cls.fromisoformat(expiration)
     today = date_cls.today()
     tte = max((exp_date - today).days, 0) / 365.0
@@ -432,6 +429,16 @@ def _fetch_options_chain(ticker: str, expiration: str, compute_greeks: bool) -> 
         if df is None or (hasattr(df, "empty") and df.empty):
             return contracts
         for _, row in df.iterrows():
+            # Skip contracts with stale data — only include if last trade was today
+            last_trade = row.get("lastTradeDate")
+            if last_trade is not None:
+                try:
+                    trade_date = getattr(last_trade, "date", lambda: None)()
+                    if trade_date != today:
+                        continue
+                except Exception:
+                    continue
+
             iv = _safe_float(row.get("impliedVolatility"))
             strike = _safe_float(row.get("strike"))
 

@@ -8,16 +8,13 @@ from synesis.core.constants import (
     DAY_NAMES,
     DEDUP_CACHE_TTL_SECONDS,
     DEFAULT_SIMILARITY_THRESHOLD,
-    EVENT_RADAR_DIGEST_DAYS,
     FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE,
-    MAX_POSTS_FOR_LLM_ANALYSIS,
     SEC_13F_DEADLINES,
     SECTOR_COLORS,
     SECTOR_LABELS,
     SECTOR_TICKERS,
     SENTIMENT_ICON,
     SOURCE_LABEL,
-    SURPRISE_SEARCH_QUERIES,
     TELEGRAM_MAX_MESSAGE_LENGTH,
     THEME_EMOJI,
 )
@@ -30,7 +27,6 @@ class TestConstantsImportability:
         assert FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE == 60
         assert TELEGRAM_MAX_MESSAGE_LENGTH == 4096
         assert isinstance(DEFAULT_SIMILARITY_THRESHOLD, float)
-        assert isinstance(MAX_POSTS_FOR_LLM_ANALYSIS, int)
 
     def test_display_constants_importable(self) -> None:
         assert isinstance(COLOR_HEADER, int)
@@ -40,8 +36,6 @@ class TestConstantsImportability:
 
     def test_events_constants_importable(self) -> None:
         assert isinstance(SEC_13F_DEADLINES, dict)
-        assert isinstance(SURPRISE_SEARCH_QUERIES, list)
-        assert EVENT_RADAR_DIGEST_DAYS == 7
 
     def test_market_constants_importable(self) -> None:
         assert isinstance(BENCHMARK_TICKERS, list)

@@ -17,7 +17,6 @@ from synesis.processing.news.analyzer import (
     AnalyzerDeps,
     SmartAnalyzer,
 )
-from synesis.processing.news.categorizer import categorize_news
 from synesis.processing.news.models import (
     BeatMissStatus,
     Direction,
@@ -42,7 +41,6 @@ __all__ = [
     # News (Flow 1) - Analyzer
     "AnalyzerDeps",
     "SmartAnalyzer",
-    "categorize_news",
     # News (Flow 1) - Models
     "BeatMissStatus",
     "Direction",

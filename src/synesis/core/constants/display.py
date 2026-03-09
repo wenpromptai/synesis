@@ -62,7 +62,6 @@ DIRECTION_ICON: dict[str, str] = {
 
 SOURCE_LABEL: dict[str, str] = {
     "calendar": "\U0001f4cb Calendar",
-    "surprise": "\u26a1 Surprise",
     "analysis": "\U0001f4ca Analysis",
 }
 

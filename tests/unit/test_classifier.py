@@ -8,7 +8,6 @@ import pytest
 from synesis.processing.news.classifier import (
     CLASSIFIER_SYSTEM_PROMPT,
     NewsClassifier,
-    classify_message,
     create_classifier_agent,
 )
 from synesis.processing.news import (
@@ -139,27 +138,6 @@ class TestNewsClassifier:
         assert "@DeItaone" in prompt
         assert "telegram" in prompt
         assert "Fed cuts rates" in prompt
-
-
-class TestClassifyMessage:
-    """Tests for the classify_message convenience function."""
-
-    @pytest.mark.asyncio
-    async def test_classify_message_uses_singleton(self) -> None:
-        """Test that classify_message uses the singleton classifier."""
-        mock_classification = create_mock_classification()
-
-        with patch("synesis.processing.news.classifier.get_classifier") as mock_get:
-            mock_classifier = AsyncMock()
-            mock_classifier.classify = AsyncMock(return_value=mock_classification)
-            mock_get.return_value = mock_classifier
-
-            message = create_test_message("Test")
-            result = await classify_message(message)
-
-            mock_get.assert_called_once()
-            mock_classifier.classify.assert_called_once_with(message)
-            assert result == mock_classification
 
 
 class TestCreateClassifierAgent:

@@ -141,11 +141,31 @@ class Settings(BaseSettings):
     )
 
     # Web Search APIs (for LLM tool use)
-    # SearXNG (self-hosted, primary search - no API key, no rate limits)
+    # Priority: Brave (primary, 2000 req/month) → Exa keys (fallback). SearXNG for ticker searches only.
     searxng_url: str | None = Field(default="http://localhost:8080")
-    # External APIs (fallbacks)
     exa_api_key: SecretStr | None = Field(default=None)
+    exa_wenprompt_api_key: SecretStr | None = Field(default=None, alias="EXA_WENPROMPT_API_KEY")
+    exa_wenpromptai_api_key: SecretStr | None = Field(default=None, alias="EXA_WENPROMPTAI_API_KEY")
+    exa_wangwhpt_api_key: SecretStr | None = Field(default=None, alias="EXA_WANGWHPT_API_KEY")
     brave_api_key: SecretStr | None = Field(default=None)
+
+    @property
+    def exa_api_keys(self) -> list[str]:
+        """All configured Exa API keys, deduplicated and in order."""
+        keys = []
+        seen: set[str] = set()
+        for field in [
+            self.exa_api_key,
+            self.exa_wenprompt_api_key,
+            self.exa_wenpromptai_api_key,
+            self.exa_wangwhpt_api_key,
+        ]:
+            if field:
+                v = field.get_secret_value()
+                if v not in seen:
+                    seen.add(v)
+                    keys.append(v)
+        return keys
 
     # Stock Price Data (Finnhub)
     finnhub_api_key: SecretStr | None = Field(
@@ -287,9 +307,12 @@ class Settings(BaseSettings):
         default=100,
         description="Max size of internal processing queue",
     )
-    web_search_max_queries: int = Field(
-        default=3,
-        description="Max web search queries per message (pre-fetch current context)",
+    brave_min_interval: float = Field(
+        default=1.5,
+        description=(
+            "Minimum seconds between Brave API calls. Shared across all processors "
+            "via a module-level rate limiter in web_search.py (Brave limit: 1 req/s)."
+        ),
     )
     polymarket_max_keywords: int = Field(
         default=5,

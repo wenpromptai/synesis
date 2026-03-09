@@ -1,8 +1,7 @@
 """Integration tests for Event Radar pipeline.
 
 Uses REAL APIs (FRED, SEC EDGAR, NASDAQ, LLM) to verify end-to-end flows.
-Each category is tested: earnings, economic_data, fed (decision + minutes),
-13f_filing, and release (AI model extraction from crawled content).
+Categories tested: earnings, economic_data, fed (decision + minutes), 13f_filing.
 
 Run with: pytest -m integration tests/integration/test_event_radar_e2e.py -v
 """
@@ -15,18 +14,18 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from synesis.processing.events.crawler import (
+from synesis.processing.events.fetchers import (
     FRED_MACRO_RELEASES,
+    fetch_fomc_events,
     fetch_fred_macro_events,
     fetch_nasdaq_earnings_events,
 )
 from synesis.processing.events.digest import (
-    _enrich_with_outcomes,
+    _fetch_outcomes,
     _get_crawled_outcome,
     _get_economic_data_outcome,
     _get_earnings_outcome,
 )
-from synesis.processing.events.extractor import extract_events_from_markdown
 from synesis.processing.events.models import CalendarEvent
 
 
@@ -39,16 +38,13 @@ def _assert_calendar_event(
     event: CalendarEvent,
     *,
     category: str,
-    min_importance: int = 1,
     has_title: bool = True,
 ) -> None:
     """Assert basic CalendarEvent validity."""
     assert event.category == category, f"Expected {category}, got {event.category}"
-    assert event.importance >= min_importance
     assert event.event_date >= date.today() - timedelta(days=1)
     if has_title:
         assert len(event.title) > 0
-    assert event.confidence > 0.0
     assert len(event.region) > 0
 
 
@@ -75,7 +71,7 @@ class TestEarningsE2E:
 
         assert len(events) > 0, "No earnings found — NASDAQ API may be down"
         for ev in events:
-            _assert_calendar_event(ev, category="earnings", min_importance=6)
+            _assert_calendar_event(ev, category="earnings")
             assert len(ev.tickers) > 0, f"Earnings event missing ticker: {ev.title}"
             assert "Earnings:" in ev.title
 
@@ -124,7 +120,7 @@ class TestEconomicDataE2E:
         titles = {ev.title for ev in events}
         found_categories = set()
         for title in titles:
-            for release_id, (name, _) in FRED_MACRO_RELEASES.items():
+            for release_id, name in FRED_MACRO_RELEASES.items():
                 if name in title:
                     found_categories.add(name)
 
@@ -134,7 +130,7 @@ class TestEconomicDataE2E:
         )
 
         for ev in events:
-            _assert_calendar_event(ev, category="economic_data", min_importance=7)
+            _assert_calendar_event(ev, category="economic_data")
 
     @pytest.mark.asyncio
     async def test_fred_outcome_for_cpi(self) -> None:
@@ -163,7 +159,7 @@ class TestEconomicDataE2E:
         redis.set = AsyncMock()
         client = FREDClient(redis=redis)
 
-        for release_id, (name, importance) in FRED_MACRO_RELEASES.items():
+        for release_id, name in FRED_MACRO_RELEASES.items():
             title = f"{name} Release"
             ev = {"title": title, "category": "economic_data"}
             outcome = await _get_economic_data_outcome(ev, client)
@@ -181,53 +177,22 @@ class TestEconomicDataE2E:
 
 @pytest.mark.integration
 class TestFedE2E:
-    """Fed: FOMC calendar crawl → extract decisions + minutes → outcome."""
-
-    # Use dates far enough in the future that the extractor won't filter them out
-    FOMC_CALENDAR_MARKDOWN = """\
-# FOMC Calendars
-
-## 2027
-
-### March 16-17, 2027
-- Statement, Implementation Note, Press Conference
-- Projection materials
-- Minutes released April 7, 2027
-
-### April 27-28, 2027
-- Statement, Implementation Note, Press Conference
-- Minutes released May 19, 2027
-
-### June 15-16, 2027
-- Statement, Implementation Note, Press Conference
-- Projection materials
-- Minutes released July 7, 2027
-"""
+    """Fed: FOMC structured crawler (no LLM) → rate decisions + minutes → outcome."""
 
     @pytest.mark.asyncio
-    async def test_llm_extracts_fomc_meetings_and_minutes(self) -> None:
-        """Feed realistic FOMC calendar markdown to LLM extractor.
+    async def test_fomc_crawler_fetches_real_decisions(self) -> None:
+        """fetch_fomc_events() hits the real Fed calendar — no LLM, pure regex.
 
-        Should extract meeting dates (and optionally minutes release dates)
-        as fed events.
+        Verifies the Fed page HTML structure hasn't changed and we still parse correctly.
         """
-        events = await extract_events_from_markdown(
-            self.FOMC_CALENDAR_MARKDOWN,
-            source_url="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
-            source_name="Fed FOMC Calendar",
-            default_region="US",
-        )
+        events = await fetch_fomc_events(days_ahead=365)
 
-        assert len(events) >= 3, (
-            f"Expected at least 3 FOMC events, got {len(events)}: {[e.title for e in events]}"
+        decisions = [e for e in events if e.title == "FOMC Rate Decision"]
+        assert len(decisions) >= 4, (
+            f"Expected ≥4 FOMC Rate Decision events in the next year, got {len(decisions)}"
         )
-
-        # All should be fed category
-        for ev in events:
-            assert ev.category == "fed", (
-                f"FOMC event '{ev.title}' has wrong category: {ev.category}"
-            )
-            assert "US" in ev.region
+        for ev in decisions:
+            _assert_calendar_event(ev, category="fed")
 
     @pytest.mark.asyncio
     async def test_fomc_decision_outcome_crawls_real_statement(self) -> None:
@@ -323,194 +288,25 @@ class TestThirteenFE2E:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[{"snippet": "should not be called"}]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None)
+            result = await _fetch_outcomes(events, None, None)
 
         mock_search.assert_not_called()
         assert result[0].get("outcome") is None
 
 
 # ---------------------------------------------------------------------------
-# 5. RELEASE — LLM extraction of AI model launches from crawled content
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.integration
-class TestReleaseE2E:
-    """Release: LLM extracts AI model releases from crawled blog content."""
-
-    @pytest.mark.asyncio
-    async def test_extracts_openai_model_release(self) -> None:
-        """Simulate crawled OpenAI blog post announcing a new model."""
-        markdown = f"""\
-# Introducing GPT-5.4
-
-Published: {date.today().isoformat()}
-
-Today we're releasing GPT-5.4, our most capable model yet.
-
-GPT-5.4 achieves state-of-the-art results on major benchmarks and introduces
-native tool use, 2x context window (256K tokens), and significantly improved
-reasoning capabilities.
-
-GPT-5.4 is available today via the API and in ChatGPT Plus.
-
-Key improvements:
-- MMLU: 92.1% (up from 88.7%)
-- HumanEval: 95.3%
-- 2x faster inference
-- Native function calling and tool use
-- Available in API at $5/M input, $15/M output tokens
-"""
-
-        events = await extract_events_from_markdown(
-            markdown,
-            source_url="https://openai.com/index/gpt-5-4",
-            source_name="OpenAI Blog",
-            default_region="US",
-        )
-
-        assert len(events) > 0, "LLM failed to extract GPT-5.4 release event"
-        release_events = [e for e in events if e.category == "release"]
-        assert len(release_events) > 0, (
-            f"No 'release' category events. Got: {[(e.title, e.category) for e in events]}"
-        )
-
-        ev = release_events[0]
-        assert "gpt" in ev.title.lower() or "5.4" in ev.title
-        assert ev.importance >= 7, f"GPT-5.4 should be high importance, got {ev.importance}"
-
-    @pytest.mark.asyncio
-    async def test_extracts_deepseek_model_release(self) -> None:
-        """Simulate crawled DeepSeek blog announcing a new model."""
-        markdown = f"""\
-# DeepSeek-R2 Release
-
-Date: {date.today().isoformat()}
-
-We are excited to announce DeepSeek-R2, our next-generation reasoning model.
-
-DeepSeek-R2 achieves breakthrough results on mathematical reasoning and code
-generation benchmarks, surpassing previous state-of-the-art models.
-
-Model highlights:
-- AIME 2025: 85.2% (new SOTA)
-- Codeforces: 2100+ rating
-- Available as open-weights under MIT license
-- 671B MoE architecture with 37B active parameters
-"""
-
-        events = await extract_events_from_markdown(
-            markdown,
-            source_url="https://www.deepseek.com/en/blog/deepseek-r2",
-            source_name="DeepSeek Blog",
-            default_region="global",
-        )
-
-        assert len(events) > 0, "LLM failed to extract DeepSeek-R2 release event"
-        release_events = [e for e in events if e.category == "release"]
-        assert len(release_events) > 0, (
-            f"No 'release' category events. Got: {[(e.title, e.category) for e in events]}"
-        )
-
-        ev = release_events[0]
-        assert "deepseek" in ev.title.lower() or "r2" in ev.title.lower()
-        assert "global" in ev.region
-
-    @pytest.mark.asyncio
-    async def test_extracts_qwen_model_release(self) -> None:
-        """Simulate crawled Alibaba/Qwen blog announcing a new model."""
-        markdown = f"""\
-# Qwen3 Release
-
-Published: {date.today().isoformat()}
-
-Alibaba Cloud's Qwen team is proud to release Qwen3, our latest foundation model
-series spanning 0.6B to 235B parameters.
-
-Qwen3 represents a major leap in multilingual capabilities and long-context
-understanding. Available immediately on ModelScope and Hugging Face.
-
-Qwen3-235B-A22B:
-- MMLU-Pro: 79.7%
-- LiveCodeBench: 70.7%
-- AIME 2025: 81.5%
-- Supports 100+ languages
-"""
-
-        events = await extract_events_from_markdown(
-            markdown,
-            source_url="https://qwenlm.github.io/blog/qwen3",
-            source_name="Alibaba Qwen Blog",
-            default_region="global",
-            default_tickers=["BABA"],
-        )
-
-        assert len(events) > 0, "LLM failed to extract Qwen3 release event"
-        release_events = [e for e in events if e.category == "release"]
-        assert len(release_events) > 0, (
-            f"No 'release' category events. Got: {[(e.title, e.category) for e in events]}"
-        )
-
-        ev = release_events[0]
-        assert "qwen" in ev.title.lower() or "alibaba" in ev.title.lower()
-        # default_tickers should be applied
-        assert "BABA" in ev.tickers
-
-    @pytest.mark.asyncio
-    async def test_extracts_anthropic_model_release(self) -> None:
-        """Simulate crawled Anthropic news post announcing a new model."""
-        markdown = f"""\
-# Introducing Claude 5 Opus
-
-{date.today().isoformat()}
-
-Today we're releasing Claude 5 Opus, our most intelligent model to date.
-
-Claude 5 Opus pushes the frontier on complex reasoning, agentic coding,
-and extended thinking. It achieves new state-of-the-art results across
-a wide range of evaluations.
-
-Available now via the Anthropic API and on claude.ai.
-
-Performance:
-- SWE-bench Verified: 72.0%
-- GPQA Diamond: 84.1%
-- MATH: 96.4%
-"""
-
-        events = await extract_events_from_markdown(
-            markdown,
-            source_url="https://www.anthropic.com/news/claude-5-opus",
-            source_name="Anthropic News",
-            default_region="US",
-        )
-
-        assert len(events) > 0, "LLM failed to extract Claude 5 Opus release event"
-        release_events = [e for e in events if e.category == "release"]
-        assert len(release_events) > 0, (
-            f"No 'release' category events. Got: {[(e.title, e.category) for e in events]}"
-        )
-
-        ev = release_events[0]
-        assert "claude" in ev.title.lower() or "opus" in ev.title.lower()
-        assert ev.importance >= 7
-
-
-# ---------------------------------------------------------------------------
-# 6. FULL ENRICHMENT MATRIX — all categories through _enrich_with_outcomes
+# 5. FULL ENRICHMENT MATRIX — all categories through _fetch_outcomes
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
 class TestEnrichmentMatrixE2E:
-    """Run realistic events for each category through _enrich_with_outcomes
+    """Run all structured categories through _fetch_outcomes
     using real FRED + SEC EDGAR APIs."""
 
     @pytest.mark.asyncio
     async def test_enrichment_with_real_apis(self) -> None:
-        """Each category should hit the right API and return meaningful outcome."""
-        from unittest.mock import patch
-
+        """Each structured category hits the right API and returns a meaningful outcome."""
         from synesis.providers.fred import FREDClient
         from synesis.providers.sec_edgar.client import SECEdgarClient
 
@@ -533,7 +329,7 @@ class TestEnrichmentMatrixE2E:
                 "category": "economic_data",
                 "tickers": [],
             },
-            # 3. fed (decision) → crawler (mock since no Crawl4AI in CI)
+            # 3. fed (decision) → crawler (mocked — Crawl4AI not in CI)
             {
                 "title": "FOMC Rate Decision",
                 "category": "fed",
@@ -549,39 +345,15 @@ class TestEnrichmentMatrixE2E:
                 "event_date": date(2025, 1, 8),
                 "source_urls": [],
             },
-            # 5. 13f_filing → skipped
+            # 5. 13f_filing → skipped (already has QoQ diff inline)
             {
                 "title": "13F Filing: Berkshire Hathaway",
                 "category": "13f_filing",
                 "tickers": [],
             },
-            # 6. conference → web search
-            {
-                "title": "NVIDIA GTC 2026 Keynote",
-                "category": "conference",
-                "tickers": ["NVDA"],
-            },
-            # 7. release → web search
-            {
-                "title": "GPT-5.4 Released by OpenAI",
-                "category": "release",
-                "tickers": ["MSFT"],
-            },
-            # 8. regulatory → web search
-            {
-                "title": "EU AI Act Enforcement",
-                "category": "regulatory",
-                "tickers": [],
-            },
-            # 9. other → web search
-            {
-                "title": "Major Trade Agreement Signed",
-                "category": "other",
-                "tickers": [],
-            },
         ]
 
-        # Mock crawler (Crawl4AI may not be running)
+        # Mock crawler (Crawl4AI not running locally)
         crawler = AsyncMock()
         crawler.crawl = AsyncMock(
             return_value=AsyncMock(
@@ -595,12 +367,7 @@ class TestEnrichmentMatrixE2E:
         mock_db = AsyncMock()
         mock_db.get_last_fomc_meeting_date = AsyncMock(return_value=date(2024, 12, 18))
 
-        # Mock web search (SearXNG may not be running)
-        with patch(
-            "synesis.processing.common.web_search.search_market_impact",
-            AsyncMock(return_value=[{"snippet": "Web search outcome for event"}]),
-        ):
-            result = await _enrich_with_outcomes(events, redis, sec_edgar, crawler, fred, mock_db)
+        result = await _fetch_outcomes(events, redis, sec_edgar, crawler, fred, mock_db)
 
         # 1. earnings → real SEC data
         earnings_outcome = result[0].get("outcome", "")
@@ -621,10 +388,3 @@ class TestEnrichmentMatrixE2E:
 
         # 5. 13f_filing → skipped
         assert result[4].get("outcome") is None
-
-        # 6-9. conference/release/regulatory/other → web search
-        for i in range(5, 9):
-            outcome = result[i].get("outcome", "")
-            assert "Web search outcome" in outcome, (
-                f"Event '{result[i]['title']}' missing web search outcome"
-            )

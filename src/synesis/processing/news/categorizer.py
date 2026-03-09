@@ -115,51 +115,17 @@ def categorize_by_rules(text: str) -> NewsCategory | None:
     return None
 
 
+_ANALYSIS_REGEX = re.compile(
+    r"\bI\s+THINK\b|\bIN\s+MY\s+(VIEW|OPINION)\b|\bMY\s+TAKE\b|"
+    r"\bANALYSIS\b|\bCOMMENTARY\b|\bOPINION\b|\bTHREAD\b|"
+    r"^RT\s+@|\bIMO\b|\bIMHO\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
 def _looks_like_analysis(text: str) -> bool:
     """Check if text looks like analysis/commentary rather than news."""
-    analysis_indicators = [
-        r"\bI\s+THINK\b",
-        r"\bIN\s+MY\s+(VIEW|OPINION)\b",
-        r"\bMY\s+TAKE\b",
-        r"\bANALYSIS\b",
-        r"\bCOMMENTARY\b",
-        r"\bOPINION\b",
-        r"\bTHREAD\b",
-        r"^RT\s+@",  # Forwarded repost
-        r"\bIMO\b",
-        r"\bIMHO\b",
-    ]
-    pattern = re.compile("|".join(analysis_indicators), re.IGNORECASE)
-    return bool(pattern.search(text))
-
-
-def categorize_news(text: str, llm_category: NewsCategory | None = None) -> NewsCategory:
-    """Categorize news using hybrid approach.
-
-    1. Try rule-based categorization first (fast, free)
-    2. If ambiguous and LLM category provided, use that
-    3. Otherwise default to "other"
-
-    Args:
-        text: The message text
-        llm_category: Optional category from LLM classification
-
-    Returns:
-        NewsCategory
-    """
-    # Try rules first
-    rule_category = categorize_by_rules(text)
-
-    if rule_category is not None:
-        return rule_category
-
-    # Rules ambiguous - use LLM category if available
-    if llm_category is not None:
-        logger.debug("Using LLM category", category=llm_category.value)
-        return llm_category
-
-    # Default to other
-    return NewsCategory.other
+    return bool(_ANALYSIS_REGEX.search(text))
 
 
 # =============================================================================

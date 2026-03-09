@@ -8,6 +8,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 from starlette.requests import Request
 
+from synesis.api.utils import create_tracked_task
 from synesis.core.dependencies import AgentStateDep, DbDep
 from synesis.core.logging import get_logger
 from synesis.core.rate_limit import limiter
@@ -18,7 +19,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 # Hold references to background tasks so they aren't GC'd
-_background_tasks: set[asyncio.Task[None]] = set()
+_background_tasks: set[asyncio.Task[object]] = set()
 
 
 @router.get("/upcoming")
@@ -30,7 +31,6 @@ async def get_upcoming_events(
     region: str | None = Query(default=None, description="Comma-separated: US,JP,SG,HK,global"),
     category: str | None = Query(default=None),
     sector: str | None = Query(default=None),
-    min_importance: int = Query(default=1, ge=1, le=10),
 ) -> list[CalendarEventRow]:
     """Get upcoming events within N days."""
     region_list = [r.strip() for r in region.split(",")] if region else None
@@ -39,7 +39,6 @@ async def get_upcoming_events(
         region=region_list,
         category=category,
         sector=sector,
-        min_importance=min_importance,
     )
     return [_row_to_model(r) for r in rows]
 
@@ -84,14 +83,10 @@ async def trigger_discovery(
     if trigger is None:
         raise HTTPException(
             status_code=503,
-            detail="Event Radar not configured (requires database + Crawl4AI)",
+            detail="Event Radar not configured (requires database)",
         )
 
-    task = asyncio.create_task(trigger())
-    _background_tasks.add(task)
-
-    def _on_done(t: asyncio.Task[None]) -> None:
-        _background_tasks.discard(t)
+    def _on_done(t: asyncio.Task[object]) -> None:
         if t.cancelled():
             return
         if exc := t.exception():
@@ -100,8 +95,10 @@ async def trigger_discovery(
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
+        else:
+            logger.info("Event discovery completed", events_stored=t.result())
 
-    task.add_done_callback(_on_done)
+    create_tracked_task(trigger(), _background_tasks, _on_done)
     return {"status": "triggered", "message": "Event discovery pipeline started in background"}
 
 
@@ -119,11 +116,7 @@ async def trigger_digest(
             detail="Event digest not configured (requires database)",
         )
 
-    task = asyncio.create_task(trigger())
-    _background_tasks.add(task)
-
     def _on_done(t: asyncio.Task[None]) -> None:
-        _background_tasks.discard(t)
         if t.cancelled():
             return
         if exc := t.exception():
@@ -133,7 +126,7 @@ async def trigger_digest(
                 error_type=type(exc).__name__,
             )
 
-    task.add_done_callback(_on_done)
+    create_tracked_task(trigger(), _background_tasks, _on_done)
     return {"status": "triggered", "message": "Event digest started in background"}
 
 
@@ -145,10 +138,7 @@ async def add_event(
     event: CalendarEvent,
 ) -> dict[str, str | int | None]:
     """Manually add a calendar event."""
-    from synesis.processing.events.dedup import hash_title
-
-    title_h = hash_title(event.title)
-    event_id = await db.upsert_calendar_event(event, title_h)
+    event_id = await db.upsert_calendar_event(event)
     return {"status": "created", "id": event_id}
 
 

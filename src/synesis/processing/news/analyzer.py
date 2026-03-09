@@ -26,6 +26,11 @@ from pydantic_ai.output import PromptedOutput
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
 from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
+from synesis.processing.common.web_search import (
+    Recency,
+    format_search_results,
+    search_market_impact,
+)
 from synesis.processing.news.models import (
     MACRO_TOPICS,
     SECTOR_ETF_MAP,
@@ -41,6 +46,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+_WEB_SEARCH_CAP = 2
 
 # =============================================================================
 # Dependencies (PydanticAI typed deps pattern)
@@ -61,6 +67,7 @@ class AnalyzerDeps:
     markets_text: str
     http_client: httpx.AsyncClient | None = None  # Optional for additional searches
     ticker_provider: "TickerProvider | None" = None
+    web_search_calls: int = 0  # Counter for LLM web_search tool calls (hard cap: 2)
 
 
 # =============================================================================
@@ -83,6 +90,10 @@ You have been given:
 Your job is to make ALL informed judgments about this news.
 
 ## Research Process (MANDATORY before making predictions)
+
+**Budget: 2 `web_search` calls total.** Prioritize:
+1. Historical precedent (most likely to change your analysis)
+2. Additional claim verification (only if pre-fetched research is insufficient)
 
 You MUST call `web_search` to find historical precedent BEFORE forming your thesis.
 Your training data is useful for identifying relevant events, but ALWAYS supplement with
@@ -119,7 +130,7 @@ Only include tickers with DIRECT, MATERIAL impact.
 1. Extract potential ticker from the news text
 2. Call `verify_ticker(ticker)` to confirm it exists
 3. If VERIFIED: include with the company name returned
-4. If NOT FOUND: use `web_search("{ticker} stock ticker price")` to verify
+4. If NOT FOUND: `verify_ticker` automatically searches SearXNG — review results and include if confirmed
 5. If still unclear: exclude the ticker
 6. Do NOT verify macro ETF proxies (GLD, USO, SPY, TLT, UUP, VIXY, EEM) or
    sector ETF proxies (XLK, XLF, XLE, XLV, XLI, XLC, XLY, XLP, XLB, XLRE, XLU) — they are pre-defined
@@ -213,7 +224,7 @@ For each ticker from Task 1:
 ### 4. Historical Context & Market Patterns
 
 Synthesize the historical research you did earlier (Research Process) into structured output.
-You MUST have called `web_search` at least once for precedent by this point.
+Use your `web_search` budget on historical precedent first — it most changes the analysis.
 Supplement training-data knowledge with web search for precise, sourced data.
 
 **a) Precedent Events** — cite 1-3 events, most-recent-first, with SIMILAR characteristics
@@ -389,40 +400,6 @@ Summary: {ext.summary}
 ## Polymarket Markets (Pre-Searched)
 {ctx.deps.markets_text or "No prediction markets found."}""" + _build_etf_suffixes(ext)
 
-        # Tool: Check Relevance (structured thinking tool)
-        @agent.tool
-        async def check_market_relevance(
-            ctx: RunContext[AnalyzerDeps],
-            market_question: str,
-            reasoning: str,
-        ) -> str:
-            """Check if a prediction market is relevant to the news.
-
-            Use this to filter out false positive keyword matches.
-            Think about whether the news DIRECTLY affects the market outcome.
-
-            Args:
-                market_question: The prediction market question
-                reasoning: Your reasoning for why it might be relevant
-
-            Returns:
-                Guidance on relevance assessment
-            """
-            news_summary = ctx.deps.extraction.summary
-
-            return f"""Relevance Check Framework:
-
-News: {news_summary}
-Market: {market_question}
-Your reasoning: {reasoning}
-
-To determine relevance:
-1. Does the news DIRECTLY affect the market outcome?
-2. Is the connection causal or just coincidental keywords?
-3. Would this news change a rational person's probability estimate?
-
-If indirect or keywords match but topics differ, mark as NOT relevant."""
-
         # Tool: Verify ticker
         @agent.tool
         async def verify_ticker(
@@ -432,17 +409,18 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             """Verify if a US ticker symbol exists.
 
             Use this tool to validate US tickers BEFORE including them in your analysis.
-            For non-US tickers, use web_search instead.
+            Automatically falls back to SearXNG if not found via Finnhub.
 
             Args:
                 ticker: The US ticker symbol to verify (e.g., "AAPL", "GME", "TSLA")
 
             Returns:
-                Verification result - either VERIFIED with company name, NOT FOUND, or error
+                Verification result - VERIFIED with company name, NOT FOUND with SearXNG
+                results, or error message.
             """
             return await _verify_ticker(ticker, ctx.deps.ticker_provider)
 
-        # Tool: Web search for additional context
+        # Tool: Web search for additional context (hard cap: 2 calls per analysis)
         @agent.tool
         async def web_search(
             ctx: RunContext[AnalyzerDeps],
@@ -452,6 +430,8 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             """Search the web for additional information.
 
             Use this tool to gather context when pre-fetched research is insufficient.
+
+            BUDGET: Max 2 calls per analysis. Prioritize historical precedent over verification.
 
             RECENCY GUIDE (default: "week"):
             - "day": Breaking news, very recent developments (last 24h)
@@ -465,8 +445,8 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
                - Search for events with SIMILAR characteristics (magnitude, surprise, sector)
                - "Fed rate cut 25bps market reaction"
                - "earnings beat 10% stock reaction"
-            2. Verify tickers or companies not in pre-fetch
-            3. Get additional context on unfamiliar situations
+            2. Get additional context on unfamiliar situations
+            DO NOT use web_search to look up or verify tickers — use verify_ticker instead.
 
             IMPORTANT:
             - Only include historical data if it MATCHES the current context
@@ -480,17 +460,14 @@ If indirect or keywords match but topics differ, mark as NOT relevant."""
             Returns:
                 Formatted search results
             """
+            if ctx.deps.web_search_calls >= _WEB_SEARCH_CAP:
+                return f"Web search limit reached ({_WEB_SEARCH_CAP} calls max). Use the pre-fetched research above."
+            ctx.deps.web_search_calls += 1
+
             if ctx.deps.http_client is None:
                 return "Web search not available (no HTTP client configured)."
 
             try:
-                from synesis.processing.common.web_search import (
-                    format_search_results,
-                    search_market_impact,
-                )
-
-                from synesis.processing.common.web_search import Recency
-
                 # Map "all" -> "none" (no date filter), validate others
                 recency_map = {"all": "none"}
                 mapped = recency_map.get(recency, recency)

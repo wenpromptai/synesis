@@ -31,13 +31,9 @@ def _sample_event_row(**overrides: Any) -> dict[str, Any]:
         "sector": None,
         "region": ["US"],
         "tickers": [],
-        "importance": 9,
-        "importance_reasoning": None,
         "source_urls": ["https://federalreserve.gov"],
-        "confidence": 0.99,
         "discovered_at": datetime(2026, 3, 1, 8, 0, tzinfo=timezone.utc),
         "updated_at": datetime(2026, 3, 1, 8, 0, tzinfo=timezone.utc),
-        "title_hash": "abc123",
     }
     defaults.update(overrides)
     return defaults
@@ -116,13 +112,11 @@ class TestUpcomingEvents:
     ) -> None:
         mock_db.get_upcoming_events.return_value = []
 
-        r = await client.get(
-            f"{PREFIX}/upcoming?days=14&region=US,JP&category=fed&min_importance=8"
-        )
+        r = await client.get(f"{PREFIX}/upcoming?days=14&region=US,JP&category=fed")
 
         assert r.status_code == 200
         mock_db.get_upcoming_events.assert_called_once_with(
-            14, region=["US", "JP"], category="fed", sector=None, min_importance=8
+            14, region=["US", "JP"], category="fed", sector=None
         )
 
     @pytest.mark.asyncio
@@ -236,8 +230,6 @@ class TestAddEvent:
             "event_date": "2026-03-17",
             "category": "conference",
             "region": ["US"],
-            "importance": 8,
-            "confidence": 0.95,
         }
         mock_db.upsert_calendar_event.return_value = 42
 

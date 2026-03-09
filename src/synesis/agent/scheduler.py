@@ -35,31 +35,23 @@ async def watchlist_cleanup_job(db: Database) -> None:
         logger.exception("Watchlist cleanup job failed")
 
 
-async def event_radar_job(
+async def event_fetch_job(
     db: Database,
     redis: Redis,
-    crawler: Crawl4AICrawlerProvider | None = None,
     fred: FREDClient | None = None,
     nasdaq: NasdaqClient | None = None,
     sec_edgar: SECEdgarClient | None = None,
 ) -> None:
-    """Fetch events from structured APIs + crawl curated sources."""
-    from synesis.processing.events.runner import run_full_discovery
+    """Fetch events from structured APIs (FRED, NASDAQ, FOMC, 13F)."""
+    from synesis.processing.events.runner import run_structured_sources
 
-    if crawler is None:
-        logger.warning("Crawl4AI not available, skipping curated crawls")
     try:
-        totals = await run_full_discovery(
-            db,
-            redis,
-            crawler,
-            fred=fred,
-            nasdaq=nasdaq,
-            sec_edgar=sec_edgar,
+        stored = await run_structured_sources(
+            db, redis, fred=fred, nasdaq=nasdaq, sec_edgar=sec_edgar
         )
-        logger.info("Event radar job complete", **totals)
+        logger.info("Event fetch job complete", stored=stored)
     except Exception:
-        logger.exception("Event radar job failed")
+        logger.exception("Event fetch job failed")
 
 
 async def event_digest_job(
@@ -73,6 +65,9 @@ async def event_digest_job(
     from synesis.processing.events.digest import send_event_digest
 
     try:
-        await send_event_digest(db, redis=redis, sec_edgar=sec_edgar, crawler=crawler, fred=fred)
+        sent = await send_event_digest(
+            db, redis=redis, sec_edgar=sec_edgar, crawler=crawler, fred=fred
+        )
+        logger.info("Event digest job complete", sent=sent)
     except Exception:
         logger.exception("Event digest job failed")

@@ -243,8 +243,6 @@ class NewsProcessor:
         Returns:
             List of formatted search result strings
         """
-        settings = get_settings()
-        queries_to_search = queries[: settings.web_search_max_queries]
 
         async def safe_search(query: str) -> str:
             try:
@@ -261,7 +259,7 @@ class NewsProcessor:
                 logger.warning("Web search failed", query=query, error=str(e))
                 return f"Search failed: {e}"
 
-        results = await asyncio.gather(*[safe_search(q) for q in queries_to_search])
+        results = await asyncio.gather(*[safe_search(q) for q in queries])
         return list(results)
 
     async def process_message(

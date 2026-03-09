@@ -173,14 +173,11 @@ CREATE TABLE IF NOT EXISTS synesis.calendar_events (
     sector TEXT,                       -- ai | energy | precious_metals | NULL
     region TEXT[] NOT NULL,            -- {'US','JP','SG','HK','global'}
     tickers TEXT[] DEFAULT '{}',
-    importance INT NOT NULL CHECK (importance BETWEEN 1 AND 10),
-    importance_reasoning TEXT,
     source_urls TEXT[] NOT NULL DEFAULT '{}',
-    confidence FLOAT NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+    time_label VARCHAR(10),
     discovered_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    title_hash TEXT NOT NULL,
-    UNIQUE (title_hash, event_date)
+    UNIQUE (title, event_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cal_events_date

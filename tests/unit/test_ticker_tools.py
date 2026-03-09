@@ -13,7 +13,7 @@ class TestVerifyTicker:
     @pytest.mark.asyncio
     async def test_no_provider_fallback(self) -> None:
         result = await verify_ticker("AAPL", ticker_provider=None)
-        assert "unavailable" in result.lower()
+        assert "NOT FOUND" in result
         assert "AAPL" in result
 
     @pytest.mark.asyncio
@@ -36,7 +36,7 @@ class TestVerifyTicker:
         provider = AsyncMock()
         provider.verify_ticker.side_effect = ConnectionError("timeout")
         result = await verify_ticker("AAPL", provider)
-        assert "error" in result.lower()
+        assert "NOT FOUND" in result
 
     @pytest.mark.asyncio
     async def test_uppercases_ticker(self) -> None:

@@ -1,4 +1,4 @@
-"""Tests for Event Radar digest (two-part daily digest) and surprise detection."""
+"""Tests for Event Radar digest (two-part daily digest)."""
 
 from __future__ import annotations
 
@@ -6,11 +6,10 @@ from datetime import date, datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import orjson
 import pytest
 
 from synesis.processing.events.digest import (
-    _enrich_with_outcomes,
+    _fetch_outcomes,
     _format_whats_coming_embeds,
     _format_yesterday_brief_fallback,
     _format_yesterday_brief_rich,
@@ -29,13 +28,8 @@ from synesis.processing.events.models import (
     YesterdayBriefAnalysis,
     YesterdayTheme,
 )
-from synesis.processing.events.yesterday.surprise import detect_surprise_events
 from synesis.processing.events.yesterday import synthesize_yesterday_brief
 from synesis.processing.events.yesterday.earnings import _format_earnings_events
-from synesis.processing.events.yesterday.events import (
-    _format_calendar_events,
-    _format_surprise_events,
-)
 from synesis.processing.events.yesterday.filings import _format_filing_briefs
 
 
@@ -55,9 +49,7 @@ def _make_event_row(**overrides: Any) -> dict[str, Any]:
         "sector": None,
         "region": ["US"],
         "tickers": [],
-        "importance": 9,
         "source_urls": [],
-        "confidence": 0.99,
     }
     defaults.update(overrides)
     return defaults
@@ -104,7 +96,7 @@ def _make_yesterday_analysis() -> YesterdayBriefAnalysis:
                 title="GPT-5.4 Launch",
                 category="tech",
                 sentiment="bullish",
-                source="surprise",
+                source="analysis",
                 outcome="OpenAI launched GPT-5.4 with 2x context and native tool use",
                 analysis="OpenAI announced GPT-5.4 with major capability improvements.",
                 key_events=["GPT-5.4 announced"],
@@ -255,15 +247,15 @@ class TestFormatYesterdayBriefRich:
         # 1 header + 2 theme embeds + 1 synthesis embed
         assert len(messages) == 4
 
-    def test_surprise_indicator(self) -> None:
+    def test_analysis_source_indicator(self) -> None:
         analysis = _make_yesterday_analysis()
         messages = _format_yesterday_brief_rich(
             analysis, date(2026, 3, 5), datetime.now(timezone.utc).isoformat()
         )
-        # Second theme (GPT-5.4) should be marked as surprise
-        surprise_embed = messages[2][0]
-        source_field = next(f for f in surprise_embed["fields"] if f["name"] == "Source")
-        assert "Surprise" in source_field["value"]
+        # Second theme source=analysis should show Analysis label
+        theme_embed = messages[2][0]
+        source_field = next(f for f in theme_embed["fields"] if f["name"] == "Source")
+        assert "Analysis" in source_field["value"]
 
     def test_analysis_source_label(self) -> None:
         analysis = _make_yesterday_analysis()
@@ -312,18 +304,16 @@ class TestFormatYesterdayBriefRich:
 class TestFormatYesterdayBriefFallback:
     def test_fallback_with_events(self) -> None:
         events = [{"title": "FOMC", "category": "fed"}]
-        surprises = [{"title": "GPT-5.4 launched"}]
         messages = _format_yesterday_brief_fallback(
-            events, surprises, date(2026, 3, 5), datetime.now(timezone.utc).isoformat()
+            events, date(2026, 3, 5), datetime.now(timezone.utc).isoformat()
         )
         assert len(messages) == 1
         desc = messages[0][0]["description"]
         assert "FOMC" in desc
-        assert "GPT-5.4" in desc
 
     def test_fallback_empty(self) -> None:
         messages = _format_yesterday_brief_fallback(
-            [], [], date(2026, 3, 5), datetime.now(timezone.utc).isoformat()
+            [], date(2026, 3, 5), datetime.now(timezone.utc).isoformat()
         )
         assert "No notable events" in messages[0][0]["description"]
 
@@ -351,36 +341,6 @@ class TestFormatEarningsEvents:
     def test_empty_list(self) -> None:
         result = _format_earnings_events([])
         assert result == ""
-
-
-class TestFormatCalendarEvents:
-    def test_formats_events(self) -> None:
-        events = [{"title": "CPI Release", "category": "economic_data", "tickers": ["SPY"]}]
-        result = _format_calendar_events(events)
-        assert "CALENDAR EVENTS" in result
-        assert "CPI Release" in result
-        assert "$SPY" in result
-
-    def test_includes_outcome(self) -> None:
-        events = [
-            {
-                "title": "FOMC Decision",
-                "category": "fed",
-                "tickers": [],
-                "outcome": "Rate held steady",
-            }
-        ]
-        result = _format_calendar_events(events)
-        assert "OUTCOME: Rate held steady" in result
-
-
-class TestFormatSurpriseEvents:
-    def test_formats_surprises(self) -> None:
-        surprises = [{"title": "Big news", "snippet": "Details here", "url": "https://example.com"}]
-        result = _format_surprise_events(surprises)
-        assert "SURPRISE EVENTS" in result
-        assert "Big news" in result
-        assert "Details here" in result
 
 
 class TestFormatFilingBriefs:
@@ -436,21 +396,13 @@ def _make_sub_analysis(**overrides: Any) -> SubAnalysis:
 class TestSynthesizeYesterdayBrief:
     @pytest.mark.asyncio
     async def test_returns_none_on_empty_input(self) -> None:
-        result = await synthesize_yesterday_brief([], [], [])
+        result = await synthesize_yesterday_brief([], [])
         assert result is None
 
     @pytest.mark.asyncio
     async def test_returns_none_when_all_sub_analyzers_fail(self) -> None:
-        with (
-            patch(
-                "synesis.processing.events.yesterday.analyze_events",
-                AsyncMock(return_value=None),
-            ),
-        ):
-            result = await synthesize_yesterday_brief(
-                [{"title": "Test", "category": "other", "tickers": []}], [], []
-            )
-
+        # No structured categories → no tasks → returns None
+        result = await synthesize_yesterday_brief([], [])
         assert result is None
 
     @pytest.mark.asyncio
@@ -460,7 +412,7 @@ class TestSynthesizeYesterdayBrief:
 
         with (
             patch(
-                "synesis.processing.events.yesterday.analyze_events",
+                "synesis.processing.events.yesterday.analyze_macro",
                 AsyncMock(return_value=sub),
             ),
             patch(
@@ -469,7 +421,7 @@ class TestSynthesizeYesterdayBrief:
             ),
         ):
             result = await synthesize_yesterday_brief(
-                [{"title": "FOMC", "category": "fed", "tickers": []}], [], []
+                [{"title": "FOMC", "category": "fed", "tickers": []}], []
             )
 
         assert result is not None
@@ -488,7 +440,7 @@ class TestSynthesizeYesterdayBrief:
                 AsyncMock(return_value=sub),
             ) as mock_earnings,
             patch(
-                "synesis.processing.events.yesterday.analyze_events",
+                "synesis.processing.events.yesterday.analyze_macro",
                 AsyncMock(return_value=sub),
             ),
             patch(
@@ -497,7 +449,7 @@ class TestSynthesizeYesterdayBrief:
             ),
         ):
             await synthesize_yesterday_brief(
-                [{"title": "FOMC", "category": "fed", "tickers": []}], [], []
+                [{"title": "FOMC", "category": "fed", "tickers": []}], []
             )
 
         mock_earnings.assert_not_called()
@@ -514,17 +466,12 @@ class TestSynthesizeYesterdayBrief:
                 AsyncMock(return_value=sub),
             ) as mock_earnings,
             patch(
-                "synesis.processing.events.yesterday.analyze_events",
-                AsyncMock(return_value=None),
-            ),
-            patch(
                 "synesis.processing.events.yesterday.consolidate",
                 AsyncMock(return_value=analysis),
             ),
         ):
             await synthesize_yesterday_brief(
                 [{"title": "AAPL Earnings", "category": "earnings", "tickers": ["AAPL"]}],
-                [],
                 [],
             )
 
@@ -542,114 +489,15 @@ class TestSynthesizeYesterdayBrief:
                 AsyncMock(return_value=sub),
             ) as mock_filings,
             patch(
-                "synesis.processing.events.yesterday.analyze_events",
-                AsyncMock(return_value=None),
-            ),
-            patch(
                 "synesis.processing.events.yesterday.consolidate",
                 AsyncMock(return_value=analysis),
             ),
         ):
-            await synthesize_yesterday_brief(
-                [],
-                [],
-                [{"fund_name": "Berkshire"}],
-            )
+            await synthesize_yesterday_brief([], [{"fund_name": "Berkshire"}])
 
         mock_filings.assert_called_once()
         call_args = mock_filings.call_args[0]
         assert call_args[0] == [{"fund_name": "Berkshire"}]
-
-
-# ---------------------------------------------------------------------------
-# Tests: detect_surprise_events
-# ---------------------------------------------------------------------------
-
-
-class TestDetectSurpriseEvents:
-    @pytest.mark.asyncio
-    async def test_returns_cached(self) -> None:
-        redis = AsyncMock()
-        cached = [{"title": "Cached surprise", "snippet": "test"}]
-        redis.get = AsyncMock(return_value=orjson.dumps(cached))
-
-        result = await detect_surprise_events(redis)
-
-        assert len(result) == 1
-        assert result[0]["title"] == "Cached surprise"
-
-    @pytest.mark.asyncio
-    async def test_searches_and_caches(self) -> None:
-        redis = AsyncMock()
-        redis.get = AsyncMock(return_value=None)
-        redis.set = AsyncMock()
-
-        search_results = [
-            {"title": "Breaking: Fed cuts rates", "snippet": "...", "url": "https://example.com"},
-            {"title": "AI company raises $1B", "snippet": "...", "url": "https://example2.com"},
-        ]
-
-        with patch(
-            "synesis.processing.events.yesterday.surprise.search_market_impact",
-            AsyncMock(return_value=search_results),
-        ):
-            result = await detect_surprise_events(redis)
-
-        assert len(result) >= 2
-        redis.set.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_deduplicates_titles(self) -> None:
-        redis = AsyncMock()
-        redis.get = AsyncMock(return_value=None)
-        redis.set = AsyncMock()
-
-        # Same title appearing in two different search queries
-        results = [
-            {"title": "Fed cuts rates by 50bps", "snippet": "...", "url": ""},
-            {"title": "Fed cuts rates by 50bps", "snippet": "different", "url": ""},
-        ]
-
-        with patch(
-            "synesis.processing.events.yesterday.surprise.search_market_impact",
-            AsyncMock(return_value=results),
-        ):
-            result = await detect_surprise_events(redis)
-
-        titles = [r["title"] for r in result]
-        assert titles.count("Fed cuts rates by 50bps") == 1
-
-    @pytest.mark.asyncio
-    async def test_handles_search_failure(self) -> None:
-        redis = AsyncMock()
-        redis.get = AsyncMock(return_value=None)
-        redis.set = AsyncMock()
-
-        from synesis.processing.common.web_search import SearchProvidersExhaustedError
-
-        with patch(
-            "synesis.processing.events.yesterday.surprise.search_market_impact",
-            AsyncMock(side_effect=SearchProvidersExhaustedError("No providers")),
-        ):
-            result = await detect_surprise_events(redis)
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_limits_to_max_results(self) -> None:
-        redis = AsyncMock()
-        redis.get = AsyncMock(return_value=None)
-        redis.set = AsyncMock()
-
-        results = [{"title": f"Event {i}", "snippet": "", "url": ""} for i in range(20)]
-
-        with patch(
-            "synesis.processing.events.yesterday.surprise.search_market_impact",
-            AsyncMock(return_value=results),
-        ):
-            result = await detect_surprise_events(redis)
-
-        assert len(result) <= 10
 
 
 # ---------------------------------------------------------------------------
@@ -761,7 +609,7 @@ class TestSendEventDigest:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _enrich_with_outcomes
+# Tests: _fetch_outcomes
 # ---------------------------------------------------------------------------
 
 
@@ -786,7 +634,7 @@ class TestEnrichWithOutcomes:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, sec_edgar)
+            result = await _fetch_outcomes(events, None, sec_edgar)
 
         mock_search.assert_not_called()
         assert "Revenue $35.1B" in result[0].get("outcome", "")
@@ -797,7 +645,7 @@ class TestEnrichWithOutcomes:
         events = [
             {"title": "Earnings: Unknown Co", "category": "earnings", "tickers": []},
         ]
-        result = await _enrich_with_outcomes(events, None, None)
+        result = await _fetch_outcomes(events, None, None)
         assert result[0].get("outcome", "") == ""
 
     @pytest.mark.asyncio
@@ -810,24 +658,9 @@ class TestEnrichWithOutcomes:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            await _enrich_with_outcomes(events, None, None)
+            await _fetch_outcomes(events, None, None)
 
         mock_search.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_other_category_web_searches(self) -> None:
-        """Categories without specialized sources should use web search."""
-        events = [
-            {"title": "Trade Agreement Signed", "category": "geopolitical", "tickers": []},
-        ]
-        with patch(
-            "synesis.processing.common.web_search.search_market_impact",
-            AsyncMock(return_value=[{"snippet": "Trade deal signed"}]),
-        ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None)
-
-        mock_search.assert_called_once()
-        assert "Trade deal signed" in result[0].get("outcome", "")
 
     @pytest.mark.asyncio
     async def test_economic_data_uses_fred(self) -> None:
@@ -849,7 +682,7 @@ class TestEnrichWithOutcomes:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None, fred=fred)
+            result = await _fetch_outcomes(events, None, None, fred=fred)
 
         mock_search.assert_not_called()
         assert "CPI" in result[0].get("outcome", "")
@@ -876,28 +709,10 @@ class TestEnrichWithOutcomes:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None, crawler=crawler)
+            result = await _fetch_outcomes(events, None, None, crawler=crawler)
 
         mock_search.assert_not_called()
         assert "Fed held rates" in result[0].get("outcome", "")
-
-    @pytest.mark.asyncio
-    async def test_other_category_uses_web_search_for_outcome(self) -> None:
-        """Categories without specialized sources should use web search."""
-        events = [
-            {
-                "title": "EIA Petroleum Status Report",
-                "category": "other",
-                "tickers": [],
-            },
-        ]
-        with patch(
-            "synesis.processing.common.web_search.search_market_impact",
-            AsyncMock(return_value=[{"snippet": "Crude inventories fell 2.1M barrels"}]),
-        ):
-            result = await _enrich_with_outcomes(events, None, None)
-
-        assert "Crude inventories" in result[0].get("outcome", "")
 
 
 # ---------------------------------------------------------------------------
@@ -1047,7 +862,7 @@ class TestGetCrawledOutcome:
         crawler.crawl.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_truncates_to_500_chars(self) -> None:
+    async def test_returns_full_content(self) -> None:
         crawler = AsyncMock()
         crawler.crawl = AsyncMock(return_value=MagicMock(success=True, markdown="x" * 1000))
 
@@ -1055,7 +870,7 @@ class TestGetCrawledOutcome:
             {"source_urls": ["https://example.com"], "category": "fed"}, crawler
         )
 
-        assert len(result) == 500
+        assert len(result) == 1000
 
     @pytest.mark.asyncio
     async def test_handles_crawl_failure(self) -> None:
@@ -1132,7 +947,7 @@ class TestFomcEndToEnd:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None, crawler=crawler, db=db)
+            result = await _fetch_outcomes(events, None, None, crawler=crawler, db=db)
 
         # Crawler used via DB lookup, NOT web search
         mock_search.assert_not_called()
@@ -1212,7 +1027,7 @@ class TestFomcEndToEnd:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None, crawler=crawler)
+            result = await _fetch_outcomes(events, None, None, crawler=crawler)
 
         # Web search should NOT be called for fed
         mock_search.assert_not_called()
@@ -1316,7 +1131,7 @@ class TestFredEndToEnd:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[]),
         ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, None, fred=fred)
+            result = await _fetch_outcomes(events, None, None, fred=fred)
 
         mock_search.assert_not_called()
         assert "CPI" in result[0].get("outcome", "")
@@ -1364,17 +1179,15 @@ class TestFredEndToEnd:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Full category matrix — every category through enrichment + routing
+# Tests: Structured category enrichment paths
 # ---------------------------------------------------------------------------
 
 
-class TestAllCategoriesEnrichment:
-    """Run every category through _enrich_with_outcomes and verify the correct
-    enrichment path is taken for each one."""
+class TestStructuredCategoryEnrichment:
+    """Verify each structured category takes the correct enrichment path."""
 
     @pytest.mark.asyncio
-    async def test_all_categories_take_correct_enrichment_path(self) -> None:
-        """Create one event per category, run all through enrichment, verify paths."""
+    async def test_structured_categories_take_correct_enrichment_path(self) -> None:
         events = [
             {
                 "title": "Earnings: NVIDIA (NVDA)",
@@ -1408,33 +1221,8 @@ class TestAllCategoriesEnrichment:
                 "tickers": [],
                 "source_urls": [],
             },
-            {
-                "title": "NVIDIA GTC Keynote",
-                "category": "conference",
-                "tickers": ["NVDA"],
-                "source_urls": [],
-            },
-            {
-                "title": "GPT-5.5 Released",
-                "category": "release",
-                "tickers": ["MSFT"],
-                "source_urls": [],
-            },
-            {
-                "title": "EU AI Act Enforcement Begins",
-                "category": "regulatory",
-                "tickers": [],
-                "source_urls": [],
-            },
-            {
-                "title": "Unexpected Trade Agreement",
-                "category": "other",
-                "tickers": [],
-                "source_urls": [],
-            },
         ]
 
-        # Mock all enrichment sources
         sec_edgar = AsyncMock()
         sec_edgar.get_earnings_releases = AsyncMock(
             return_value=[MagicMock(content="NVDA Revenue $44.1B, EPS $0.96 vs $0.89")]
@@ -1456,132 +1244,27 @@ class TestAllCategoriesEnrichment:
         db = AsyncMock()
         db.get_last_fomc_meeting_date = AsyncMock(return_value=date(2026, 3, 18))
 
-        with patch(
-            "synesis.processing.common.web_search.search_market_impact",
-            AsyncMock(return_value=[{"snippet": "Web search result for event"}]),
-        ) as mock_search:
-            result = await _enrich_with_outcomes(events, None, sec_edgar, crawler, fred, db)
+        result = await _fetch_outcomes(events, None, sec_edgar, crawler, fred, db)
 
-        # 1. earnings → SEC EDGAR 8-K press release
+        # earnings → SEC EDGAR 8-K press release
         assert "NVDA Revenue $44.1B" in result[0].get("outcome", "")
         sec_edgar.get_earnings_releases.assert_called_once_with("NVDA", limit=1)
 
-        # 2. economic_data → FRED observations
+        # economic_data → FRED observations
         assert "CPI: 3.2%" in result[1].get("outcome", "")
         fred.get_observations.assert_called_once_with(
             "CPIAUCSL", sort_order="desc", limit=2, units="pc1"
         )
 
-        # 3. fed (rate decision) → Crawl4AI Fed statement
+        # fed (rate decision) → Crawl4AI Fed statement
         assert "maintain the target range" in result[2].get("outcome", "")
 
-        # 4. fed (minutes) → DB lookup + Crawl4AI minutes URL
+        # fed (minutes) → DB lookup + Crawl4AI minutes URL
         assert "maintain the target range" in result[3].get("outcome", "")
         db.get_last_fomc_meeting_date.assert_called_once_with(date(2026, 4, 9))
 
-        # 5. 13f_filing → skipped (no outcome set)
+        # 13f_filing → skipped (no outcome set)
         assert result[4].get("outcome") is None
-
-        # 6. conference → web search
-        assert "Web search result" in result[5].get("outcome", "")
-
-        # 7. release → web search
-        assert "Web search result" in result[6].get("outcome", "")
-
-        # 8. regulatory → web search
-        assert "Web search result" in result[7].get("outcome", "")
-
-        # 9. other → web search
-        assert "Web search result" in result[8].get("outcome", "")
-
-        # Web search called for: conference + release + regulatory + other = 4 (not minutes)
-        assert mock_search.call_count == 4
 
         # Crawler called twice: rate decision + minutes
         assert crawler.crawl.call_count == 2
-
-
-class TestAllCategoriesRouting:
-    """Verify every category routes to the correct sub-analyzer."""
-
-    @pytest.mark.asyncio
-    async def test_all_categories_route_to_correct_analyzer(self) -> None:
-        """Simulate synthesize_yesterday_brief routing with all categories."""
-        from synesis.processing.events.yesterday.macro import MACRO_CATEGORIES
-
-        events = [
-            {"title": "NVDA Earnings", "category": "earnings", "tickers": ["NVDA"]},
-            {"title": "CPI Release", "category": "economic_data", "tickers": []},
-            {"title": "GDP Release", "category": "economic_data", "tickers": []},
-            {"title": "FOMC Rate Decision", "category": "fed", "tickers": []},
-            {"title": "FOMC Minutes Released", "category": "fed", "tickers": []},
-            {"title": "NVIDIA GTC Keynote", "category": "conference", "tickers": ["NVDA"]},
-            {"title": "GPT-5.5 Released", "category": "release", "tickers": ["MSFT"]},
-            {"title": "EU AI Act", "category": "regulatory", "tickers": []},
-            {"title": "Trade Deal", "category": "other", "tickers": []},
-        ]
-
-        # Replicate exact routing logic from synthesize_yesterday_brief
-        earnings_events = [e for e in events if e.get("category") == "earnings"]
-        macro_events = [e for e in events if e.get("category") in MACRO_CATEGORIES]
-        other_events = [
-            e
-            for e in events
-            if e.get("category") not in {"earnings", "13f_filing"}
-            and e.get("category") not in MACRO_CATEGORIES
-        ]
-
-        # earnings → analyze_earnings()
-        assert len(earnings_events) == 1
-        assert earnings_events[0]["title"] == "NVDA Earnings"
-
-        # economic_data + fed → analyze_macro()
-        assert len(macro_events) == 4
-        macro_titles = {e["title"] for e in macro_events}
-        assert macro_titles == {
-            "CPI Release",
-            "GDP Release",
-            "FOMC Rate Decision",
-            "FOMC Minutes Released",
-        }
-
-        # conference + release + regulatory + other → analyze_events()
-        assert len(other_events) == 4
-        other_titles = {e["title"] for e in other_events}
-        assert other_titles == {
-            "NVIDIA GTC Keynote",
-            "GPT-5.5 Released",
-            "EU AI Act",
-            "Trade Deal",
-        }
-
-        # No event should be in multiple groups (13f_filing excluded from all three)
-        all_routed = earnings_events + macro_events + other_events
-        assert len(all_routed) == len(events)
-
-    @pytest.mark.asyncio
-    async def test_13f_filings_route_via_filing_briefs(self) -> None:
-        """13F events are excluded from all sub-analyzers — they flow via filing_briefs."""
-        from synesis.processing.events.yesterday.macro import MACRO_CATEGORIES
-
-        # 13f_filing events are in calendar_events but their analysis data
-        # comes from _get_yesterday_13f_briefs → filing_briefs → analyze_filings()
-        events = [
-            {"title": "13F Filing: Berkshire", "category": "13f_filing", "tickers": []},
-            {"title": "CPI Release", "category": "economic_data", "tickers": []},
-        ]
-
-        earnings_events = [e for e in events if e.get("category") == "earnings"]
-        macro_events = [e for e in events if e.get("category") in MACRO_CATEGORIES]
-        other_events = [
-            e
-            for e in events
-            if e.get("category") not in {"earnings", "13f_filing"}
-            and e.get("category") not in MACRO_CATEGORIES
-        ]
-
-        # 13f_filing is excluded from all three groups
-        assert "13f_filing" not in MACRO_CATEGORIES
-        assert len(earnings_events) == 0
-        assert len(macro_events) == 1  # only CPI
-        assert len(other_events) == 0  # 13F excluded, CPI in macro
