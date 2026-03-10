@@ -17,6 +17,14 @@ if TYPE_CHECKING:
     from synesis.providers.sec_edgar.client import SECEdgarClient
     from synesis.storage.database import Database
 
+__all__ = [
+    "create_scheduler",
+    "event_digest_job",
+    "event_fetch_job",
+    "market_brief_job",
+    "watchlist_cleanup_job",
+]
+
 logger = get_logger(__name__)
 
 
@@ -52,6 +60,17 @@ async def event_fetch_job(
         logger.info("Event fetch job complete", stored=stored)
     except Exception:
         logger.exception("Event fetch job failed")
+
+
+async def market_brief_job(redis: Redis) -> None:
+    """Send daily market brief (benchmarks, sectors, top movers) to Discord."""
+    from synesis.processing.market.job import market_brief_job as _market_brief_job
+
+    try:
+        await _market_brief_job(redis)
+        logger.info("Market brief job complete")
+    except Exception:
+        logger.exception("Market brief job failed")
 
 
 async def event_digest_job(

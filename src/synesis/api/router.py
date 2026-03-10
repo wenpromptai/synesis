@@ -7,6 +7,7 @@ from synesis.api.routes import (
     events,
     fh,
     fred,
+    market,
     sec_edgar,
     system,
     twitter,
@@ -24,3 +25,4 @@ api_router.include_router(yf.router, prefix="/yf", tags=["yfinance"])
 api_router.include_router(fred.router, prefix="/fred", tags=["fred"])
 api_router.include_router(twitter.router, prefix="/twitter", tags=["twitter"])
 api_router.include_router(events.router, prefix="/events", tags=["events"])
+api_router.include_router(market.router, prefix="/market", tags=["market"])

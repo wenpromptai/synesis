@@ -390,8 +390,16 @@ def format_twitter_agent_embeds(analysis: TwitterAgentAnalysis) -> list[list[dic
 
         total = len(pages)
         for idx, page_text in enumerate(pages):
-            title = "\U0001f4cb Account Summaries" if total == 1 else f"\U0001f4cb Account Summaries ({idx + 1}/{total})"
-            page_embed: dict[str, Any] = {"title": title, "color": COLOR_NEUTRAL, "description": page_text}
+            title = (
+                "\U0001f4cb Account Summaries"
+                if total == 1
+                else f"\U0001f4cb Account Summaries ({idx + 1}/{total})"
+            )
+            page_embed: dict[str, Any] = {
+                "title": title,
+                "color": COLOR_NEUTRAL,
+                "description": page_text,
+            }
             if idx == 0:
                 messages[0].append(page_embed)
             else:

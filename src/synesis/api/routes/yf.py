@@ -105,3 +105,15 @@ async def get_options_snapshot(
     """Options snapshot: spot, 30d realized vol, nearest valid expiry, ATM ±10 strikes."""
     snapshot = await client.get_options_snapshot(ticker, greeks=greeks)
     return snapshot.model_dump(mode="json")
+
+
+@router.get("/movers")
+@limiter.limit("10/minute")
+async def get_market_movers(
+    request: Request,
+    client: YFinanceClientDep,
+    size: int = Query(25, ge=1, le=50, description="Number of results per category"),
+) -> dict[str, Any]:
+    """Top market movers: gainers, losers, and most-actives with sector/industry."""
+    movers = await client.get_market_movers(size=size)
+    return movers.model_dump(mode="json")

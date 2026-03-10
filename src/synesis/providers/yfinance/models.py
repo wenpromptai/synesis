@@ -7,6 +7,31 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
+class MarketMover(BaseModel):
+    """A single stock entry from gainers/losers/most-actives screener."""
+
+    ticker: str
+    name: str | None = None
+    price: float | None = None
+    change_pct: float | None = None
+    change_abs: float | None = None
+    volume: int | None = None
+    avg_volume_3m: int | None = None
+    volume_ratio: float | None = None
+    market_cap: float | None = None
+    sector: str | None = None
+    industry: str | None = None
+
+
+class MarketMovers(BaseModel):
+    """Top market movers snapshot from the yfinance screener."""
+
+    gainers: list[MarketMover]
+    losers: list[MarketMover]
+    most_actives: list[MarketMover]
+    fetched_at: datetime
+
+
 class EquityQuote(BaseModel):
     """Snapshot quote for an equity, ETF, or index."""
 

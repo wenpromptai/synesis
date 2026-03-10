@@ -42,13 +42,35 @@ async def get_insider_transactions(
     client: SECEdgarClientDep,
     ticker: str = Query(..., description="Stock ticker symbol"),
     limit: int = Query(10, ge=1, le=50),
+    codes: str | None = Query(
+        "P,S",
+        description=(
+            "Comma-separated Form 4 transaction codes to include. "
+            "Default 'P,S' returns only open-market purchases and sales (conviction signals). "
+            "Pass 'all' to include RSU grants (A), tax withholdings (F), option exercises (M), etc."
+        ),
+    ),
 ) -> dict[str, Any]:
-    """Get recent insider transactions from Form 4 filings."""
-    transactions = await client.get_insider_transactions(ticker, limit=limit)
+    """Get recent insider transactions from Form 4 filings.
+
+    By default returns only open-market purchases (P) and sales (S) —
+    the discretionary signals that reflect actual insider conviction.
+    RSU awards (A), tax-withholding sales (F), and option exercises (M)
+    are excluded by default as they are programmatic/mechanical with no
+    informational content about the insider's view of the stock.
+
+    Pass codes=all to see every transaction type.
+    """
+    code_filter: list[str] | None = None
+    if codes and codes.strip().lower() != "all":
+        code_filter = [c.strip().upper() for c in codes.split(",") if c.strip()]
+
+    transactions = await client.get_insider_transactions(ticker, limit=limit, codes=code_filter)
     return {
         "ticker": ticker.upper(),
         "transactions": [t.model_dump(mode="json") for t in transactions],
         "count": len(transactions),
+        "codes_filter": code_filter,
     }
 
 
@@ -61,17 +83,18 @@ async def get_insider_sells(
     min_value: float = Query(0, ge=0, description="Minimum transaction value"),
     limit: int = Query(10, ge=1, le=50),
 ) -> dict[str, Any]:
-    """Get insider sells above a value threshold."""
-    transactions = await client.get_insider_transactions(ticker, limit=50)
-    sells = [
-        t
-        for t in transactions
-        if t.transaction_code == "S" and (t.price_per_share or 0) * t.shares >= min_value
-    ]
+    """Get open-market insider sells above a value threshold.
+
+    Only returns discretionary open-market sales (code S).
+    Excludes tax-withholding sales (F) which are mechanical.
+    """
+    transactions = await client.get_insider_transactions(ticker, limit=50, codes=["S"])
+    sells = [t for t in transactions if (t.price_per_share or 0) * t.shares >= min_value]
     return {
         "ticker": ticker.upper(),
         "sells": [t.model_dump(mode="json") for t in sells[:limit]],
         "count": len(sells[:limit]),
+        "codes_filter": ["S"],
     }
 
 

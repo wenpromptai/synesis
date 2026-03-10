@@ -31,6 +31,7 @@ from synesis.agent.scheduler import (
     create_scheduler,
     event_digest_job,
     event_fetch_job,
+    market_brief_job,
     watchlist_cleanup_job,
 )
 from synesis.config import Settings
@@ -292,6 +293,16 @@ async def agent_lifespan(
                 digest="7pm ET daily",
             )
 
+        # Market brief: 10am ET (30min after market open) — only needs Redis
+        scheduler.add_job(
+            market_brief_job,
+            CronTrigger(hour=10, minute=0, timezone="America/New_York"),
+            args=[redis],
+            id="market_brief",
+            max_instances=1,
+        )
+        logger.info("Market brief scheduled", schedule="10am ET daily")
+
         scheduler.start()
 
         # 5. Start agent processing loop
@@ -355,6 +366,13 @@ async def agent_lifespan(
                 )
 
             trigger_fns["event_discover"] = _trigger_event_discover
+
+        async def _trigger_market_brief() -> None:
+            from synesis.processing.market.job import market_brief_job as _market_brief
+
+            await _market_brief(redis)
+
+        trigger_fns["market_brief"] = _trigger_market_brief
 
         if db:
 

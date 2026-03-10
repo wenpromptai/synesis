@@ -268,18 +268,23 @@ class SECEdgarClient:
         self,
         ticker: str,
         limit: int = 10,
+        codes: list[str] | None = None,
     ) -> list[InsiderTransaction]:
         """Get insider transactions by parsing Form 4 filings.
 
         Args:
             ticker: Stock ticker symbol
             limit: Maximum transactions to return
+            codes: Filter to specific transaction codes (e.g. ["P", "S"] for open-market only).
+                   None means return all codes. Use ["P", "S"] for conviction signals only.
 
         Returns:
             List of InsiderTransaction objects, newest first
         """
         ticker = ticker.upper()
-        cache_key = f"{CACHE_PREFIX}:insiders:{ticker}"
+        # Cache key includes codes filter so different filters don't collide
+        codes_key = "_".join(sorted(codes)) if codes else "all"
+        cache_key = f"{CACHE_PREFIX}:insiders:{ticker}:{codes_key}"
 
         # Check cache
         cached = await self._redis.get(cache_key)
@@ -290,8 +295,9 @@ class SECEdgarClient:
             except Exception as e:
                 logger.warning("Cache deserialization failed", key=cache_key, error=str(e))
 
-        # Get recent Form 4 filings
-        form4s = await self.get_filings(ticker, form_types=["4"], limit=limit)
+        # Fetch more Form 4s than needed so we have enough after filtering
+        fetch_limit = limit * 5 if codes else limit
+        form4s = await self.get_filings(ticker, form_types=["4"], limit=fetch_limit)
         if not form4s:
             return []
 
@@ -323,6 +329,12 @@ class SECEdgarClient:
 
         # Sort by transaction date descending
         transactions.sort(key=lambda t: t.transaction_date, reverse=True)
+
+        # Apply code filter
+        if codes:
+            code_set = set(codes)
+            transactions = [t for t in transactions if t.transaction_code in code_set]
+
         transactions = transactions[:limit]
 
         # Cache

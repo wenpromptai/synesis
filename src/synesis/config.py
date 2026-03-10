@@ -240,6 +240,10 @@ class Settings(BaseSettings):
         default=30,
         description="Cache TTL for yfinance FX rates (seconds)",
     )
+    yfinance_cache_ttl_movers: int = Field(
+        default=300,
+        description="Cache TTL for yfinance market movers screener (seconds)",
+    )
 
     # Crawl4AI (web crawling)
     crawl4ai_url: str = Field(

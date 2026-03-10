@@ -4,7 +4,26 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+# Human-readable labels for Form 4 transaction codes
+TRANSACTION_CODE_LABELS: dict[str, str] = {
+    "P": "Open Market Purchase",
+    "S": "Open Market Sale",
+    "A": "RSU/Award Grant",
+    "F": "Tax Withholding Sale",
+    "M": "Option Exercise",
+    "G": "Gift",
+    "J": "Other Acquisition/Disposition",
+    "X": "Option Expiration",
+    "C": "Conversion",
+    "W": "Warrant Exercise",
+    "D": "Sale Back to Issuer",
+    "I": "Discretionary Transaction",
+}
+
+# Transaction codes that represent real open-market conviction signals
+OPEN_MARKET_CODES: frozenset[str] = frozenset({"P", "S"})
 
 
 class SECFiling(BaseModel):
@@ -39,13 +58,27 @@ class InsiderTransaction(BaseModel):
     owner_name: str
     owner_relationship: str  # "Director", "Officer", "10% Owner"
     transaction_date: date
-    transaction_code: str  # P=purchase, S=sale, M=exercise
+    transaction_code: str  # P=open-market buy, S=open-market sell, A=award, F=tax withholding, M=exercise
     shares: float
     price_per_share: float | None
     shares_after: float
     acquired_or_disposed: str  # "A" or "D"
     filing_date: date
     filing_url: str
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def transaction_type_label(self) -> str:
+        """Human-readable label for the transaction code."""
+        return TRANSACTION_CODE_LABELS.get(
+            self.transaction_code, f"Unknown ({self.transaction_code})"
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_open_market(self) -> bool:
+        """True if this is a discretionary open-market buy (P) or sell (S)."""
+        return self.transaction_code in OPEN_MARKET_CODES
 
 
 class Holding13F(BaseModel):

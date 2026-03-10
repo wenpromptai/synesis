@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from synesis.config import get_settings
 from synesis.core.constants import (
-    BENCHMARK_TICKERS,
     CATEGORY_EMOJI,
     COLOR_CALENDAR,
     COLOR_HEADER,
@@ -24,8 +23,6 @@ from synesis.core.constants import (
     LAST_DIGEST_TTL,
     SEC_13F_DEADLINES,
     SECTOR_COLORS,
-    SECTOR_LABELS,
-    SECTOR_TICKERS,
     SENTIMENT_ICON,
     SOURCE_LABEL,
     THEME_EMOJI,
@@ -35,6 +32,7 @@ from synesis.core.logging import get_logger
 from synesis.notifications.discord import send_discord
 from synesis.processing.events.models import YesterdayBriefAnalysis, YesterdayTheme
 from synesis.processing.events.yesterday import synthesize_yesterday_brief
+from synesis.processing.market.snapshot import fetch_market_brief, format_market_data_for_llm
 
 if TYPE_CHECKING:
     from pydantic import SecretStr
@@ -434,83 +432,6 @@ async def _get_crawled_outcome(
     return ""
 
 
-async def _get_market_data(redis: Redis) -> tuple[str, str]:
-    """Fetch yesterday's benchmark + sector closes, format as text for LLM prompt.
-
-    Returns (llm_prompt_text, formatted_sector_string).
-    """
-    from synesis.providers.yfinance.client import YFinanceClient
-
-    client = YFinanceClient(redis=redis)
-    sem = asyncio.Semaphore(10)
-
-    async def _fetch_one(ticker: str) -> tuple[str, float | None, float | None]:
-        async with sem:
-            try:
-                quote = await client.get_quote(ticker)
-                return (ticker, quote.last, quote.prev_close)
-            except Exception:
-                logger.warning("Market data fetch failed", ticker=ticker, exc_info=True)
-                return (ticker, None, None)
-
-    all_tickers = BENCHMARK_TICKERS + SECTOR_TICKERS
-    results = await asyncio.gather(*[_fetch_one(t) for t in all_tickers])
-
-    def _pct(last: float | None, prev: float | None) -> float | None:
-        if last is None or prev is None or prev == 0:
-            return None
-        return ((last - prev) / prev) * 100
-
-    def _fmt(ticker: str, last: float | None, prev: float | None) -> str | None:
-        if ticker == "^VIX":
-            if last is None or prev is None:
-                return None
-            change = last - prev
-            sign = "+" if change >= 0 else ""
-            return f"VIX {last:.1f} ({sign}{change:.1f})"
-        pct = _pct(last, prev)
-        if pct is None:
-            return None
-        sign = "+" if pct >= 0 else ""
-        label = SECTOR_LABELS.get(ticker)
-        if label:
-            return f"{label}: {ticker} {sign}{pct:.1f}%"
-        return f"{ticker} {sign}{pct:.1f}%"
-
-    quotes = {t: (last, prev) for t, last, prev in results}
-
-    def _collect(tickers: list[str]) -> list[str]:
-        return [s for t in tickers if (s := _fmt(t, *quotes[t])) is not None]
-
-    # Sort sectors by performance (best first)
-    def _sector_sort_key(ticker: str) -> float:
-        pct = _pct(*quotes[ticker])
-        return pct if pct is not None else -999.0
-
-    sorted_sectors = sorted(SECTOR_TICKERS, key=_sector_sort_key, reverse=True)
-
-    equity_parts = _collect(["SPY", "QQQ", "IWM"])
-    rates_parts = _collect(["TLT", "UUP"])
-    comm_parts = _collect(["GLD", "USO"])
-    vix_part = _fmt("^VIX", *quotes["^VIX"])
-    sector_parts = _collect(sorted_sectors)
-
-    lines = ["## MARKET DATA (yesterday's close)"]
-    if equity_parts:
-        lines.append(f"Equities: {', '.join(equity_parts)}")
-    if rates_parts:
-        lines.append(f"Rates/FX: {', '.join(rates_parts)}")
-    if comm_parts:
-        lines.append(f"Commodities: {', '.join(comm_parts)}")
-    if vix_part:
-        lines.append(f"Volatility: {vix_part}")
-    sector_display = ", ".join(sector_parts)
-    if sector_parts:
-        lines.append(f"Sectors: {sector_display}")
-
-    return "\n".join(lines), sector_display
-
-
 async def _send_yesterday_brief(
     db: Database,
     redis: Redis | None,
@@ -544,7 +465,8 @@ async def _send_yesterday_brief(
     sector_display = ""
     if redis:
         try:
-            market_data_text, sector_display = await _get_market_data(redis)
+            brief = await fetch_market_brief(redis)
+            market_data_text, sector_display = format_market_data_for_llm(brief)
         except Exception:
             logger.warning("Market data fetch failed, proceeding without", exc_info=True)
 

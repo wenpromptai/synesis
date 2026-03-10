@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 import yfinance as yf
+from yfinance.screener import PREDEFINED_SCREENER_QUERIES, screen
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
@@ -25,6 +26,8 @@ from synesis.core.constants import (
 from synesis.providers.yfinance.models import (
     EquityQuote,
     FXRate,
+    MarketMover,
+    MarketMovers,
     OHLCBar,
     OptionsChain,
     OptionsContract,
@@ -352,6 +355,31 @@ class YFinanceClient:
         )
         return snapshot
 
+    async def get_market_movers(self, size: int = 25) -> MarketMovers:
+        """Get top market movers: gainers, losers, and most-actives.
+
+        Runs yfinance screener for each category, then batch-enriches with
+        sector/industry from ticker info. Results are cached for 5 minutes.
+        """
+        settings = get_settings()
+        cache_key = f"{CACHE_PREFIX}:movers:{size}"
+
+        cached = await self._redis.get(cache_key)
+        if cached:
+            try:
+                return MarketMovers.model_validate(orjson.loads(cached))
+            except Exception as e:
+                logger.warning("Cache deserialization failed", key=cache_key, error=str(e))
+
+        movers = await asyncio.to_thread(_fetch_market_movers, size)
+
+        await self._redis.set(
+            cache_key,
+            orjson.dumps(movers.model_dump(mode="json")),
+            ex=settings.yfinance_cache_ttl_movers,
+        )
+        return movers
+
 
 # ---------------------------------------------------------------------------
 # Synchronous helpers (run inside asyncio.to_thread)
@@ -479,4 +507,88 @@ def _fetch_options_chain(ticker: str, expiration: str, compute_greeks: bool) -> 
         expiration=expiration,
         calls=calls,
         puts=puts,
+    )
+
+
+def _fetch_screener(screen_name: str, size: int) -> list[dict[str, Any]]:
+    """Run a predefined yfinance screener (synchronous)."""
+    cfg = PREDEFINED_SCREENER_QUERIES[screen_name]
+    asc = screen_name == "day_losers"
+    try:
+        result = screen(cfg["query"], sortField=cfg["sortField"], sortAsc=asc, size=size)
+        return list(result.get("quotes", []))
+    except Exception as e:
+        logger.warning("yfinance screener failed", screen=screen_name, error=str(e))
+        return []
+
+
+def _enrich_sectors(tickers: list[str]) -> dict[str, tuple[str | None, str | None]]:
+    """Batch-fetch sector and industry for a list of tickers (synchronous).
+
+    Returns dict of ticker -> (sector, industry).
+    """
+    if not tickers:
+        return {}
+    try:
+        batch = yf.Tickers(" ".join(tickers))
+        out: dict[str, tuple[str | None, str | None]] = {}
+        for sym in tickers:
+            try:
+                info = batch.tickers[sym].info or {}
+                out[sym] = (info.get("sector"), info.get("industry"))
+            except Exception as e:
+                logger.debug("Sector enrichment failed", ticker=sym, error=str(e))
+                out[sym] = (None, None)
+        return out
+    except Exception as e:
+        logger.warning("yfinance batch sector fetch failed", error=str(e))
+        return {sym: (None, None) for sym in tickers}
+
+
+def _parse_movers(
+    quotes: list[dict[str, Any]], sectors: dict[str, tuple[str | None, str | None]]
+) -> list[MarketMover]:
+    """Convert raw screener quotes into MarketMover models."""
+    movers: list[MarketMover] = []
+    for q in quotes:
+        sym = q.get("symbol", "")
+        vol = _safe_int(q.get("regularMarketVolume"))
+        avg_vol = _safe_int(q.get("averageDailyVolume3Month"))
+        vol_ratio = round(vol / avg_vol, 2) if vol and avg_vol else None
+        sector, industry = sectors.get(sym, (None, None))
+        movers.append(
+            MarketMover(
+                ticker=sym,
+                name=q.get("shortName") or q.get("longName"),
+                price=_safe_float(q.get("regularMarketPrice")),
+                change_pct=_safe_float(q.get("regularMarketChangePercent")),
+                change_abs=_safe_float(q.get("regularMarketChange")),
+                volume=vol,
+                avg_volume_3m=avg_vol,
+                volume_ratio=vol_ratio,
+                market_cap=_safe_float(q.get("marketCap")),
+                sector=sector,
+                industry=industry,
+            )
+        )
+    return movers
+
+
+def _fetch_market_movers(size: int) -> MarketMovers:
+    """Fetch gainers, losers, most-actives and enrich with sector data (synchronous)."""
+    gainers_raw = _fetch_screener("day_gainers", size)
+    losers_raw = _fetch_screener("day_losers", size)
+    actives_raw = _fetch_screener("most_actives", size)
+
+    # Collect unique tickers across all lists for a single batch sector fetch
+    all_tickers = list(
+        {q.get("symbol", "") for q in gainers_raw + losers_raw + actives_raw if q.get("symbol")}
+    )
+    sectors = _enrich_sectors(all_tickers)
+
+    return MarketMovers(
+        gainers=_parse_movers(gainers_raw, sectors),
+        losers=_parse_movers(losers_raw, sectors),
+        most_actives=_parse_movers(actives_raw, sectors),
+        fetched_at=datetime.now(UTC),
     )

@@ -39,7 +39,9 @@ class AccountSummary(BaseModel):
     """Per-account summary of what an account posted and their investment theses."""
 
     username: str  # without @
-    posted_about: str  # 1-2 concise sentences covering all topics/tickers/claims they posted (keep short)
+    posted_about: (
+        str  # 1-2 concise sentences covering all topics/tickers/claims they posted (keep short)
+    )
     theses: list[str]  # each distinct investment/trading thesis in one sentence (empty if none)
 
 
