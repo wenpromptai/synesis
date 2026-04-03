@@ -1,46 +1,36 @@
 """Unit tests for ticker verification tools."""
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from synesis.processing.common.ticker_tools import verify_ticker
 
 
 class TestVerifyTicker:
-    """Tests for verify_ticker function."""
+    """Tests for verify_ticker — checks against data/us_tickers.json."""
 
     @pytest.mark.asyncio
-    async def test_no_provider_fallback(self) -> None:
-        result = await verify_ticker("AAPL", ticker_provider=None)
-        assert "NOT FOUND" in result
+    async def test_known_ticker(self) -> None:
+        """AAPL is in us_tickers.json → VERIFIED."""
+        result = await verify_ticker("AAPL")
+        assert "VERIFIED" in result
         assert "AAPL" in result
 
     @pytest.mark.asyncio
-    async def test_valid_ticker(self) -> None:
-        provider = AsyncMock()
-        provider.verify_ticker.return_value = (True, "Apple Inc")
-        result = await verify_ticker("aapl", provider)
-        assert "VERIFIED" in result
-        assert "Apple Inc" in result
-
-    @pytest.mark.asyncio
-    async def test_invalid_ticker(self) -> None:
-        provider = AsyncMock()
-        provider.verify_ticker.return_value = (False, None)
-        result = await verify_ticker("XYZZY", provider)
-        assert "NOT FOUND" in result
-
-    @pytest.mark.asyncio
-    async def test_provider_error(self) -> None:
-        provider = AsyncMock()
-        provider.verify_ticker.side_effect = ConnectionError("timeout")
-        result = await verify_ticker("AAPL", provider)
+    async def test_unknown_ticker(self) -> None:
+        """XYZZY is not in us_tickers.json → NOT FOUND."""
+        result = await verify_ticker("XYZZY")
         assert "NOT FOUND" in result
 
     @pytest.mark.asyncio
     async def test_uppercases_ticker(self) -> None:
-        provider = AsyncMock()
-        provider.verify_ticker.return_value = (True, "Tesla Inc")
-        await verify_ticker("tsla", provider)
-        provider.verify_ticker.assert_called_once_with("TSLA")
+        """Lowercase input is uppercased before lookup."""
+        result = await verify_ticker("aapl")
+        assert "VERIFIED" in result
+        assert "AAPL" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_company_name(self) -> None:
+        """VERIFIED result includes company name from file."""
+        result = await verify_ticker("MSFT")
+        assert "VERIFIED" in result
+        assert "MICROSOFT" in result.upper()

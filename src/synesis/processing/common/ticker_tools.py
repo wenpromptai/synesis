@@ -1,56 +1,63 @@
 """Shared ticker verification tools for LLM agents.
 
-This module provides a unified ticker verification function used by
-the Flow 1 SmartAnalyzer agent and the Twitter agent.
-
-Uses FinnhubTickerProvider for primary verification, with automatic
-SearXNG fallback when a ticker is not found.
+Verifies tickers against the static data/us_tickers.json file
+(refreshed weekly by APScheduler). Falls back to SearXNG search
+when a ticker is not found in the file.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from pathlib import Path
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.web_search import format_search_results, search_ticker_analysis
 
-if TYPE_CHECKING:
-    from synesis.providers.base import TickerProvider
-
 logger = get_logger(__name__)
 
+_TICKERS_FILE = Path(__file__).resolve().parents[4] / "data" / "us_tickers.json"
 
-async def verify_ticker(
-    ticker: str,
-    ticker_provider: "TickerProvider | None",
-) -> str:
-    """Verify if a ticker symbol exists using a ticker provider.
+# In-memory cache of the ticker file (loaded once on first call)
+_ticker_cache: dict[str, str] | None = None
 
-    Use this tool to validate tickers BEFORE including them in your analysis.
-    If the ticker is not found via Finnhub, automatically falls back to a
-    SearXNG search to look it up (free, no quota cost).
+
+def _load_tickers() -> dict[str, str]:
+    """Load the static ticker file into memory (singleton)."""
+    global _ticker_cache
+    if _ticker_cache is not None:
+        return _ticker_cache
+
+    if not _TICKERS_FILE.exists():
+        logger.warning("Ticker file not found", path=str(_TICKERS_FILE))
+        _ticker_cache = {}
+        return _ticker_cache
+
+    with open(_TICKERS_FILE) as f:
+        _ticker_cache = json.load(f)
+
+    logger.info("Ticker cache loaded", tickers=len(_ticker_cache))
+    return _ticker_cache
+
+
+async def verify_ticker(ticker: str, **_kwargs: object) -> str:
+    """Verify if a ticker symbol exists against data/us_tickers.json.
+
+    Falls back to SearXNG search when not found in the file.
 
     Args:
         ticker: The ticker symbol to verify (e.g., "AAPL", "GME", "TSLA")
-        ticker_provider: TickerProvider instance (e.g., FinnhubTickerProvider) or None
 
     Returns:
         Verification result string — VERIFIED with company name, NOT FOUND with
         SearXNG search results, or an error message.
     """
     ticker = ticker.upper()
+    tickers = _load_tickers()
 
-    if not ticker_provider:
-        return await _searxng_fallback(ticker)
+    if ticker in tickers:
+        return f"VERIFIED: '{ticker}'. Company: {tickers[ticker]}"
 
-    try:
-        is_valid, company_name = await ticker_provider.verify_ticker(ticker)
-        if is_valid:
-            return f"VERIFIED: '{ticker}'. Company: {company_name}"
-        return await _searxng_fallback(ticker)
-    except (ConnectionError, TimeoutError, ValueError, KeyError, RuntimeError, OSError) as e:
-        logger.warning("Ticker verification failed", ticker=ticker, error=str(e))
-        return await _searxng_fallback(ticker)
+    return await _searxng_fallback(ticker)
 
 
 async def _searxng_fallback(ticker: str) -> str:
@@ -59,11 +66,11 @@ async def _searxng_fallback(ticker: str) -> str:
         results = await search_ticker_analysis(ticker)
         if results:
             return (
-                f"NOT FOUND via Finnhub. SearXNG results for '{ticker}':\n"
+                f"NOT FOUND in US ticker list. SearXNG results for '{ticker}':\n"
                 + format_search_results(results)
             )
         return (
-            f"NOT FOUND: '{ticker}' not found via Finnhub or SearXNG. May be invalid or delisted."
+            f"NOT FOUND: '{ticker}' not in US ticker list or SearXNG. May be invalid or delisted."
         )
     except Exception as e:
         logger.warning("SearXNG fallback failed", ticker=ticker, error=str(e))

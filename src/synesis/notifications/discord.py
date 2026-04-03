@@ -27,7 +27,12 @@ from synesis.core.constants import (
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from synesis.processing.news import ETFImpact, LightClassification, SmartAnalysis, UnifiedMessage
+    from synesis.processing.news import (
+        ETFImpact,
+        LightClassification,
+        SmartAnalysis,
+        UnifiedMessage,
+    )
     from synesis.processing.twitter.models import Theme, TwitterAgentAnalysis
 
 logger = get_logger(__name__)

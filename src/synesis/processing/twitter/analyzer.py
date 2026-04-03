@@ -30,7 +30,6 @@ from synesis.processing.twitter.accounts import get_profile
 from synesis.processing.twitter.models import TwitterAgentAnalysis
 
 if TYPE_CHECKING:
-    from synesis.providers.base import TickerProvider
     from synesis.providers.yfinance.client import YFinanceClient
 
 logger = get_logger(__name__)
@@ -186,7 +185,6 @@ class TwitterAgentDeps:
 
     tweets: list[Tweet]
     yfinance: YFinanceClient | None = field(default=None, repr=False)
-    ticker_provider: TickerProvider | None = field(default=None, repr=False)
     web_search_calls: int = field(default=0)  # Counter for LLM web_search tool calls (hard cap: 7)
     web_read_calls: int = field(default=0)  # Counter for web_read calls (unlimited)
 
@@ -418,19 +416,14 @@ class TwitterAgentAnalyzer:
             ctx: RunContext[TwitterAgentDeps],
             ticker: str,
         ) -> str:
-            """Verify if a US ticker symbol exists.
+            """Verify if a US ticker symbol exists against the static ticker list.
 
-            Use this tool to validate US tickers BEFORE including them in your analysis.
-            Automatically falls back to SearXNG if not found via Finnhub — no extra tool
-            call needed.
+            Automatically falls back to SearXNG if not found.
 
             Args:
                 ticker: The US ticker symbol to verify (e.g. "AAPL", "GME", "TSLA")
-
-            Returns:
-                VERIFIED with company name, NOT FOUND with SearXNG results, or error.
             """
-            return await _verify_ticker(ticker, ctx.deps.ticker_provider)
+            return await _verify_ticker(ticker)
 
         return agent
 
@@ -438,14 +431,12 @@ class TwitterAgentAnalyzer:
         self,
         tweets: list[Tweet],
         yfinance: YFinanceClient | None = None,
-        ticker_provider: TickerProvider | None = None,
     ) -> TwitterAgentAnalysis | None:
         """Run the digest analysis on a batch of tweets.
 
         Args:
             tweets: All tweets to analyze (already filtered to last 24hrs)
             yfinance: Optional YFinanceClient for live quote/history/options data
-            ticker_provider: Optional provider for ticker verification
 
         Returns:
             TwitterAgentAnalysis or None on failure
@@ -456,7 +447,6 @@ class TwitterAgentAnalyzer:
         deps = TwitterAgentDeps(
             tweets=tweets,
             yfinance=yfinance,
-            ticker_provider=ticker_provider,
         )
         log = logger.bind(tweet_count=len(tweets), accounts=deps.accounts)
         log.info("Starting Twitter agent analysis")

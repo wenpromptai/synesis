@@ -17,10 +17,14 @@ from synesis.providers.sec_edgar.models import EarningsRelease, InsiderTransacti
 # Sample Data
 # ---------------------------------------------------------------------------
 
+# company_tickers_exchange.json format: {"fields": [...], "data": [[cik, name, ticker, exchange], ...]}
 SAMPLE_CIK_MAP = {
-    "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
-    "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corporation"},
-    "2": {"cik_str": 1318605, "ticker": "TSLA", "title": "Tesla, Inc."},
+    "fields": ["cik", "name", "ticker", "exchange"],
+    "data": [
+        [320193, "Apple Inc.", "AAPL", "Nasdaq"],
+        [789019, "Microsoft Corporation", "MSFT", "Nasdaq"],
+        [1318605, "Tesla, Inc.", "TSLA", "Nasdaq"],
+    ],
 }
 
 SAMPLE_SUBMISSIONS = {
@@ -218,25 +222,14 @@ class TestGetFilings:
         assert all(f.form == "8-K" for f in filings)
 
     async def test_get_filings_from_cache(self, client: SECEdgarClient, mock_redis):
-        """Test filings loaded from cache."""
-        cached_filings = [
-            {
-                "ticker": "AAPL",
-                "form": "10-K",
-                "filed_date": "2026-01-15",
-                "accepted_datetime": "2026-01-15T08:00:00",
-                "accession_number": "0000320193-26-000001",
-                "primary_document": "doc.htm",
-                "items": "",
-                "url": "https://www.sec.gov/Archives/edgar/data/0000320193/000032019326000001/doc.htm",
-            }
-        ]
-        mock_redis.get.return_value = orjson.dumps(cached_filings)
+        """Test filings loaded from submissions cache."""
+        # _fetch_submissions caches the full submissions dict
+        mock_redis.get.return_value = orjson.dumps(SAMPLE_SUBMISSIONS)
         client._cik_map = {"AAPL": "0000320193"}
 
         filings = await client.get_filings("AAPL")
-        assert len(filings) == 1
-        assert filings[0].form == "10-K"
+        assert len(filings) == 4
+        assert filings[0].form == "8-K"
 
     async def test_get_filings_unknown_ticker(self, client: SECEdgarClient, mock_redis):
         """Test filings for unknown ticker returns empty."""
@@ -572,7 +565,7 @@ SAMPLE_XBRL_REVENUE = {
                 "form": "10-Q",
                 "frame": "CY2025Q3",
             },
-            # Annual entry should be filtered out
+            # Annual entry — also returned (no quarterly filter)
             {
                 "end": "2024-12-31",
                 "val": 350_000_000_000,
@@ -677,11 +670,11 @@ class TestHistoricalRevenue:
             mock_http.return_value.get = AsyncMock(return_value=mock_response)
             rev = await client.get_historical_revenue("AAPL", limit=4)
 
-        assert len(rev) == 2
+        assert len(rev) == 3
         assert rev[0]["period"] == "2025-12-31"
         assert rev[0]["actual"] == 94_836_000_000
-        # Annual entry should be excluded
-        assert all("Q" in e["frame"] for e in rev)
+        # All frame-bearing entries returned (quarterly + annual)
+        assert all(e["frame"] for e in rev)
 
     async def test_get_historical_revenue_fallback(self, client: SECEdgarClient, mock_redis):
         """Test revenue falls back to Revenues concept when primary returns empty."""

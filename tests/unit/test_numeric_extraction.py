@@ -301,8 +301,7 @@ class TestThresholdBoundaries:
 
     def _make_result(self, score: int) -> ImpactResult:
         """Create an ImpactResult at an exact score to test threshold mapping."""
-        r = compute_impact_score("neutral text", "unknown_source")
-        # Override the score and re-derive urgency
+        # Create an ImpactResult at an exact score to test threshold mapping
         if score >= CRITICAL_THRESHOLD:
             urgency = UrgencyLevel.critical
         elif score >= HIGH_THRESHOLD:
@@ -347,10 +346,7 @@ class TestComponentCaps:
     def test_text_pattern_capped_at_35(self) -> None:
         """Stacking many text patterns should cap at 35."""
         # Wire prefix + BREAKING + JUST IN + ALERT + EXCLUSIVE + SUPERLATIVE + SURPRISE + EXTREME
-        text = (
-            "*BREAKING: JUST IN - ALERT: EXCLUSIVE SCOOP: "
-            "SURPRISE CRASH — WORST SINCE 2008"
-        )
+        text = "*BREAKING: JUST IN - ALERT: EXCLUSIVE SCOOP: SURPRISE CRASH — WORST SINCE 2008"
         score, _ = _text_pattern_score(text)
         assert score == _TEXT_PATTERN_CAP
         assert score == 35
@@ -370,7 +366,9 @@ class TestComponentCaps:
 
     def test_suppressor_uncapped(self) -> None:
         """Suppressors have no cap — can go deeply negative."""
-        text = "RT @promo: SUBSCRIBE for GIVEAWAY! Follow us for faster headlines! YESTERDAY'S RECAP"
+        text = (
+            "RT @promo: SUBSCRIBE for GIVEAWAY! Follow us for faster headlines! YESTERDAY'S RECAP"
+        )
         score, _ = _suppressor_score(text)
         assert score < -20  # Multiple suppressors stack
 

@@ -113,8 +113,6 @@ class FinnhubPriceProvider:
         self._ws: ClientConnection | None = None
         self._ws_task: asyncio.Task[None] | None = None
         self._subscribed_tickers: set[str] = set()
-        self._reconnect_delay = 1.0
-        self._max_reconnect_delay = 60.0
         self._running = False
         self._http_client: httpx.AsyncClient | None = None
 
@@ -197,30 +195,15 @@ class FinnhubPriceProvider:
         logger.debug("FinnhubPriceProvider WebSocket stopped")
 
     async def _ws_loop(self) -> None:
-        """Main WebSocket loop with reconnection."""
-        while self._running:
-            try:
-                await self._connect_and_listen()
-            except websockets.exceptions.ConnectionClosed as e:
-                logger.warning("WebSocket connection closed", code=e.code, reason=e.reason)
-            except Exception as e:
-                logger.error("WebSocket error", error=str(e))
-
-            if self._running:
-                logger.debug("Reconnecting WebSocket", delay=self._reconnect_delay)
-                await asyncio.sleep(self._reconnect_delay)
-                self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
-
-    async def _connect_and_listen(self) -> None:
-        """Connect to Finnhub WebSocket and listen for trades."""
+        """Main WebSocket loop with library-managed reconnection and backoff."""
         settings = get_settings()
         url = f"{settings.finnhub_ws_url}?token={self._api_key}"
 
-        try:
-            async with websockets.connect(url) as ws:
+        async for ws in websockets.connect(url):
+            if not self._running:
+                break
+            try:
                 self._ws = ws
-                self._reconnect_delay = 1.0  # Reset on successful connect
-
                 logger.debug(
                     "Connected to Finnhub WebSocket",
                     subscribed_tickers=len(self._subscribed_tickers),
@@ -233,8 +216,12 @@ class FinnhubPriceProvider:
                 # Listen for messages
                 async for message in ws:
                     await self._handle_ws_message(message)
-        finally:
-            self._ws = None  # Always clear reference to avoid dangling socket
+            except websockets.exceptions.ConnectionClosed as e:
+                logger.warning("WebSocket connection closed", code=e.code, reason=e.reason)
+            except Exception as e:
+                logger.error("WebSocket error", error=str(e))
+            finally:
+                self._ws = None
 
     async def _handle_ws_message(self, message: str | bytes) -> None:
         """Handle incoming WebSocket message.

@@ -176,7 +176,7 @@ class TestGet13FFilings:
         assert all(f.form == "13F-HR" for f in filings)
         assert filings[0].filed_date == date(2026, 2, 14)
         assert filings[0].accession_number == "0001536411-26-000001"
-        assert filings[0].items == "2025-12-31"  # reportDate stored in items
+        assert filings[0].report_date == date(2025, 12, 31)
         assert filings[1].filed_date == date(2025, 11, 14)
 
     @pytest.mark.asyncio
@@ -190,8 +190,9 @@ class TestGet13FFilings:
             accepted_datetime=datetime(2026, 2, 14, 10, 0),
             accession_number="0001536411-26-000001",
             primary_document="primary_doc.xml",
-            items="2025-12-31",
+            items="",
             url="https://www.sec.gov/test",
+            report_date=date(2025, 12, 31),
         )
         mock_redis.get.return_value = orjson.dumps([cached_filing.model_dump(mode="json")])
 
@@ -318,8 +319,9 @@ class TestGet13FHoldings:
             accepted_datetime=datetime(2026, 2, 14, 10, 0),
             accession_number="0001536411-26-000001",
             primary_document="primary_doc.xml",
-            items="2025-12-31",
+            items="",
             url="",
+            report_date=date(2025, 12, 31),
         )
         index_resp = _make_response(orjson.dumps(SAMPLE_13F_INDEX))
         xml_resp = _make_response(SAMPLE_13F_XML, text=SAMPLE_13F_XML)

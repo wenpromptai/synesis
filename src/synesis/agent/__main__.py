@@ -220,7 +220,6 @@ async def agent_lifespan(
 
         # Twitter agent daily digest
         yf_client = None
-        ticker_prov = None
         if settings.twitterapi_api_key and settings.twitter_accounts:
             from synesis.processing.twitter.job import twitter_agent_job
             from synesis.providers.yfinance.client import YFinanceClient
@@ -228,19 +227,10 @@ async def agent_lifespan(
             # Create YFinanceClient for live market data in twitter analyzer
             yf_client = YFinanceClient(redis=redis)
 
-            # Create TickerProvider for ticker verification (if Finnhub configured)
-            if settings.finnhub_api_key:
-                from synesis.providers.factory import create_ticker_provider
-
-                try:
-                    ticker_prov = await create_ticker_provider(redis)
-                except ValueError:
-                    logger.warning("Could not create TickerProvider for twitter agent")
-
             scheduler.add_job(
                 twitter_agent_job,
                 CronTrigger(hour=10, minute=0, timezone="America/New_York"),
-                args=[watchlist, yf_client, ticker_prov, db],
+                args=[watchlist, yf_client, db],
                 id="twitter_agent",
                 max_instances=1,
             )
@@ -303,6 +293,17 @@ async def agent_lifespan(
         )
         logger.info("Market brief scheduled", schedule="10:30am ET daily")
 
+        # Ticker list refresh: every Monday 6am UTC
+        from synesis.agent.scheduler import refresh_tickers_job
+
+        scheduler.add_job(
+            refresh_tickers_job,
+            CronTrigger(day_of_week="mon", hour=6, minute=0, timezone="UTC"),
+            id="refresh_tickers",
+            max_instances=1,
+        )
+        logger.info("Ticker refresh scheduled", schedule="Monday 6am UTC weekly")
+
         scheduler.start()
 
         # 5. Start agent processing loop
@@ -348,7 +349,7 @@ async def agent_lifespan(
             from synesis.processing.twitter.job import twitter_agent_job
 
             async def _trigger_twitter_agent() -> None:
-                await twitter_agent_job(watchlist, yf_client, ticker_prov, db)
+                await twitter_agent_job(watchlist, yf_client, db)
 
             trigger_fns["twitter_agent"] = _trigger_twitter_agent
 

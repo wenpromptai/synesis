@@ -805,8 +805,8 @@ class TestPartialFetchFailure:
         mock_analyzer.analyze_tweets.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_job_passes_yfinance_and_ticker_provider(self) -> None:
-        """Job should forward yfinance and ticker_provider to analyzer."""
+    async def test_job_passes_yfinance(self) -> None:
+        """Job should forward yfinance to analyzer."""
         analysis = _make_analysis()
 
         with (
@@ -830,15 +830,13 @@ class TestPartialFetchFailure:
             mock_analyzer.analyze_tweets = AsyncMock(return_value=analysis)
 
             fake_yf = object()
-            fake_tp = object()
 
             from synesis.processing.twitter.job import twitter_agent_job
 
-            await twitter_agent_job(yfinance=fake_yf, ticker_provider=fake_tp)
+            await twitter_agent_job(yfinance=fake_yf)
 
         call_kwargs = mock_analyzer.analyze_tweets.call_args.kwargs
         assert call_kwargs["yfinance"] is fake_yf
-        assert call_kwargs["ticker_provider"] is fake_tp
 
 
 # ---------------------------------------------------------------------------
@@ -955,7 +953,6 @@ class TestTwitterAgentDepsExpanded:
         from synesis.processing.twitter.analyzer import TwitterAgentDeps
 
         tweets = [_make_tweet()]
-        deps = TwitterAgentDeps(tweets=tweets, yfinance=None, ticker_provider=None)
+        deps = TwitterAgentDeps(tweets=tweets, yfinance=None)
         assert deps.yfinance is None
-        assert deps.ticker_provider is None
         assert deps.accounts == [tweets[0].username]

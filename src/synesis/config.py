@@ -212,6 +212,18 @@ class Settings(BaseSettings):
         default=86400,
         description="Cache TTL for SEC ticker→CIK mapping (seconds)",
     )
+    sec_edgar_cache_ttl_company_facts: int = Field(
+        default=21600,
+        description="Cache TTL for SEC XBRL company facts (seconds, 6h)",
+    )
+    sec_edgar_cache_ttl_xbrl_frames: int = Field(
+        default=86400,
+        description="Cache TTL for SEC XBRL frames (seconds, 24h)",
+    )
+    sec_edgar_cache_ttl_filing_content: int = Field(
+        default=604800,
+        description="Cache TTL for SEC filing content (seconds, 7d — filings don't change)",
+    )
 
     # NASDAQ (free, no key required)
     nasdaq_cache_ttl_earnings: int = Field(

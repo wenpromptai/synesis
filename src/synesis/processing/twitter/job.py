@@ -20,7 +20,6 @@ from synesis.processing.twitter.analyzer import TwitterAgentAnalyzer
 
 if TYPE_CHECKING:
     from synesis.processing.common.watchlist import WatchlistManager
-    from synesis.providers.base import TickerProvider
     from synesis.providers.yfinance.client import YFinanceClient
     from synesis.storage.database import Database
 
@@ -34,7 +33,6 @@ MAX_CONCURRENT_FETCHES = 5
 async def twitter_agent_job(
     watchlist: WatchlistManager | None = None,
     yfinance: YFinanceClient | None = None,
-    ticker_provider: TickerProvider | None = None,
     db: Database | None = None,
 ) -> None:
     """Daily Twitter agent digest job."""
@@ -100,7 +98,6 @@ async def twitter_agent_job(
     analysis = await analyzer.analyze_tweets(
         all_tweets,
         yfinance=yfinance,
-        ticker_provider=ticker_provider,
     )
 
     if not analysis:

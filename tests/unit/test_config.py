@@ -219,6 +219,9 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("sec_edgar_user_agent", "SEC_EDGAR_USER_AGENT", "Test test@test.com", "Test test@test.com"),
     ("sec_edgar_cache_ttl_submissions", "SEC_EDGAR_CACHE_TTL_SUBMISSIONS", "7200", 7200),
     ("sec_edgar_cache_ttl_cik_map", "SEC_EDGAR_CACHE_TTL_CIK_MAP", "43200", 43200),
+    ("sec_edgar_cache_ttl_company_facts", "SEC_EDGAR_CACHE_TTL_COMPANY_FACTS", "10800", 10800),
+    ("sec_edgar_cache_ttl_xbrl_frames", "SEC_EDGAR_CACHE_TTL_XBRL_FRAMES", "43200", 43200),
+    ("sec_edgar_cache_ttl_filing_content", "SEC_EDGAR_CACHE_TTL_FILING_CONTENT", "86400", 86400),
     # --- NASDAQ ---
     ("nasdaq_cache_ttl_earnings", "NASDAQ_CACHE_TTL_EARNINGS", "10800", 10800),
     ("nasdaq_earnings_lookahead_days", "NASDAQ_EARNINGS_LOOKAHEAD_DAYS", "7", 7),

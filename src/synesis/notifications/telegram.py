@@ -17,7 +17,12 @@ from synesis.core.constants import TELEGRAM_MAX_MESSAGE_LENGTH
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from synesis.processing.news import ETFImpact, LightClassification, SmartAnalysis, UnifiedMessage
+    from synesis.processing.news import (
+        ETFImpact,
+        LightClassification,
+        SmartAnalysis,
+        UnifiedMessage,
+    )
 
 logger = get_logger(__name__)
 

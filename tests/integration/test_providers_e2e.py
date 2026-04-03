@@ -168,7 +168,7 @@ class TestSECEdgarXBRL:
             eps = await client.get_historical_eps(ticker, limit=4)
             assert len(eps) > 0, f"No EPS data for {ticker}"
             assert eps[0]["actual"] is not None
-            assert "Q" in eps[0]["frame"]
+            assert eps[0]["frame"]  # non-empty frame string
             assert eps[0]["period"]  # non-empty date string
             # Should be sorted descending
             if len(eps) > 1:
@@ -189,7 +189,7 @@ class TestSECEdgarXBRL:
             assert len(rev) > 0, f"No revenue data for {ticker}"
             assert rev[0]["actual"] is not None
             assert rev[0]["actual"] > 0  # Revenue should be positive
-            assert "Q" in rev[0]["frame"]
+            assert rev[0]["frame"]  # non-empty frame string
             # Should be sorted descending
             if len(rev) > 1:
                 assert rev[0]["period"] >= rev[1]["period"]

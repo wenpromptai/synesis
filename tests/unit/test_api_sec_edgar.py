@@ -185,15 +185,19 @@ class TestSentimentEndpoint:
 
 class TestSearchEndpoint:
     async def test_search_filings(self, client: httpx.AsyncClient, mock_sec_client):
-        mock_sec_client.search_filings.return_value = [
-            {
-                "entity": "Apple Inc.",
-                "filed": "2026-02-10",
-                "form": "8-K",
-                "url": "https://example.com",
-                "description": "Current report",
-            }
-        ]
+        mock_sec_client.search_filings.return_value = {
+            "results": [
+                {
+                    "entity": "Apple Inc.",
+                    "filed": "2026-02-10",
+                    "form": "8-K",
+                    "url": "https://example.com",
+                    "description": "Current report",
+                }
+            ],
+            "total_hits": 1,
+            "offset": 0,
+        }
         r = await client.get("/api/v1/sec_edgar/search?query=Apple+earnings")
 
         assert r.status_code == 200
