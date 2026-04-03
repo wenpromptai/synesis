@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from synesis.processing.common.watchlist import WatchlistManager
     from synesis.providers.base import TickerProvider
     from synesis.providers.yfinance.client import YFinanceClient
+    from synesis.storage.database import Database
 
 logger = get_logger(__name__)
 
@@ -34,6 +35,7 @@ async def twitter_agent_job(
     watchlist: WatchlistManager | None = None,
     yfinance: YFinanceClient | None = None,
     ticker_provider: TickerProvider | None = None,
+    db: Database | None = None,
 ) -> None:
     """Daily Twitter agent digest job."""
     settings = get_settings()
@@ -146,3 +148,14 @@ async def twitter_agent_job(
         )
     else:
         logger.warning("No DISCORD_TWITTER_WEBHOOK_URL configured, skipping Discord notification")
+
+    # Persist to diary table
+    if db:
+        try:
+            await db.upsert_diary_entry(
+                entry_date=datetime.now(UTC).date(),
+                source="twitter",
+                payload=analysis.model_dump(mode="json"),
+            )
+        except Exception:
+            logger.exception("Failed to save twitter digest to diary")

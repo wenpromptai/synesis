@@ -58,7 +58,9 @@ class InsiderTransaction(BaseModel):
     owner_name: str
     owner_relationship: str  # "Director", "Officer", "10% Owner"
     transaction_date: date
-    transaction_code: str  # P=open-market buy, S=open-market sell, A=award, F=tax withholding, M=exercise
+    transaction_code: (
+        str  # P=open-market buy, S=open-market sell, A=award, F=tax withholding, M=exercise
+    )
     shares: float
     price_per_share: float | None
     shares_after: float

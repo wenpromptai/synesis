@@ -467,6 +467,110 @@ class TestTwitterAgentJob:
         # Discord should still be called despite watchlist failure
         assert mock_send.call_count == 3
 
+    @pytest.mark.asyncio
+    async def test_job_saves_to_diary(self) -> None:
+        """Job persists analysis to diary with source='twitter'."""
+        analysis = _make_analysis()
+
+        with (
+            patch("synesis.processing.twitter.job.get_settings") as mock_settings,
+            patch("synesis.processing.twitter.job.TwitterClient") as mock_client_cls,
+            patch("synesis.processing.twitter.job.TwitterAgentAnalyzer") as mock_analyzer_cls,
+            patch("synesis.processing.twitter.job.send_discord", new_callable=AsyncMock),
+        ):
+            from pydantic import SecretStr
+
+            mock_settings.return_value.twitterapi_api_key = SecretStr("key")
+            mock_settings.return_value.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value.twitter_accounts = ["aleabitoreddit"]
+            mock_settings.return_value.discord_twitter_webhook_url = SecretStr("https://hook")
+
+            tweet = _make_tweet(hours_ago=1.0)
+            mock_instance = mock_client_cls.return_value
+            mock_instance.get_user_tweets = AsyncMock(return_value=([tweet], None))
+
+            mock_analyzer = mock_analyzer_cls.return_value
+            mock_analyzer.analyze_tweets = AsyncMock(return_value=analysis)
+
+            mock_db = AsyncMock()
+
+            from synesis.processing.twitter.job import twitter_agent_job
+
+            await twitter_agent_job(db=mock_db)
+
+        mock_db.upsert_diary_entry.assert_called_once()
+        call_kwargs = mock_db.upsert_diary_entry.call_args[1]
+        assert call_kwargs["source"] == "twitter"
+        assert call_kwargs["payload"] == analysis.model_dump(mode="json")
+
+    @pytest.mark.asyncio
+    async def test_job_diary_failure_does_not_crash(self) -> None:
+        """If diary upsert raises, Discord send still happens."""
+        analysis = _make_analysis()
+
+        with (
+            patch("synesis.processing.twitter.job.get_settings") as mock_settings,
+            patch("synesis.processing.twitter.job.TwitterClient") as mock_client_cls,
+            patch("synesis.processing.twitter.job.TwitterAgentAnalyzer") as mock_analyzer_cls,
+            patch(
+                "synesis.processing.twitter.job.send_discord",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_send,
+        ):
+            from pydantic import SecretStr
+
+            mock_settings.return_value.twitterapi_api_key = SecretStr("key")
+            mock_settings.return_value.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value.twitter_accounts = ["aleabitoreddit"]
+            mock_settings.return_value.discord_twitter_webhook_url = SecretStr("https://hook")
+
+            tweet = _make_tweet(hours_ago=1.0)
+            mock_instance = mock_client_cls.return_value
+            mock_instance.get_user_tweets = AsyncMock(return_value=([tweet], None))
+
+            mock_analyzer = mock_analyzer_cls.return_value
+            mock_analyzer.analyze_tweets = AsyncMock(return_value=analysis)
+
+            mock_db = AsyncMock()
+            mock_db.upsert_diary_entry = AsyncMock(side_effect=RuntimeError("DB down"))
+
+            from synesis.processing.twitter.job import twitter_agent_job
+
+            await twitter_agent_job(db=mock_db)
+
+        # Discord should still be called despite diary failure
+        assert mock_send.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_job_no_db_skips_diary(self) -> None:
+        """When db=None (default), diary is skipped without error."""
+        analysis = _make_analysis()
+
+        with (
+            patch("synesis.processing.twitter.job.get_settings") as mock_settings,
+            patch("synesis.processing.twitter.job.TwitterClient") as mock_client_cls,
+            patch("synesis.processing.twitter.job.TwitterAgentAnalyzer") as mock_analyzer_cls,
+            patch("synesis.processing.twitter.job.send_discord", new_callable=AsyncMock),
+        ):
+            from pydantic import SecretStr
+
+            mock_settings.return_value.twitterapi_api_key = SecretStr("key")
+            mock_settings.return_value.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value.twitter_accounts = ["aleabitoreddit"]
+            mock_settings.return_value.discord_twitter_webhook_url = SecretStr("https://hook")
+
+            tweet = _make_tweet(hours_ago=1.0)
+            mock_instance = mock_client_cls.return_value
+            mock_instance.get_user_tweets = AsyncMock(return_value=([tweet], None))
+
+            mock_analyzer = mock_analyzer_cls.return_value
+            mock_analyzer.analyze_tweets = AsyncMock(return_value=analysis)
+
+            from synesis.processing.twitter.job import twitter_agent_job
+
+            await twitter_agent_job()  # db=None by default, should not raise
+
 
 # ---------------------------------------------------------------------------
 # Analyzer: edge cases

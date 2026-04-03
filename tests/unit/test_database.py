@@ -781,3 +781,72 @@ class TestDatabaseWatchlistOperations:
         assert result[0]["ticker"] == "AAPL"
         call_args = mock_conn.fetch.call_args
         assert "expires_at" in call_args[0][0]
+
+
+class TestDatabaseDiaryOperations:
+    """Tests for diary upsert database operations."""
+
+    @pytest.mark.anyio
+    async def test_upsert_diary_entry(self) -> None:
+        """Verify SQL contains INSERT INTO diary with ON CONFLICT and correct params."""
+        from datetime import date
+
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        payload = {"headline": "Markets rallied", "themes": []}
+        await db.upsert_diary_entry(
+            entry_date=date(2026, 3, 10),
+            source="events",
+            payload=payload,
+        )
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args
+        sql = call_args[0][0]
+        assert "INSERT INTO diary" in sql
+        assert "ON CONFLICT" in sql
+        assert call_args[0][1] == date(2026, 3, 10)
+        assert call_args[0][2] == "events"
+
+    @pytest.mark.anyio
+    async def test_upsert_diary_entry_serializes_with_orjson(self) -> None:
+        """Verify payload dict gets serialized to JSON string via orjson."""
+        import orjson
+
+        from datetime import date
+
+        db = Database(dsn="postgresql://localhost/db")
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
+            )
+        )
+        db._pool = mock_pool
+
+        payload = {"key": "value", "num": 42}
+        await db.upsert_diary_entry(
+            entry_date=date(2026, 3, 10),
+            source="twitter",
+            payload=payload,
+        )
+
+        call_args = mock_conn.execute.call_args
+        json_arg = call_args[0][3]
+        assert isinstance(json_arg, str)
+        assert json_arg == orjson.dumps(payload).decode("utf-8")

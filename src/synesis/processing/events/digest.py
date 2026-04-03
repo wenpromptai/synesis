@@ -502,6 +502,18 @@ async def _send_yesterday_brief(
         filings=len(filing_briefs),
         llm_synthesis=analysis is not None,
     )
+
+    # Persist to diary table
+    if analysis:
+        try:
+            await db.upsert_diary_entry(
+                entry_date=yesterday,
+                source="events",
+                payload=analysis.model_dump(mode="json"),
+            )
+        except Exception:
+            logger.exception("Failed to save yesterday brief to diary")
+
     return sent_ok > 0
 
 

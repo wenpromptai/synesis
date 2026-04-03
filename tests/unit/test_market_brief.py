@@ -755,6 +755,107 @@ class TestMarketBriefJob:
         mock_send.assert_called_once()
         assert mock_send.call_args[1]["webhook_url_override"] == fallback_webhook
 
+    @pytest.mark.asyncio
+    async def test_job_saves_to_diary(self) -> None:
+        """Job persists brief to diary with source='market_brief'."""
+        from synesis.processing.market.job import market_brief_job
+
+        brief = _make_brief()
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+
+        with (
+            patch(
+                "synesis.processing.market.job.fetch_market_brief",
+                new=AsyncMock(return_value=brief),
+            ),
+            patch(
+                "synesis.processing.market.job.send_discord",
+                new=AsyncMock(return_value=True),
+            ),
+            patch("synesis.processing.market.job.get_settings") as mock_settings,
+            patch(
+                "synesis.processing.market.job.format_market_data_for_llm",
+                return_value=("mock text", {}),
+            ),
+            patch(
+                "synesis.processing.market.job.identify_context_gaps",
+                new=AsyncMock(return_value=MagicMock(gaps=[])),
+            ),
+            patch(
+                "synesis.processing.market.job.analyze_market_brief",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_webhook_url = None
+            await market_brief_job(mock_redis, db=mock_db)
+
+        mock_db.upsert_diary_entry.assert_called_once()
+        call_kwargs = mock_db.upsert_diary_entry.call_args[1]
+        assert call_kwargs["source"] == "market_brief"
+        assert call_kwargs["payload"]["market_data"] == brief.model_dump(mode="json")
+
+    @pytest.mark.asyncio
+    async def test_job_diary_failure_does_not_crash(self) -> None:
+        """If diary upsert raises, the job still completes normally."""
+        from synesis.processing.market.job import market_brief_job
+
+        brief = _make_brief()
+        mock_redis = AsyncMock()
+        mock_db = AsyncMock()
+        mock_db.upsert_diary_entry = AsyncMock(side_effect=RuntimeError("DB down"))
+
+        with (
+            patch(
+                "synesis.processing.market.job.fetch_market_brief",
+                new=AsyncMock(return_value=brief),
+            ),
+            patch(
+                "synesis.processing.market.job.send_discord",
+                new=AsyncMock(return_value=True),
+            ),
+            patch("synesis.processing.market.job.get_settings") as mock_settings,
+            patch(
+                "synesis.processing.market.job.format_market_data_for_llm",
+                return_value=("mock text", {}),
+            ),
+            patch(
+                "synesis.processing.market.job.identify_context_gaps",
+                new=AsyncMock(return_value=MagicMock(gaps=[])),
+            ),
+            patch(
+                "synesis.processing.market.job.analyze_market_brief",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_webhook_url = None
+            await market_brief_job(mock_redis, db=mock_db)  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_job_no_db_skips_diary(self) -> None:
+        """When db=None (default), diary is skipped without error."""
+        from synesis.processing.market.job import market_brief_job
+
+        brief = _make_brief()
+        mock_redis = AsyncMock()
+
+        with (
+            patch(
+                "synesis.processing.market.job.fetch_market_brief",
+                new=AsyncMock(return_value=brief),
+            ),
+            patch(
+                "synesis.processing.market.job.send_discord",
+                new=AsyncMock(return_value=True),
+            ),
+            patch("synesis.processing.market.job.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_webhook_url = None
+            await market_brief_job(mock_redis)  # db=None by default, should not raise
+
 
 # ---------------------------------------------------------------------------
 # Integration: events/digest.py still works with new import

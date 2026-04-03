@@ -192,6 +192,22 @@ CREATE INDEX IF NOT EXISTS idx_cal_events_category
     ON synesis.calendar_events (category);
 
 
+-- -----------------------------------------------------------------------------
+-- Diary
+-- Persisted pipeline outputs (twitter digest, event digest, market brief)
+-- Keyed by (entry_date, source) so re-runs overwrite the same day's entry.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.diary (
+    id SERIAL PRIMARY KEY,
+    entry_date DATE NOT NULL,
+    source TEXT NOT NULL,          -- 'twitter', 'events', 'market_brief'
+    payload JSONB NOT NULL,        -- Full Pydantic model dump
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (entry_date, source)
+);
+CREATE INDEX IF NOT EXISTS idx_diary_source ON synesis.diary (source, entry_date DESC);
+
+
 -- =============================================================================
 -- GRANTS (for application user)
 -- =============================================================================

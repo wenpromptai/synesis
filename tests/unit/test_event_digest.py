@@ -609,6 +609,150 @@ class TestSendEventDigest:
 
 
 # ---------------------------------------------------------------------------
+# Tests: Yesterday Brief diary persistence
+# ---------------------------------------------------------------------------
+
+
+class TestYesterdayBriefDiary:
+    @pytest.mark.asyncio
+    async def test_yesterday_brief_saves_to_diary(self) -> None:
+        """Yesterday brief persists analysis to diary with source='events'."""
+        analysis = _make_yesterday_analysis()
+        db = AsyncMock()
+        db.get_events_by_date_range = AsyncMock(return_value=[_record()])
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        redis.set = AsyncMock()
+
+        with (
+            patch("synesis.processing.events.digest.get_settings") as mock_settings,
+            patch(
+                "synesis.processing.events.digest._send_whats_coming",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "synesis.processing.events.digest._fetch_outcomes",
+                AsyncMock(return_value=[_make_event_row()]),
+            ),
+            patch(
+                "synesis.processing.events.digest._get_yesterday_13f_briefs",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "synesis.processing.events.digest.synthesize_yesterday_brief",
+                AsyncMock(return_value=analysis),
+            ),
+            patch(
+                "synesis.processing.events.digest.send_discord",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "synesis.processing.events.digest.fetch_market_brief",
+                AsyncMock(side_effect=Exception("skip")),
+            ),
+        ):
+            mock_settings.return_value = MagicMock(
+                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_webhook_url=None,
+            )
+            await send_event_digest(db, redis=redis)
+
+        db.upsert_diary_entry.assert_called_once()
+        call_kwargs = db.upsert_diary_entry.call_args[1]
+        assert call_kwargs["source"] == "events"
+
+    @pytest.mark.asyncio
+    async def test_yesterday_brief_diary_failure_does_not_crash(self) -> None:
+        """If diary upsert raises, the function still returns True."""
+        analysis = _make_yesterday_analysis()
+        db = AsyncMock()
+        db.get_events_by_date_range = AsyncMock(return_value=[_record()])
+        db.upsert_diary_entry = AsyncMock(side_effect=RuntimeError("DB down"))
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        redis.set = AsyncMock()
+
+        with (
+            patch("synesis.processing.events.digest.get_settings") as mock_settings,
+            patch(
+                "synesis.processing.events.digest._send_whats_coming",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "synesis.processing.events.digest._fetch_outcomes",
+                AsyncMock(return_value=[_make_event_row()]),
+            ),
+            patch(
+                "synesis.processing.events.digest._get_yesterday_13f_briefs",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "synesis.processing.events.digest.synthesize_yesterday_brief",
+                AsyncMock(return_value=analysis),
+            ),
+            patch(
+                "synesis.processing.events.digest.send_discord",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "synesis.processing.events.digest.fetch_market_brief",
+                AsyncMock(side_effect=Exception("skip")),
+            ),
+        ):
+            mock_settings.return_value = MagicMock(
+                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_webhook_url=None,
+            )
+            result = await send_event_digest(db, redis=redis)
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_yesterday_brief_no_diary_when_llm_fails(self) -> None:
+        """When LLM synthesis returns None, upsert_diary_entry is NOT called."""
+        db = AsyncMock()
+        db.get_events_by_date_range = AsyncMock(return_value=[_record()])
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        redis.set = AsyncMock()
+
+        with (
+            patch("synesis.processing.events.digest.get_settings") as mock_settings,
+            patch(
+                "synesis.processing.events.digest._send_whats_coming",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "synesis.processing.events.digest._fetch_outcomes",
+                AsyncMock(return_value=[_make_event_row()]),
+            ),
+            patch(
+                "synesis.processing.events.digest._get_yesterday_13f_briefs",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "synesis.processing.events.digest.synthesize_yesterday_brief",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "synesis.processing.events.digest.send_discord",
+                AsyncMock(return_value=True),
+            ),
+            patch(
+                "synesis.processing.events.digest.fetch_market_brief",
+                AsyncMock(side_effect=Exception("skip")),
+            ),
+        ):
+            mock_settings.return_value = MagicMock(
+                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_webhook_url=None,
+            )
+            await send_event_digest(db, redis=redis)
+
+        db.upsert_diary_entry.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Tests: _fetch_outcomes
 # ---------------------------------------------------------------------------
 

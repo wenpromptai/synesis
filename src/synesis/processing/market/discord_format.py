@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from synesis.core.constants import COLOR_HEADER
-from synesis.processing.market.models import MarketBriefData, TickerChange
+from synesis.processing.market.models import MarketBriefAnalysis, MarketBriefData, TickerChange
 from synesis.providers.yfinance.models import MarketMover
 
 # Discord limits
@@ -238,3 +238,93 @@ def _format_movers(movers: list[MarketMover]) -> str:
             parts.append(f"({m.sector})")
         lines.append(" ".join(parts))
     return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────
+# LLM Analysis Embeds
+# ─────────────────────────────────────────────────────────────
+
+_COLOR_ANALYSIS = 0x5865F2  # Discord blurple
+
+
+def format_analysis_embeds(analysis: MarketBriefAnalysis) -> list[list[dict[str, Any]]]:
+    """Format MarketBriefAnalysis into Discord embed messages."""
+    now_iso = datetime.now(UTC).isoformat()
+    messages: list[list[dict[str, Any]]] = []
+
+    # Main analysis embed: headline + summary + key drivers
+    drivers_text = "\n".join(f"\u2022 {d}" for d in analysis.key_drivers)
+    description = f"**{analysis.headline}**\n\n{analysis.summary}"
+
+    fields: list[dict[str, Any]] = []
+    if drivers_text:
+        fields.append(
+            {
+                "name": "\u26a1 Key Drivers",
+                "value": drivers_text[:_FIELD_VALUE_LIMIT],
+                "inline": False,
+            }
+        )
+
+    if analysis.sector_rotation:
+        fields.append(
+            {
+                "name": "\U0001f504 Sector Rotation",
+                "value": analysis.sector_rotation[:_FIELD_VALUE_LIMIT],
+                "inline": False,
+            }
+        )
+
+    # Mover insights
+    if analysis.mover_insights:
+        mover_lines = []
+        for m in analysis.mover_insights[:10]:
+            mover_lines.append(f"`${m.ticker}` {m.move} \u2014 {m.explanation}")
+        fields.append(
+            {
+                "name": "\U0001f50d Mover Insights",
+                "value": "\n".join(mover_lines)[:_FIELD_VALUE_LIMIT],
+                "inline": False,
+            }
+        )
+
+    if analysis.outlook:
+        fields.append(
+            {
+                "name": "\U0001f52e Outlook",
+                "value": analysis.outlook[:_FIELD_VALUE_LIMIT],
+                "inline": False,
+            }
+        )
+
+    main_embed: dict[str, Any] = {
+        "title": "\U0001f9e0 Market Analysis",
+        "color": _COLOR_ANALYSIS,
+        "description": description[:4096],
+        "fields": fields[:_EMBED_MAX_FIELDS],
+        "footer": {"text": "Synesis Market Brief \u2014 AI Analysis"},
+        "timestamp": now_iso,
+    }
+
+    # Check if we need to split (unlikely but handle it)
+    if _embed_size(main_embed) > _EMBED_TOTAL_LIMIT:
+        # Split: main embed with description only, then fields in a second embed
+        main_embed_slim: dict[str, Any] = {
+            "title": "\U0001f9e0 Market Analysis",
+            "color": _COLOR_ANALYSIS,
+            "description": description[:4096],
+            "timestamp": now_iso,
+        }
+        messages.append([main_embed_slim])
+
+        fields_embed: dict[str, Any] = {
+            "color": _COLOR_ANALYSIS,
+            "fields": fields[:_EMBED_MAX_FIELDS],
+            "footer": {"text": "Synesis Market Brief \u2014 AI Analysis"},
+            "timestamp": now_iso,
+        }
+        messages.append([fields_embed])
+    else:
+        messages.append([main_embed])
+
+    return messages

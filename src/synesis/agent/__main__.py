@@ -240,7 +240,7 @@ async def agent_lifespan(
             scheduler.add_job(
                 twitter_agent_job,
                 CronTrigger(hour=10, minute=0, timezone="America/New_York"),
-                args=[watchlist, yf_client, ticker_prov],
+                args=[watchlist, yf_client, ticker_prov, db],
                 id="twitter_agent",
                 max_instances=1,
             )
@@ -293,15 +293,15 @@ async def agent_lifespan(
                 digest="7pm ET daily",
             )
 
-        # Market brief: 10am ET (30min after market open) — only needs Redis
+        # Market brief: 10:30am ET (60min after market open)
         scheduler.add_job(
             market_brief_job,
-            CronTrigger(hour=10, minute=0, timezone="America/New_York"),
-            args=[redis],
+            CronTrigger(hour=10, minute=30, timezone="America/New_York"),
+            args=[redis, db],
             id="market_brief",
             max_instances=1,
         )
-        logger.info("Market brief scheduled", schedule="10am ET daily")
+        logger.info("Market brief scheduled", schedule="10:30am ET daily")
 
         scheduler.start()
 
@@ -349,7 +349,7 @@ async def agent_lifespan(
             from synesis.processing.twitter.job import twitter_agent_job
 
             async def _trigger_twitter_agent() -> None:
-                await twitter_agent_job(watchlist, yf_client, ticker_prov)
+                await twitter_agent_job(watchlist, yf_client, ticker_prov, db)
 
             trigger_fns["twitter_agent"] = _trigger_twitter_agent
 
@@ -370,7 +370,7 @@ async def agent_lifespan(
         async def _trigger_market_brief() -> None:
             from synesis.processing.market.job import market_brief_job as _market_brief
 
-            await _market_brief(redis)
+            await _market_brief(redis, db=db)
 
         trigger_fns["market_brief"] = _trigger_market_brief
 

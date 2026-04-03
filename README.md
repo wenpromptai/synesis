@@ -59,6 +59,7 @@ src/synesis/
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
+│   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
 │   ├── events/        # Event radar: daily digest
 │   │   └── yesterday/ # Yesterday brief sub-analyzers (earnings, macro, surprises, filings, consolidator)
 │   └── common/        # Shared utilities (watchlist, LLM, web search)

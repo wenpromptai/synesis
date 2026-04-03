@@ -68,6 +68,7 @@ src/synesis/
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
+│   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
 │   ├── events/        # Event radar: daily digest
 │   │   └── yesterday/ # Yesterday brief sub-analyzers (earnings, macro, surprises, filings, consolidator)
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
@@ -130,6 +131,7 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 - `/fred/*` — FRED: series search, observations, releases (30/min, info 60/min)
 - `/events/*` — Event radar: upcoming, calendar, discover, digest, CRUD (30/min, digest 5/min)
 - `/twitter/*` — Twitter agent: trigger daily digest (5/min)
+- `/market/*` — Market brief: trigger daily brief (5/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 

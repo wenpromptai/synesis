@@ -21,6 +21,7 @@ All endpoints are rate-limited per IP via slowapi.
 | `/sec_edgar/earnings`, `/sec_edgar/earnings/latest` | 10/min | SEC + Crawl4AI |
 | `/fred` search, observations, release series/dates | 30/min | FRED API (120 req/min) |
 | `/fred` series info, single release | 60/min | FRED API (120 req/min) |
+| `/market/brief` | 5/min | Local (triggers background job) |
 
 ---
 
@@ -906,3 +907,21 @@ curl "localhost:7337/api/v1/fred/releases/10/dates?limit=3"
 **Key release IDs** (for `/fred/releases/{id}/dates`): CPI = `10`, Employment Situation = `50`, GDP = `53`, PPI = `46`
 
 **Useful `units` transforms:** `lin` (default), `chg` (change), `pch` (% change), `pc1` (% change from year ago), `log` (natural log)
+
+---
+
+## Market Brief (`/market`)
+
+Daily market brief: benchmarks, sectors, top movers, and LLM-powered analysis. Scheduled at 10:30am ET daily. Can also be triggered manually.
+
+### POST `/market/brief`
+Manually trigger the daily market brief. Runs in background — returns immediately.
+
+```
+curl -X POST localhost:7337/api/v1/market/brief
+```
+```json
+{"status": "triggered", "message": "Market brief job started in background"}
+```
+
+Returns `503` if market brief is not configured (requires Redis).
