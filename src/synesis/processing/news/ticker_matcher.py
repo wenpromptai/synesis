@@ -24,6 +24,7 @@ What this deliberately does NOT do:
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -31,7 +32,12 @@ from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_TICKERS_FILE = Path(__file__).resolve().parents[4] / "data" / "us_tickers.json"
+_TICKERS_FILE = Path(
+    os.environ.get(
+        "TICKERS_FILE",
+        str(Path(__file__).resolve().parents[4] / "data" / "us_tickers.json"),
+    )
+)
 
 # =============================================================================
 # Curated company name → ticker map

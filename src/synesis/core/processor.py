@@ -108,11 +108,12 @@ class NewsProcessor:
 
     This class encapsulates the full news processing pipeline:
     1. Deduplication - skip already-seen messages
-    2. Stage 1: Entity extraction (fast, no judgment calls)
-    3. Early exit if low/normal urgency (no Stage 2)
-    4. Fire on_stage1_complete callback (e.g. Telegram notification)
-    5. Pre-fetch context (web search + polymarket in parallel)
-    6. Stage 2: Smart analysis (all informed judgments)
+    2. Stage 1: Impact scoring + ticker matching (fast, no LLM)
+    3. Early exit if low urgency (skip everything)
+    4. Fire on_stage1_complete callback (normal/high/critical → Discord)
+    5. Early exit if normal urgency (notified, but skip Stage 2)
+    6. Early exit if Stage 2 disabled by config
+    7. Stage 2: Smart analysis (all informed judgments)
 
     Usage:
         processor = NewsProcessor(redis)
@@ -222,18 +223,18 @@ class NewsProcessor:
 
         Flow:
         1. Check for duplicates
-        2. Stage 1: Entity extraction (fast, no judgment calls)
-        3. Early exit if low/normal urgency (no Stage 2)
-        4. Fire on_stage1_complete callback (e.g. notification)
-        5. Early exit if Stage 2 disabled by config
-        6. Pre-fetch context: Web search + Polymarket (parallel)
+        2. Stage 1: Impact scoring + ticker matching (fast, no LLM)
+        3. Early exit if low urgency (skip everything)
+        4. Fire on_stage1_complete callback (normal/high/critical → Discord)
+        5. Early exit if normal urgency (notified, but skip Stage 2)
+        6. Early exit if Stage 2 disabled by config
         7. Stage 2: Smart analysis (all informed judgments with context)
 
         Args:
             message: The unified message to process
             on_stage1_complete: Optional async callback invoked after Stage 1
-                extraction, only when urgency is high/critical. Skipped for
-                low/normal urgency (which exit before reaching this point).
+                extraction for normal/high/critical urgency. Skipped only for
+                low urgency.
 
         Returns:
             ProcessingResult with extraction and analysis
@@ -268,10 +269,8 @@ class NewsProcessor:
         # 2. Stage 1: Instant classification (no LLM)
         extraction = await self.classifier.classify(message)
 
-        # 3. Early exit for low/normal urgency (skip notification + Stage 2)
-        low_urgency = extraction.urgency in (UrgencyLevel.low, UrgencyLevel.normal)
-
-        if low_urgency:
+        # 3. Early exit for low urgency (skip everything)
+        if extraction.urgency == UrgencyLevel.low:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
                 "Skipping Stage 2",
@@ -282,16 +281,16 @@ class NewsProcessor:
             )
             return ProcessingResult(
                 message=message,
-                skipped=False,  # Not skipped - just minimal processing
+                skipped=False,
                 skip_reason=None,
                 extraction=extraction,
-                analysis=None,  # No Stage 2 analysis
+                analysis=None,
                 is_duplicate=False,
                 duplicate_of=None,
                 processing_time_ms=elapsed_ms,
             )
 
-        # 4. Fire Stage 1 callback (sends notification regardless of stage2_enabled)
+        # 4. Fire Stage 1 callback (sends Discord notification for normal/high/critical)
         if on_stage1_complete:
             try:
                 await on_stage1_complete(message, extraction)
@@ -301,9 +300,30 @@ class NewsProcessor:
                     exc_info=True,
                 )
         else:
-            log.warning("No Stage 1 callback provided for high-urgency message")
+            log.warning("No Stage 1 callback provided")
 
-        # 5. Early exit if Stage 2 is disabled by config
+        # 5. Early exit for normal urgency (Discord sent above, but skip Stage 2)
+        if extraction.urgency == UrgencyLevel.normal:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            log.info(
+                "Skipping Stage 2",
+                skip_reason="normal urgency (Stage 1 notified)",
+                impact_score=extraction.impact_score,
+                urgency=extraction.urgency.value,
+                processing_time_ms=f"{elapsed_ms:.1f}",
+            )
+            return ProcessingResult(
+                message=message,
+                skipped=False,
+                skip_reason=None,
+                extraction=extraction,
+                analysis=None,
+                is_duplicate=False,
+                duplicate_of=None,
+                processing_time_ms=elapsed_ms,
+            )
+
+        # 6. Early exit if Stage 2 is disabled by config (high/critical only from here)
         stage2_disabled = not get_settings().stage2_enabled
 
         if stage2_disabled:
@@ -325,7 +345,7 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 6. Stage 2: Smart analysis (entities, sentiment, ETF impact, Polymarket)
+        # 7. Stage 2: Smart analysis (entities, sentiment, ETF impact, Polymarket)
         # Polymarket search is done inside the analyzer via LLM tool calls
         log.debug("Stage 2: Smart analysis starting")
 

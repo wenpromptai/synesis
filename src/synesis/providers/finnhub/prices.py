@@ -19,7 +19,8 @@ import httpx
 import orjson
 import websockets
 import websockets.exceptions
-from websockets.asyncio.client import ClientConnection
+from websockets.asyncio.client import ClientConnection, process_exception
+from websockets.exceptions import InvalidStatus
 
 from synesis.config import get_settings
 from synesis.core.constants import (
@@ -33,6 +34,14 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 logger = get_logger(__name__)
+
+
+def _ws_process_exception(exc: Exception) -> Exception | None:
+    """Treat HTTP 429 as retryable so the library applies exponential backoff."""
+    if isinstance(exc, InvalidStatus) and exc.response.status_code == 429:
+        return None
+    return process_exception(exc)
+
 
 # Redis key prefix for WebSocket price cache
 PRICE_CACHE_PREFIX = "synesis:prices"
@@ -195,11 +204,11 @@ class FinnhubPriceProvider:
         logger.debug("FinnhubPriceProvider WebSocket stopped")
 
     async def _ws_loop(self) -> None:
-        """Main WebSocket loop with library-managed reconnection and backoff."""
+        """Main WebSocket loop with auto-reconnection via websockets.connect()."""
         settings = get_settings()
         url = f"{settings.finnhub_ws_url}?token={self._api_key}"
 
-        async for ws in websockets.connect(url):
+        async for ws in websockets.connect(url, process_exception=_ws_process_exception):
             if not self._running:
                 break
             try:

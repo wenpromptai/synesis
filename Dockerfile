@@ -27,10 +27,12 @@ RUN groupadd --system --gid 999 app \
 
 WORKDIR /app
 
-# Copy built venv from builder
+# Copy built venv and data from builder
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --from=builder --chown=app:app /app/data /app/data
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV TICKERS_FILE="/app/data/us_tickers.json"
 
 USER app
 
