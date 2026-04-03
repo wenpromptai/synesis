@@ -317,7 +317,6 @@ async def agent_lifespan(
         logger.debug("Starting PydanticAI agent")
         agent_task = asyncio.create_task(
             run_pydantic_agent(
-                watchlist=watchlist,
                 redis=redis,
                 db=db,
             )

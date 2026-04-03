@@ -18,12 +18,9 @@ from synesis.agent.pydantic_runner import (
     store_signal,
 )
 from synesis.processing.news import (
-    Direction,
     LightClassification,
     MarketEvaluation,
-    NewsCategory,
     NewsSignal,
-    PrimaryTopic,
     SmartAnalysis,
     SourcePlatform,
     UnifiedMessage,
@@ -47,10 +44,8 @@ class TestStoreSignal:
     def sample_signal(self) -> NewsSignal:
         """Create a sample signal for testing."""
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Fed cuts rates",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
+            impact_score=50,
+            urgency=UrgencyLevel.high,
         )
         return NewsSignal(
             timestamp=datetime.now(timezone.utc),
@@ -87,19 +82,11 @@ class TestEmitSignalToDb:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            news_category=NewsCategory.breaking,
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Test",
-            confidence=0.9,
-            primary_entity="Test",
+            impact_score=50,
+            urgency=UrgencyLevel.high,
         )
         analysis = SmartAnalysis(
-            tickers=["SPY"],
-            sectors=[],
-            sentiment=Direction.bullish,
-            sentiment_score=0.7,
             primary_thesis="Test",
-            thesis_confidence=0.8,
         )
 
         mock_db = MagicMock()
@@ -121,18 +108,11 @@ class TestEmitSignalToDb:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
+            impact_score=10,
+            urgency=UrgencyLevel.low,
         )
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
         )
 
         with patch(
@@ -232,12 +212,7 @@ class TestEmitStage2Notification:
             timestamp=datetime.now(timezone.utc),
         )
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Low confidence",
-            thesis_confidence=0.3,  # Even low confidence is sent now
         )
 
         with patch(
@@ -259,12 +234,7 @@ class TestEmitStage2Notification:
             timestamp=datetime.now(timezone.utc),
         )
         analysis = SmartAnalysis(
-            tickers=["SPY"],
-            sectors=[],
-            sentiment=Direction.bullish,
-            sentiment_score=0.7,
             primary_thesis="Bullish thesis",
-            thesis_confidence=0.8,  # Above 0.5 threshold
         )
 
         with patch(
@@ -324,12 +294,8 @@ class TestEmitStage1Notification:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Fed cuts rates 25bps",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
+            impact_score=60,
             urgency=UrgencyLevel.critical,
-            urgency_reasoning="Surprise Fed cut",
         )
 
         with patch(
@@ -351,13 +317,8 @@ class TestEmitStage1Notification:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.earnings],
-            summary="Apple Q4 EPS beats estimates",
-            confidence=0.95,
-            primary_entity="Apple",
-            all_entities=["Apple", "Tim Cook"],
+            impact_score=45,
             urgency=UrgencyLevel.high,
-            urgency_reasoning="Earnings beat",
         )
 
         with patch(
@@ -385,10 +346,8 @@ class TestEmitSignal:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
+            impact_score=10,
+            urgency=UrgencyLevel.low,
         )
 
         result = ProcessingResult(
@@ -418,10 +377,7 @@ class TestEmitSignal:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Normal news item",
-            confidence=0.5,
-            primary_entity="Test",
+            impact_score=10,
             urgency=UrgencyLevel.normal,
         )
         result = ProcessingResult(
@@ -464,10 +420,7 @@ class TestEmitSignal:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Fed cuts rates",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
+            impact_score=60,
             urgency=UrgencyLevel.critical,
         )
         result = ProcessingResult(
@@ -494,73 +447,3 @@ class TestEmitSignal:
         mock_stage1.assert_not_called()  # Stage 1 TG now sent via callback, not emit_signal
         mock_db.assert_called_once_with(message, extraction, None)
         mock_stage2.assert_not_called()
-
-    @pytest.mark.anyio
-    async def test_emit_signal_below_confidence_gate_skips_stage2_telegram(self) -> None:
-        """High urgency + low confidence: DB persists + predictions stored, Stage 2 Telegram skipped."""
-        from synesis.core.constants import MIN_THESIS_CONFIDENCE_FOR_ALERT
-        from synesis.core.processor import ProcessingResult
-
-        message = UnifiedMessage(
-            external_id="low_confidence",
-            source_platform=SourcePlatform.telegram,
-            source_account="@test",
-            text="Some high urgency news",
-            timestamp=datetime.now(timezone.utc),
-        )
-        extraction = LightClassification(
-            primary_topics=[PrimaryTopic.earnings],
-            summary="Earnings report",
-            confidence=0.9,
-            primary_entity="Apple",
-            urgency=UrgencyLevel.high,
-        )
-        analysis = SmartAnalysis(
-            tickers=["AAPL"],
-            sectors=[],
-            sentiment=Direction.bullish,
-            sentiment_score=0.5,
-            primary_thesis="Weak thesis",
-            thesis_confidence=max(0.0, MIN_THESIS_CONFIDENCE_FOR_ALERT - 0.01),
-            market_evaluations=[
-                MarketEvaluation(
-                    market_id="mkt_abc",
-                    market_question="Will AAPL beat earnings?",
-                    is_relevant=True,
-                    relevance_reasoning="Direct subject",
-                    current_price=0.5,
-                    verdict="fair",
-                    confidence=0.7,
-                    reasoning="Uncertain",
-                    recommended_side="skip",
-                )
-            ],
-        )
-        result = ProcessingResult(
-            message=message,
-            extraction=extraction,
-            analysis=analysis,
-        )
-
-        mock_redis = AsyncMock()
-
-        with (
-            patch(
-                "synesis.agent.pydantic_runner.emit_signal_to_db", new_callable=AsyncMock
-            ) as mock_db,
-            patch(
-                "synesis.agent.pydantic_runner.emit_stage1_notification", new_callable=AsyncMock
-            ) as mock_stage1,
-            patch(
-                "synesis.agent.pydantic_runner.emit_stage2_notification", new_callable=AsyncMock
-            ) as mock_stage2,
-            patch(
-                "synesis.agent.pydantic_runner.emit_prediction_to_db", new_callable=AsyncMock
-            ) as mock_pred,
-        ):
-            await emit_signal(result, mock_redis)
-
-        mock_stage1.assert_not_called()  # Stage 1 TG now sent via callback, not emit_signal
-        mock_db.assert_called_once_with(message, extraction, analysis)
-        mock_pred.assert_called_once()  # predictions still stored
-        mock_stage2.assert_not_called()  # Stage 2 Telegram skipped

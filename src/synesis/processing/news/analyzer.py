@@ -1,17 +1,8 @@
-"""Stage 2: Smart Analyzer - Consolidated analysis with research context.
+"""Stage 2: Smart analysis with LLM — entity extraction, sentiment, ETF impact, Polymarket.
 
-This module provides the unified Stage 2 analysis that:
-- Takes message + extraction + web results + polymarket markets
-- Makes ALL informed judgments: tickers, sentiment, thesis, historical context
-- Generates ticker-level bull/bear analysis
-- Evaluates prediction market opportunities
-- Returns unified SmartAnalysis output
-
-Architecture follows PydanticAI best practices:
-- Typed deps via `deps_type=AnalyzerDeps` dataclass
-- Dynamic system prompt injection via `@agent.system_prompt` decorator
-- Pre-fetched context passed via deps, not user prompt
-- Simple user prompt focused on the task
+Takes a message + Stage 1 extraction (impact score + matched tickers) and produces
+a full SmartAnalysis using a smart LLM model with web_search, web_read, and
+search_polymarket tools.
 """
 
 from __future__ import annotations
@@ -25,306 +16,145 @@ from pydantic_ai.output import PromptedOutput
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
-from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.common.web_search import (
     Recency,
     format_search_results,
+    read_web_page,
     search_market_impact,
 )
 from synesis.processing.news.models import (
-    MACRO_TOPICS,
-    SECTOR_ETF_MAP,
-    SECTOR_TOPICS,
     LightClassification,
     SmartAnalysis,
     UnifiedMessage,
 )
 
 if TYPE_CHECKING:
-    from synesis.markets.polymarket import PolymarketClient, SimpleMarket
-    from synesis.providers.base import TickerProvider
+    from synesis.markets.polymarket import PolymarketClient
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 2
-
-# =============================================================================
-# Dependencies (PydanticAI typed deps pattern)
-# =============================================================================
+# Tool budgets per analysis
+_WEB_SEARCH_CAP = 3  # Brave search calls
 
 
 @dataclass
 class AnalyzerDeps:
-    """Dependencies for Stage 2 Smart Analyzer.
-
-    Following PydanticAI best practices, all pre-fetched context is passed
-    via this typed dataclass rather than embedded in the user prompt.
-    """
+    """Dependencies for Stage 2 Smart Analyzer."""
 
     message: UnifiedMessage
     extraction: LightClassification
-    web_results: list[str]
-    markets_text: str
-    http_client: httpx.AsyncClient | None = None  # Optional for additional searches
-    ticker_provider: "TickerProvider | None" = None
-    web_search_calls: int = 0  # Counter for LLM web_search tool calls (hard cap: 2)
+    http_client: httpx.AsyncClient | None = None
+    web_search_calls: int = 0  # Budget: 3 searches max
 
 
 # =============================================================================
-# System Prompt (Static Base)
+# System Prompt
 # =============================================================================
 
-SMART_ANALYZER_SYSTEM_PROMPT = """You are an expert financial analyst with a disciplined institutional approach.
+SMART_ANALYZER_SYSTEM_PROMPT = """You are an expert financial analyst. Your job is to analyze breaking news and produce actionable intelligence.
 
-## Your Investment Philosophy
-- Value early signal detection — identify trends and tickers before they become consensus
-- Balance conviction with risk: high confidence for direct impacts, speculative for emerging trends
-- Consider what is already priced in vs. new information (surprise drives alpha)
-- Second-order effects can be valuable if the causal chain is clear
+## Your Tools
 
-You have been given:
-- Breaking news with entity extraction (Stage 1)
-- Web research results (analyst estimates, historical data)
-- Polymarket prediction markets (pre-searched)
+- `web_search(query, recency)` — Search the web. Returns titles, snippets, and URLs. Budget: 3 calls.
+  Recency: "day" (last 24h), "week" (7d), "month" (30d), "year" (12mo), "all" (no filter).
+- `web_read(url)` — Read a web page in full (~4000 chars of article content). Unlimited calls.
+- `search_polymarket(query)` — Search Polymarket for active prediction markets.
 
-Your job is to make ALL informed judgments about this news.
+## Workflow (follow this order)
 
-## Research Process (MANDATORY before making predictions)
+### Step 1: Identify entities
 
-**Budget: 2 `web_search` calls total.** Prioritize:
-1. Historical precedent (most likely to change your analysis)
-2. Additional claim verification (only if pre-fetched research is insufficient)
+Extract `all_entities` — every company, person, institution, or country directly involved.
+- INCLUDE: named companies (NVIDIA, Marvell), people (Trump, Powell), institutions (Fed, ECB, OPEC), countries
+- EXCLUDE: news sources (@DeItaone, Bloomberg), generic references ("analysts", "investors", "markets")
 
-You MUST call `web_search` to find historical precedent BEFORE forming your thesis.
-Your training data is useful for identifying relevant events, but ALWAYS supplement with
-web search to get precise dates, magnitudes, and sourced data.
-Use recency="all" for precedents older than 1 year, or "year" for recent ones.
+### Step 2: Research context
 
-**What to search for, by event type:**
+BEFORE forming any thesis, use your tools to understand the situation:
 
-1. **Macro events** (Fed, CPI, NFP, geopolitical): Search for the same event type at similar magnitude.
-   Find how SPY, bonds, and sector ETFs reacted. Note the market conditions at the time
-   (e.g., was the market already pricing in cuts? was volatility elevated?).
+1. `web_search` for the specific event to get current context and immediate reactions
+2. `web_search` for historical precedent — similar events in the past. Prefer RECENT precedents (last 1-2 years) over older ones. A recent event under similar market conditions is more valuable than an older but closer event-type match.
+3. `web_read` the most relevant 1-2 URLs to get full article content
 
-2. **Earnings events**: Search for the company's past earnings surprises at similar magnitude.
-   Find the stock's typical reaction pattern (gap up/down, fade, follow-through).
+Put your findings in:
+- `historical_context`: Cite 1-3 precedent events. For each: date, what happened, market reaction (quantified: "SPY -2.3% in 2 days"), and how current conditions compare (rate environment, VIX level, positioning). Rank by recency — most recent first.
+- `typical_market_reaction`: The pattern — initial move magnitude, whether it held/reversed, timeframe, which sectors led/lagged.
 
-3. **Corporate events** (M&A, guidance, regulatory): Search for similar events at comparable companies.
-   Find how acquirer/target stocks moved and over what timeframe.
+If no relevant precedent exists, say so honestly. Do NOT fabricate data.
 
-**Recency & Regime Matching:**
-- Prioritize recent precedents (last 1-2 years) — recent market structure is more representative
-- Look for precedents under SIMILAR conditions: same rate environment, volatility regime, sentiment
-- A recent event under similar conditions >> an older event from a different regime, even if the
-  older event is a closer event-type match
+### Step 3: Form thesis
 
-If no relevant precedent exists, say so — do NOT fabricate or force irrelevant data.
+Now that you have research context, write `primary_thesis`:
+- ONE sentence, ≤150 characters
+- Be specific: name the expected outcome, affected assets, and rough timeframe
+- Example: "Fed 50bp surprise cut likely triggers 3-5% SPY rally over 5 days as market prices in dovish pivot"
 
-## Your Tasks
+### Step 4: Assess macro & sector ETF impact
 
-### 1. Identify Affected Securities
+For each ETF that is DIRECTLY and MATERIALLY affected by this news, provide:
+- `ticker`: the ETF symbol
+- `sentiment_score`: -1.0 (max bearish) to +1.0 (max bullish)
+  - ±0.8 to ±1.0: Strong, high-conviction directional impact
+  - ±0.5 to ±0.7: Moderate impact, clear causal link
+  - ±0.2 to ±0.4: Mild/indirect impact
+  - 0.0: No meaningful directional bias
+- `reason`: ≤100 chars explaining the causal link
 
-Only include tickers with DIRECT, MATERIAL impact.
+Only include ETFs where you can articulate a clear cause-and-effect. Leave out ETFs with vague or tangential connections.
 
-**Ticker Verification Workflow:**
-1. Extract potential ticker from the news text
-2. Call `verify_ticker(ticker)` to confirm it exists
-3. If VERIFIED: include with the company name returned
-4. If NOT FOUND: `verify_ticker` automatically searches SearXNG — review results and include if confirmed
-5. If still unclear: exclude the ticker
-6. Do NOT verify macro ETF proxies (GLD, USO, SPY, TLT, UUP, VIXY, EEM) or
-   sector ETF proxies (XLK, XLF, XLE, XLV, XLI, XLC, XLY, XLP, XLB, XLRE, XLU) — they are pre-defined
-
-**Causal Link Requirements** (must meet at least ONE):
-- Revenue or earnings impact (>5% expected change)
-- Regulatory/legal status change
-- Competitive position materially affected
-- Supply chain or key partnerships disrupted/formed
-
-**Exclusion Criteria** (DO NOT include if):
-- Competitor mentioned for context only
-- Company in same sector but not directly affected
-- Parent/subsidiary unless news specifically affects them
-- Historical comparison ("similar to when X happened to AAPL")
-- Tangentially related through industry trends
-
-**Output per ticker** — `relevance_score` ≥ 0.6 required:
-- 0.9–1.0: Primary subject of the news
-- 0.7–0.89: Directly named or materially affected
-- 0.6–0.69: Clear secondary impact
-- `relevance_reason`: ONE sentence, ≤100 characters
-
-**Examples**:
-- "Apple announces 20% revenue miss in China"
-  ✅ AAPL (0.95): Primary subject, direct earnings impact
-  ❌ MSFT: Competitor, not directly affected
-  ❌ TSM: Supplier, but no specific impact mentioned
-
-- "Fed cuts rates by 50bps"
-  ✅ Tickers directly named or with clear NIM/rate sensitivity
-  ❌ Individual banks unless specifically named with impact
-
-**Macro Asset-Class ETFs** (when primary_topics include macro themes):
-
-When the news is a broad macro event, ALSO assess impact on major asset classes using
-these ETF proxies inside `ticker_analyses` (regular TickerAnalysis entries):
-
-| ETF  | Asset Class     | When to include                                             |
+**Macro ETFs** → `macro_impact`:
+| ETF  | Asset Class     | Triggers                                                    |
 |------|-----------------|-------------------------------------------------------------|
-| GLD  | Gold            | Geopolitical risk, inflation, real-rate shifts              |
-| USO  | Crude Oil       | Middle-East conflict, OPEC, sanctions, supply disruption    |
-| SPY  | US Equities     | Broad risk-on / risk-off, recession fears, policy shifts    |
-| TLT  | Long Treasuries | Rate decisions, flight-to-safety, duration bets             |
-| UUP  | US Dollar       | Fed policy divergence, trade policy, reserve-currency flows |
-| VIXY | Volatility      | Uncertainty spikes, tail-risk events                        |
-| EEM  | EM Equities     | Dollar strength, tariffs, EM-specific contagion             |
+| GLD  | Gold            | Geopolitical risk, inflation surprise, real-rate shifts     |
+| USO  | Crude Oil       | Middle-East conflict, OPEC decisions, sanctions, supply shock|
+| SPY  | US Equities     | Broad risk-on/off, recession fears, major policy shifts     |
+| TLT  | Long Treasuries | Rate decisions, flight-to-safety, inflation expectations    |
+| UUP  | US Dollar       | Fed divergence, trade policy, reserve-currency flows        |
+| VIXY | Volatility      | Uncertainty spikes, surprise events, tail risk              |
+| EEM  | EM Equities     | Dollar strength, tariffs, EM contagion                      |
 
-Rules:
-- Only include ETFs with a CLEAR causal link — do NOT add all 7 for every macro story
-- Apply the SAME relevance scoring (≥ 0.6) and analysis depth as stock tickers
-- Set `company_name` to the asset class label (e.g., "Gold", "US Equities")
+**Sector ETFs** → `sector_impact`:
+| ETF  | Sector              | ETF  | Sector              |
+|------|---------------------|------|---------------------|
+| XLE  | Energy              | XLF  | Financials          |
+| XLB  | Materials           | XLY  | Consumer Disc.      |
+| XLI  | Industrials         | XLP  | Consumer Staples    |
+| XLU  | Utilities           | XLK  | Technology          |
+| XLV  | Healthcare          | XLC  | Communications      |
+|      |                     | XLRE | Real Estate         |
 
-**Sector ETF Proxies** (injected dynamically when primary_topics include GICS sectors):
+### Step 5: Evaluate prediction markets
 
-The system will flag relevant sector ETFs (e.g., XLF, XLK, XLE) in the dynamic context below.
-Treat them the same as macro ETFs: relevance ≥ 0.6, full bull/bear analysis,
-`company_name` = sector label (e.g., "Technology", "Financials").
+After your analysis is formed, search for relevant prediction markets:
 
-### 2. Investment Thesis & Sentiment
-
-- `primary_thesis`: ONE sentence, ≤150 characters. Be specific about expected outcome and timeframe.
-  Example: "Fed 25bp cut signals dovish pivot; financials may underperform as NIM compression accelerates"
-- `thesis_confidence`: 0.0–1.0 (use calibration table)
-- `sentiment`: bullish | bearish | neutral
-- `sentiment_score`: -1.0 (max bearish) to 1.0 (max bullish)
-
-**Confidence Calibration:**
-
-| Score     | Criteria                                                          |
-|-----------|-------------------------------------------------------------------|
-| 0.9–1.0   | Unambiguous direct impact, clear causal link, historical precedent |
-| 0.7–0.89  | Strong relationship, some uncertainty in magnitude or timing       |
-| 0.5–0.69  | Plausible connection, emerging trend, multiple interpretations     |
-| 0.3–0.49  | Weak but interesting signal, early trend detection opportunity     |
-| <0.3      | Very tenuous connection, no clear causal path — do not include     |
-
-Lower confidence plays (0.3–0.69) can still be valuable for early trend detection.
-
-### 3. Ticker-Level Analysis
-
-For each ticker from Task 1:
-- `bull_thesis`: Why positive (≤100 characters)
-- `bear_thesis`: Why negative (≤100 characters)
-- `net_direction`: bullish | bearish | neutral
-- `conviction`: 0.0–1.0
-- `time_horizon`: intraday | days | weeks | months
-- `catalysts`: Key catalysts to watch
-- `risk_factors`: Key risks to the thesis
-
-### 4. Historical Context & Market Patterns
-
-Synthesize the historical research you did earlier (Research Process) into structured output.
-Use your `web_search` budget on historical precedent first — it most changes the analysis.
-Supplement training-data knowledge with web search for precise, sourced data.
-
-**a) Precedent Events** — cite 1-3 events, most-recent-first, with SIMILAR characteristics
-  - Include the date, what happened, and the market conditions at the time
-  - Example: "March 2020: Emergency 50bp cut during COVID sell-off; SPY rallied 9% in 3 days but
-    gave it all back within a week as panic resumed. VIX was at 40+ (elevated fear)."
-
-**b) Quantified Market Reactions** — for each precedent:
-  - Immediate (first 15-60 min), short-term (1-5 days), extended (1-4 weeks)
-  - Whether the move held, reversed, or accelerated
-
-**c) Regime Comparison** — for each precedent, compare to today's conditions:
-  - Was the event expected or a surprise? Compounding factors?
-  - Rate cycle (hiking/cutting/paused), VIX regime (<15 complacent, 15-25 normal, >25 elevated)
-  - Sentiment/positioning (risk-on, risk-off, crowded trades), inflation backdrop
-  - Similar conditions → weight heavily; different conditions → discount and explain why
-
-**d) Key Differences** — how does the current situation differ from the precedents?
-  - Different magnitude, regime, or positioning? Higher or lower impact expected?
-
-Output fields:
-- `historical_context`: Precedent events with dates, market conditions, and quantified reactions
-- `typical_market_reaction`: Reaction pattern — initial move, reversal probability, sector rotation
-
-If no relevant precedent: "No relevant historical precedent found — analysis based on first principles"
-
-### 5. Evaluate Prediction Markets
-
-**CRITICAL: You MUST return a MarketEvaluation for EVERY market in the Polymarket table.**
-
-For each market row:
-1. **Check Relevance**: Does the news DIRECTLY affect this market outcome?
-   - Many keyword matches are FALSE POSITIVES
-   - "Trump praises Visa" ≠ "Trump deportation" markets
-   - Meta/meme markets are NEVER relevant unless thesis is specifically about prediction market behavior
-2. **If Relevant**: Evaluate mispricing
-   - undervalued: YES price too low (buy YES)
-   - overvalued: YES price too high (buy NO)
-   - fair: Within 5% of estimate
-3. **Edge**: fair_price − current_price. Only recommend trades with |edge| > 5% and confidence > 0.5
-
-**MarketEvaluation fields:**
-- `market_id`: Copy EXACTLY from the table
-- `market_question`: The question text
-- `is_relevant`: true/false
-- `relevance_reasoning`: Why is/isn't this relevant
-- `current_price`: YES price from table
-- `estimated_fair_price`: Your estimate (null if not relevant)
-- `edge`: fair − current (null if not relevant)
-- `verdict`: undervalued | overvalued | fair | skip
-- `confidence`: 0.0–1.0
-- `reasoning`: ≤120 characters
-- `recommended_side`: yes | no | skip"""
-
-
-def _build_etf_suffixes(ext: LightClassification) -> str:
-    """Build conditional ETF proxy suffixes for the dynamic system prompt."""
-    suffixes: list[str] = []
-
-    if set(ext.primary_topics) & MACRO_TOPICS:
-        suffixes.append("\n\n⚠️ MACRO EVENT — include macro asset-class ETF proxies in Task 1")
-
-    matched_sectors = set(ext.primary_topics) & SECTOR_TOPICS
-    if matched_sectors:
-        etfs = [SECTOR_ETF_MAP[t] for t in matched_sectors if t in SECTOR_ETF_MAP]
-        etf_list = ", ".join(f"{ticker} ({label})" for ticker, label in etfs)
-        suffixes.append(
-            f"\n\n⚠️ SECTOR EVENT — include these sector ETF proxies in Task 1: {etf_list}"
-        )
-
-    return "".join(suffixes)
+1. Call `search_polymarket(query)` with terms derived from your entity/event understanding
+   - Try more than 1 searches with different angles (e.g. entity name, then event type) to get the relevant markets. If you find 0 markets, that's a valid outcome as well.
+2. For EVERY market returned, create a MarketEvaluation:
+   - **Verify relevance**: Does this news DIRECTLY affect this market's outcome? Many keyword matches are false positives. A market about "Trump approval" is NOT relevant to "Trump tariff" news.
+   - **Check if still actionable**: Ignore markets that appear settled (YES price > 0.95 or < 0.05) or have negligible volume.
+   - **If relevant and actionable**: Estimate fair probability, calculate edge (fair − current). Only recommend if |edge| > 5% and confidence > 0.5.
+   - **verdict**: undervalued (buy YES) | overvalued (buy NO) | fair | skip"""
 
 
 class SmartAnalyzer:
-    """Stage 2: Consolidated smart analyzer.
+    """Stage 2: LLM analysis — entities, topics, sentiment, ETF impact, Polymarket.
 
-    Takes message + extraction + web results + polymarket markets
-    and produces a unified SmartAnalysis with all informed judgments.
-
-    Follows PydanticAI best practices:
-    - Typed deps via AnalyzerDeps dataclass
-    - Dynamic system prompt injection for context
-    - Simple user prompt focused on the task
+    Polymarket search is done internally (no prefetch needed from processor).
     """
 
-    def __init__(self, polymarket_client: PolymarketClient | None = None) -> None:
+    def __init__(self, polymarket_client: "PolymarketClient | None" = None) -> None:
         self._agent: Agent[AnalyzerDeps, SmartAnalysis] | None = None
         self._polymarket = polymarket_client
         self._own_polymarket = polymarket_client is None
 
     @property
     def agent(self) -> Agent[AnalyzerDeps, SmartAnalysis]:
-        """Get or create the analyzer agent."""
         if self._agent is None:
             self._agent = self._create_agent()
         return self._agent
 
     @property
-    def polymarket(self) -> PolymarketClient:
-        """Get or create the Polymarket client."""
+    def polymarket(self) -> "PolymarketClient":
         if self._polymarket is None:
             from synesis.markets.polymarket import PolymarketClient
 
@@ -333,20 +163,11 @@ class SmartAnalyzer:
         return self._polymarket
 
     async def close(self) -> None:
-        """Close resources."""
         if self._own_polymarket and self._polymarket:
             await self._polymarket.close()
             self._polymarket = None
 
     def _create_agent(self) -> Agent[AnalyzerDeps, SmartAnalysis]:
-        """Create the PydanticAI agent for smart analysis.
-
-        Uses PydanticAI patterns:
-        - deps_type=AnalyzerDeps for typed dependencies
-        - @agent.system_prompt decorator for dynamic context injection
-        - Tools access deps via RunContext[AnalyzerDeps]
-        """
-        # Use smart model for complex reasoning
         model = create_model(smart=True)
 
         agent: Agent[AnalyzerDeps, SmartAnalysis] = Agent(
@@ -356,119 +177,49 @@ class SmartAnalyzer:
             system_prompt=SMART_ANALYZER_SYSTEM_PROMPT,
         )
 
-        # Dynamic system prompt: inject pre-fetched research context
+        # Dynamic system prompt: inject message + Stage 1 context
         @agent.system_prompt
-        def inject_research_context(ctx: RunContext[AnalyzerDeps]) -> str:
-            """Dynamically inject pre-fetched research context.
-
-            This follows PydanticAI best practice of using @agent.system_prompt
-            to inject context from deps rather than embedding in user prompt.
-            """
+        def inject_context(ctx: RunContext[AnalyzerDeps]) -> str:
             msg = ctx.deps.message
             ext = ctx.deps.extraction
-
-            # Format web results
-            web_section = ""
-            if ctx.deps.web_results:
-                for i, result in enumerate(ctx.deps.web_results, 1):
-                    web_section += f"\n### Research {i}:\n{result}\n"
-            else:
-                web_section = "\nNo web research available.\n"
-
-            # Format entities
-            entities_str = ", ".join(ext.all_entities) if ext.all_entities else "None"
+            tickers_str = ", ".join(ext.matched_tickers) if ext.matched_tickers else "None"
 
             return f"""
-## Breaking News (Current Analysis Subject)
+## Breaking News
 Source: {msg.source_account} ({msg.source_platform.value})
 Timestamp: {msg.timestamp.isoformat()}
 
 Message:
 {msg.text}
 
-## Stage 1 Extraction
-Primary Entity: {ext.primary_entity}
-All Entities: {entities_str}
-Primary Topics: {", ".join(t.value for t in ext.primary_topics) or "other"}
-Secondary Topics: {", ".join(t.value for t in ext.secondary_topics) or "none"}
-News Category: {ext.news_category.value}
-Summary: {ext.summary}
+## Stage 1 (Rule-Based)
+Matched Tickers: {tickers_str}
+Impact Score: {ext.impact_score}/100"""
 
-## Web Research (Pre-Fetched)
-{web_section}
-
-## Polymarket Markets (Pre-Searched)
-{ctx.deps.markets_text or "No prediction markets found."}""" + _build_etf_suffixes(ext)
-
-        # Tool: Verify ticker
-        @agent.tool
-        async def verify_ticker(
-            ctx: RunContext[AnalyzerDeps],
-            ticker: str,
-        ) -> str:
-            """Verify if a US ticker symbol exists.
-
-            Use this tool to validate US tickers BEFORE including them in your analysis.
-            Automatically falls back to SearXNG if not found via Finnhub.
-
-            Args:
-                ticker: The US ticker symbol to verify (e.g., "AAPL", "GME", "TSLA")
-
-            Returns:
-                Verification result - VERIFIED with company name, NOT FOUND with SearXNG
-                results, or error message.
-            """
-            return await _verify_ticker(ticker, ctx.deps.ticker_provider)
-
-        # Tool: Web search for additional context (hard cap: 2 calls per analysis)
+        # Tool: Web search — returns titles + snippets + URLs
         @agent.tool
         async def web_search(
             ctx: RunContext[AnalyzerDeps],
             query: str,
             recency: str = "week",
         ) -> str:
-            """Search the web for additional information.
+            """Search the web for information. Returns titles, short snippets, and URLs.
 
-            Use this tool to gather context when pre-fetched research is insufficient.
+            Use this to find relevant articles, then call web_read(url) on the best ones
+            to get the full content.
 
-            BUDGET: Max 2 calls per analysis. Prioritize historical precedent over verification.
-
-            RECENCY GUIDE (default: "week"):
-            - "day": Breaking news, very recent developments (last 24h)
-            - "week": Recent analysis, market commentary (last 7 days) - GOOD DEFAULT
-            - "month": Recent context, analyst reports (last 30 days)
-            - "year": Historical precedent, similar past events (last 12 months)
-            - "all": No date filter — use for historical precedent beyond 1 year
-
-            WHEN TO USE:
-            1. Find historical precedent (recency="all" for broad search, "year" for recent-only)
-               - Search for events with SIMILAR characteristics (magnitude, surprise, sector)
-               - "Fed rate cut 25bps market reaction"
-               - "earnings beat 10% stock reaction"
-            2. Get additional context on unfamiliar situations
-            DO NOT use web_search to look up or verify tickers — use verify_ticker instead.
-
-            IMPORTANT:
-            - Only include historical data if it MATCHES the current context
-            - If no relevant matches found, it's better to have NO historical context
-            - Don't force irrelevant historical data just to fill space
+            Budget: 3 searches max.
+            Recency: "day" | "week" | "month" | "year" | "all"
 
             Args:
-                query: Search query (be specific about what pattern you're looking for)
-                recency: Time range - "day", "week", "month", "year", or "all" (default: "week")
-
-            Returns:
-                Formatted search results
+                query: Search query (be specific, e.g. "Fed 50bps cut 2024 market reaction SPY")
+                recency: Time range (default: "week")
             """
             if ctx.deps.web_search_calls >= _WEB_SEARCH_CAP:
-                return f"Web search limit reached ({_WEB_SEARCH_CAP} calls max). Use the pre-fetched research above."
+                return f"Search limit reached ({_WEB_SEARCH_CAP} calls). Use web_read on URLs you already have."
             ctx.deps.web_search_calls += 1
 
-            if ctx.deps.http_client is None:
-                return "Web search not available (no HTTP client configured)."
-
             try:
-                # Map "all" -> "none" (no date filter), validate others
                 recency_map = {"all": "none"}
                 mapped = recency_map.get(recency, recency)
                 valid_recency: Recency = (
@@ -480,165 +231,116 @@ Summary: {ext.summary}
                 logger.warning("Web search failed", query=query, error=str(e))
                 return f"Search failed: {e}"
 
-        return agent
+        # Tool: Web read — crawls a URL and returns full article content
+        @agent.tool
+        async def web_read(
+            ctx: RunContext[AnalyzerDeps],
+            url: str,
+        ) -> str:
+            """Read the full content of a web page. Use after web_search to read
+            the most relevant articles in depth.
 
-    async def search_polymarket(self, keywords: list[str]) -> str:
-        """Search Polymarket for prediction markets in parallel.
+            Returns ~4000 chars of article content (nav/images stripped).
+            No limit on reads — use as many as needed.
 
-        Args:
-            keywords: Keywords to search
-
-        Returns:
-            Formatted list of markets with questions and prices
-        """
-        import asyncio
-
-        from synesis.config import get_settings
-
-        settings = get_settings()
-        keywords_to_search = keywords[: settings.polymarket_max_keywords]
-        logger.debug("Searching Polymarket", keywords=keywords_to_search)
-
-        async def safe_search(keyword: str) -> list[SimpleMarket]:
+            Args:
+                url: The URL to read (from web_search results)
+            """
             try:
-                return await self.polymarket.search_markets(keyword, limit=5)
+                return await read_web_page(url)
             except Exception as e:
-                logger.warning("Polymarket search failed", keyword=keyword, error=str(e))
-                return []
+                logger.warning("web_read failed", url=url, error=str(e))
+                return f"Failed to read page: {e}"
 
-        # Parallel search all keywords
-        search_results = await asyncio.gather(*[safe_search(kw) for kw in keywords_to_search])
+        # Tool: Search Polymarket for prediction markets
+        @agent.tool
+        async def search_polymarket(
+            ctx: RunContext[AnalyzerDeps],
+            query: str,
+        ) -> str:
+            """Search Polymarket for prediction markets related to a query.
 
-        # Dedupe results
-        all_markets: list[SimpleMarket] = []
-        seen_ids: set[str] = set()
-        for markets in search_results:
-            for m in markets:
-                # Filter: only include active, non-closed markets (defense in depth)
-                # The search_markets() method should already filter, but double-check here
-                if m.id not in seen_ids and m.is_active and not m.is_closed:
-                    seen_ids.add(m.id)
-                    all_markets.append(m)
+            Call this after understanding the news to find relevant prediction markets.
+            Use entity names, event descriptions, or topic keywords as the query.
 
-        if not all_markets:
-            return "No markets found for these keywords."
+            Args:
+                query: Search query (e.g. "NVIDIA acquisition", "Fed rate cut", "Iran oil")
+            """
+            try:
+                markets = await self.polymarket.search_markets(query, limit=5)
+            except Exception as e:
+                logger.warning("Polymarket search failed", query=query, error=str(e))
+                return f"Polymarket search failed: {e}"
 
-        # Format as structured table for better LLM parsing
-        # Include status column as defense in depth (all should be ACTIVE after filtering)
-        lines = [
-            f"Found {len(all_markets)} markets. You MUST create a MarketEvaluation for each:\n",
-            "| Market ID | Question | YES Price | Status | 24h Volume |",
-            "|-----------|----------|-----------|--------|------------|",
-        ]
-        for m in all_markets[:7]:  # Limit to 7 markets for faster LLM analysis
-            question = m.question
-            status = "ACTIVE" if m.is_active and not m.is_closed else "CLOSED"
-            lines.append(
-                f"| {m.id} | {question} | ${m.yes_price:.2f} | {status} | ${m.volume_24h:,.0f} |"
-            )
+            # Filter to active markets
+            active = [m for m in markets if m.is_active and not m.is_closed]
+            if not active:
+                return f"No active Polymarket markets found for '{query}'."
 
-        lines.append("")
-        lines.append("**IMPORTANT**: For each row above, create a MarketEvaluation with:")
-        lines.append("- market_id: Copy the exact ID from the 'Market ID' column")
-        lines.append("- current_price: Use the 'YES Price' value (without $)")
-        lines.append("- market_question: Use the full question text")
+            lines = [
+                f"Found {len(active)} markets for '{query}'. Create a MarketEvaluation for each:\n",
+                "| Market ID | Question | YES Price | 24h Volume |",
+                "|-----------|----------|-----------|------------|",
+            ]
+            for m in active[:7]:
+                lines.append(
+                    f"| {m.id} | {m.question} | ${m.yes_price:.2f} | ${m.volume_24h:,.0f} |"
+                )
 
-        logger.debug("Polymarket search complete", markets_found=len(all_markets))
-        return "\n".join(lines)
+            lines.append("")
+            lines.append("For each row, create a MarketEvaluation with the exact market_id.")
+
+            logger.debug("Polymarket search complete", query=query, markets_found=len(active))
+            return "\n".join(lines)
+
+        return agent
 
     async def analyze(
         self,
         message: UnifiedMessage,
         extraction: LightClassification,
-        web_results: list[str],
-        markets_text: str,
         http_client: httpx.AsyncClient | None = None,
-        ticker_provider: "TickerProvider | None" = None,
     ) -> SmartAnalysis | None:
-        """Analyze news with full research context.
-
-        This is the main Stage 2 entry point. It takes all pre-fetched context
-        and produces a unified SmartAnalysis with all informed judgments.
+        """Run Stage 2 analysis. All searching (web, Polymarket) done by LLM via tools.
 
         Args:
             message: Original news message
-            extraction: Stage 1 extraction result
-            web_results: Pre-fetched web search results
-            markets_text: Pre-fetched Polymarket search results
-            http_client: Optional HTTP client for additional searches
-            ticker_provider: Optional TickerProvider for ticker verification
-
-        Returns:
-            SmartAnalysis with tickers, sentiment, thesis, and market evaluations
+            extraction: Stage 1 classification (impact score + tickers)
+            http_client: Optional HTTP client for web searches
         """
-        log = logger.bind(
-            message_id=message.external_id,
-            primary_entity=extraction.primary_entity,
-        )
+        log = logger.bind(message_id=message.external_id)
 
         log.info(
-            "Stage 2 smart analysis starting",
-            all_entities=extraction.all_entities,
-            web_results_count=len(web_results),
+            "Stage 2 analysis starting",
+            matched_tickers=extraction.matched_tickers,
         )
 
         deps = AnalyzerDeps(
             message=message,
             extraction=extraction,
-            web_results=web_results,
-            markets_text=markets_text,
             http_client=http_client,
-            ticker_provider=ticker_provider,
         )
 
-        # Build user prompt — market instructions only when Polymarket was searched
-        if markets_text:
-            market_instructions = """5. Evaluate EACH prediction market from the table
-   - Return a MarketEvaluation for EVERY market in the Polymarket table
-   - Copy the market_id EXACTLY from the table
-   - Set is_relevant=false and verdict="skip" for unrelated markets"""
-        else:
-            market_instructions = ""
-
-        user_prompt = f"""Analyze this news. Determine:
-1. Affected tickers (include macro ETFs if macro event, sector ETFs if sector event)
-2. Investment thesis, sentiment, and confidence
-3. Ticker-level analysis with bull/bear thesis for each
-4. Historical context from web research
-{market_instructions}
-
-Focus on DIRECT impacts. Be conservative with confidence scores."""
+        user_prompt = """Analyze this breaking news following the workflow:
+1. Identify entities
+2. Research context (web_search + web_read) — do this BEFORE forming opinions
+3. Form thesis based on research
+4. Assess macro & sector ETF impact with sentiment scores
+5. Search and evaluate Polymarket prediction markets"""
 
         try:
             result = await self.agent.run(user_prompt, deps=deps)
-            output = result.output
-
-            # Post-process: Filter low-relevance tickers (threshold: 0.6)
-            original_ticker_count = len(output.ticker_analyses)
-            output.ticker_analyses = [t for t in output.ticker_analyses if t.relevance_score >= 0.6]
-            output.tickers = [t.ticker for t in output.ticker_analyses]
-
-            filtered_count = original_ticker_count - len(output.ticker_analyses)
-            if filtered_count > 0:
-                log.debug(
-                    "Filtered low-relevance tickers",
-                    filtered=filtered_count,
-                    remaining=len(output.ticker_analyses),
-                )
 
             log.info(
-                "Stage 2 smart analysis complete",
-                tickers=output.tickers,
-                sentiment=output.sentiment.value,
-                sentiment_score=output.sentiment_score,
-                thesis_confidence=f"{output.thesis_confidence:.0%}",
-                markets_evaluated=len(output.market_evaluations),
-                has_edge=output.has_tradable_edge,
+                "Stage 2 complete",
+                entities=result.output.all_entities[:5],
+                thesis=result.output.primary_thesis[:100],
+                macro_impact=[e.ticker for e in result.output.macro_impact],
+                sector_impact=[e.ticker for e in result.output.sector_impact],
+                markets_evaluated=len(result.output.market_evaluations),
             )
 
-            return output
-
-        except Exception as e:
-            log.exception("Stage 2 analysis failed", error=str(e))
-            # Return None to signal failure - callers must handle this
+            return result.output
+        except Exception:
+            log.exception("Stage 2 analysis failed")
             return None

@@ -4,23 +4,15 @@ from datetime import datetime, timezone
 
 
 from synesis.processing.news import (
-    Direction,
     LightClassification,
     MarketEvaluation,
-    NewsCategory,
     NewsSignal,
-    PrimaryTopic,
-    ResearchQuality,
     SmartAnalysis,
     SourcePlatform,
-    TickerAnalysis,
     UnifiedMessage,
+    UrgencyLevel,
 )
-from synesis.processing.news.models import (
-    SECTOR_ETF_MAP,
-    SECTOR_ETF_TICKERS,
-    SECTOR_TOPICS,
-)
+from synesis.processing.news.models import ETFImpact
 
 
 class TestSourceEnums:
@@ -80,25 +72,18 @@ class TestNewsSignal:
 
     def test_create_signal(self) -> None:
         """Test creating a signal with 2-stage architecture."""
-        # Stage 1: LightClassification (entity extraction only)
+        # Stage 1: LightClassification (instant, no LLM)
         extraction = LightClassification(
-            news_category=NewsCategory.breaking,
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Fed cuts rates",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
-            all_entities=["Federal Reserve"],
-            polymarket_keywords=["Fed", "rate cut"],
-            search_keywords=["Fed rate cut"],
+            matched_tickers=["SPY"],
+            impact_score=65,
+            impact_reasons=["wire_prefix:+15", "fed:+20"],
+            urgency=UrgencyLevel.critical,
         )
 
         # Stage 2: SmartAnalysis (all informed judgments)
         analysis = SmartAnalysis(
-            tickers=["SPY"],
-            sentiment=Direction.bullish,
-            sentiment_score=0.7,
+            macro_impact=[ETFImpact(ticker="SPY", sentiment_score=0.7)],
             primary_thesis="Fed pivot bullish for equities",
-            thesis_confidence=0.8,
         )
 
         signal = NewsSignal(
@@ -111,18 +96,19 @@ class TestNewsSignal:
             analysis=analysis,
         )
 
-        assert PrimaryTopic.monetary_policy in signal.extraction.primary_topics
-        # Tickers come from analysis (Stage 2)
-        assert signal.tickers == ["SPY"]
+        assert signal.extraction.matched_tickers == ["SPY"]
+        assert signal.extraction.impact_score == 65
+        # Macro impact comes from analysis (Stage 2)
+        assert signal.analysis is not None
+        assert signal.analysis.macro_impact[0].ticker == "SPY"
 
     def test_signal_serialization(self) -> None:
         """Test JSON serialization of NewsSignal."""
         extraction = LightClassification(
-            news_category=NewsCategory.breaking,
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Test",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
+            matched_tickers=["NVDA"],
+            impact_score=50,
+            impact_reasons=["test:+50"],
+            urgency=UrgencyLevel.high,
         )
 
         signal = NewsSignal(
@@ -138,15 +124,16 @@ class TestNewsSignal:
         data = signal.model_dump(mode="json")
         assert isinstance(data, dict)
         assert data["source_platform"] == "telegram"
-        assert "monetary_policy" in data["extraction"]["primary_topics"]
+        assert data["extraction"]["impact_score"] == 50
+        assert data["extraction"]["matched_tickers"] == ["NVDA"]
 
     def test_signal_without_analysis(self) -> None:
         """Test signal with only Stage 1 (no Stage 2 analysis)."""
         extraction = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
+            matched_tickers=[],
+            impact_score=10,
+            impact_reasons=[],
+            urgency=UrgencyLevel.low,
         )
 
         signal = NewsSignal(
@@ -160,80 +147,8 @@ class TestNewsSignal:
         )
 
         assert signal.analysis is None
-        assert signal.tickers == []  # Empty when no analysis
+        assert signal.matched_tickers == []  # From extraction (empty)
         assert signal.has_edge is False
-
-
-class TestTickerAnalysis:
-    """Tests for TickerAnalysis model."""
-
-    def test_create_ticker_analysis(self) -> None:
-        ticker = TickerAnalysis(
-            ticker="AAPL",
-            company_name="Apple Inc.",
-            bull_thesis="Strong iPhone sales expected",
-            bear_thesis="China regulatory concerns",
-            net_direction=Direction.bullish,
-            conviction=0.85,
-            time_horizon="weeks",
-            catalysts=["Earnings", "WWDC"],
-            risk_factors=["Trade tensions", "Competition"],
-        )
-
-        assert ticker.ticker == "AAPL"
-        assert ticker.company_name == "Apple Inc."
-        assert ticker.conviction == 0.85
-        assert ticker.net_direction == Direction.bullish
-        assert len(ticker.catalysts) == 2
-        assert len(ticker.risk_factors) == 2
-
-    def test_conviction_bounds(self) -> None:
-        # Test minimum
-        ticker = TickerAnalysis(
-            ticker="TEST",
-            bull_thesis="Test",
-            bear_thesis="Test",
-            net_direction=Direction.neutral,
-            conviction=0.0,
-            time_horizon="days",
-        )
-        assert ticker.conviction == 0.0
-
-        # Test maximum
-        ticker2 = TickerAnalysis(
-            ticker="TEST",
-            bull_thesis="Test",
-            bear_thesis="Test",
-            net_direction=Direction.neutral,
-            conviction=1.0,
-            time_horizon="days",
-        )
-        assert ticker2.conviction == 1.0
-
-    def test_optional_fields_defaults(self) -> None:
-        ticker = TickerAnalysis(
-            ticker="TEST",
-            bull_thesis="Bull",
-            bear_thesis="Bear",
-            net_direction=Direction.neutral,
-            conviction=0.5,
-            time_horizon="days",
-        )
-
-        assert ticker.company_name == ""
-        assert ticker.relevance_score == 0.7  # Default
-        assert ticker.relevance_reason == ""
-        assert ticker.catalysts == []
-        assert ticker.risk_factors == []
-
-
-class TestResearchQuality:
-    """Tests for ResearchQuality enum."""
-
-    def test_research_quality_values(self) -> None:
-        assert ResearchQuality.high.value == "high"
-        assert ResearchQuality.medium.value == "medium"
-        assert ResearchQuality.low.value == "low"
 
 
 class TestMarketEvaluation:
@@ -302,12 +217,7 @@ class TestSmartAnalysisEdgeBoundaries:
             recommended_side="yes",
         )
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
             market_evaluations=[eval_good],
         )
 
@@ -329,12 +239,7 @@ class TestSmartAnalysisEdgeBoundaries:
             recommended_side="yes",
         )
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
             market_evaluations=[eval_at_boundary],
         )
 
@@ -357,12 +262,7 @@ class TestSmartAnalysisEdgeBoundaries:
             recommended_side="yes",
         )
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
             market_evaluations=[eval_confidence_boundary],
         )
 
@@ -390,12 +290,7 @@ class TestSmartAnalysisEdgeBoundaries:
             recommended_side="no",
         )
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
             market_evaluations=[eval_overvalued],
         )
 
@@ -405,12 +300,7 @@ class TestSmartAnalysisEdgeBoundaries:
     def test_has_tradable_edge_no_evaluations(self) -> None:
         """Test has_tradable_edge False when no market evaluations."""
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
             market_evaluations=[],
         )
 
@@ -459,12 +349,7 @@ class TestSmartAnalysisEdgeBoundaries:
         )
 
         analysis = SmartAnalysis(
-            tickers=[],
-            sectors=[],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
             primary_thesis="Test",
-            thesis_confidence=0.5,
             market_evaluations=[eval1, eval2, eval3],
         )
 
@@ -474,81 +359,22 @@ class TestSmartAnalysisEdgeBoundaries:
         assert best.edge == 0.25
 
 
-class TestSectorETFConstants:
-    """Tests for sector ETF mapping constants."""
+class TestSectorImpact:
+    """Tests for sector impact on SmartAnalysis."""
 
-    def test_sector_etf_map_covers_all_sector_topics(self) -> None:
-        """Every PrimaryTopic in SECTOR_TOPICS has an entry in SECTOR_ETF_MAP."""
-        assert set(SECTOR_ETF_MAP.keys()) == SECTOR_TOPICS
-
-    def test_sector_etf_tickers_matches_map_values(self) -> None:
-        """SECTOR_ETF_TICKERS is the exact set of tickers from SECTOR_ETF_MAP."""
-        expected = frozenset(etf for etf, _ in SECTOR_ETF_MAP.values())
-        assert SECTOR_ETF_TICKERS == expected
-
-    def test_sector_etf_tickers_no_overlap_with_macro(self) -> None:
-        """Sector ETF tickers should not overlap with macro ETF tickers."""
-        from synesis.processing.news.models import MACRO_ETF_TICKERS
-
-        assert SECTOR_ETF_TICKERS & MACRO_ETF_TICKERS == frozenset()
-
-    def test_sector_topics_are_gics_sectors(self) -> None:
-        """All SECTOR_TOPICS are GICS sector PrimaryTopic values."""
-        gics = {
-            PrimaryTopic.energy,
-            PrimaryTopic.materials,
-            PrimaryTopic.industrials,
-            PrimaryTopic.utilities,
-            PrimaryTopic.healthcare,
-            PrimaryTopic.financials,
-            PrimaryTopic.consumer_discretionary,
-            PrimaryTopic.consumer_staples,
-            PrimaryTopic.information_technology,
-            PrimaryTopic.communication_services,
-            PrimaryTopic.real_estate,
-        }
-        assert SECTOR_TOPICS == gics
-
-    def test_has_sector_impact_true(self) -> None:
-        """has_sector_impact is True when ticker_analyses includes a sector ETF."""
+    def test_sector_impact_present(self) -> None:
+        """sector_impact list contains sector ETFs when provided."""
         analysis = SmartAnalysis(
-            tickers=["XLF"],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
+            sector_impact=[ETFImpact(ticker="XLF", sentiment_score=-0.3)],
             primary_thesis="Test",
-            thesis_confidence=0.5,
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="XLF",
-                    company_name="Financials",
-                    bull_thesis="Rate sensitive",
-                    bear_thesis="Credit risk",
-                    net_direction=Direction.bullish,
-                    conviction=0.7,
-                    time_horizon="days",
-                )
-            ],
         )
-        assert analysis.has_sector_impact is True
+        assert len(analysis.sector_impact) == 1
+        assert analysis.sector_impact[0].ticker == "XLF"
 
-    def test_has_sector_impact_false_for_non_sector_etf(self) -> None:
-        """has_sector_impact is False when no sector ETFs in ticker_analyses."""
+    def test_sector_impact_empty_for_macro_only(self) -> None:
+        """sector_impact is empty when only macro ETFs are present."""
         analysis = SmartAnalysis(
-            tickers=["AAPL"],
-            sentiment=Direction.neutral,
-            sentiment_score=0.0,
+            macro_impact=[ETFImpact(ticker="SPY", sentiment_score=0.5)],
             primary_thesis="Test",
-            thesis_confidence=0.5,
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="AAPL",
-                    company_name="Apple Inc.",
-                    bull_thesis="Strong sales",
-                    bear_thesis="Valuation",
-                    net_direction=Direction.bullish,
-                    conviction=0.7,
-                    time_horizon="days",
-                )
-            ],
         )
-        assert analysis.has_sector_impact is False
+        assert analysis.sector_impact == []

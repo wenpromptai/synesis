@@ -23,11 +23,9 @@ import asyncpg
 from redis.asyncio import Redis
 
 from synesis.config import get_settings
-from synesis.core.constants import MIN_THESIS_CONFIDENCE_FOR_ALERT
 from synesis.core.logging import get_logger
 from synesis.core.processor import NewsProcessor, ProcessingResult
 from synesis.notifications.dispatcher import emit_stage1, emit_stage2
-from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import (
     NewsSignal,
     LightClassification,
@@ -37,7 +35,6 @@ from synesis.processing.news import (
     UnifiedMessage,
     UrgencyLevel,
 )
-from synesis.providers.factory import create_ticker_provider
 from synesis.storage.database import Database, get_database
 
 logger = get_logger(__name__)
@@ -102,7 +99,6 @@ async def emit_signal_to_db(
             source_account=message.source_account,
             raw_text=message.text,
             external_id=message.external_id,
-            news_category=extraction.news_category,
             extraction=extraction,
             analysis=analysis,
         )
@@ -280,15 +276,7 @@ async def emit_signal(
     for evaluation in result.analysis.market_evaluations:
         await emit_prediction_to_db(evaluation, result.message)
 
-    # 3. Send Stage 2 notification if confidence gate passes
-    if result.analysis.thesis_confidence < MIN_THESIS_CONFIDENCE_FOR_ALERT:
-        logger.info(
-            "Skipping Stage 2 notification (low confidence)",
-            message_id=result.message.external_id,
-            thesis_confidence=f"{result.analysis.thesis_confidence:.0%}",
-        )
-        return
-
+    # 3. Send Stage 2 notification
     await emit_stage2_notification(result.message, result.analysis)
 
 
@@ -355,14 +343,10 @@ async def process_worker(
 
 
 async def run_pydantic_agent(
-    watchlist: WatchlistManager | None = None,
     redis: Redis | None = None,
     db: Database | None = None,
 ) -> None:
     """Run the PydanticAI agent with concurrent worker processing.
-
-    Args:
-        watchlist: Optional shared WatchlistManager (created in __main__.py)
 
     Architecture:
     - Redis consumer: Pulls messages from Redis queue (runs in main coroutine)
@@ -400,8 +384,6 @@ async def run_pydantic_agent(
         maxsize=settings.processing_queue_size
     )
     workers: list[asyncio.Task[None]] = []
-    # Standalone providers (initialized in try block)
-    ticker_provider = None
     processor: NewsProcessor | None = None
 
     try:
@@ -416,33 +398,9 @@ async def run_pydantic_agent(
                 await db.connect()
                 logger.debug("Database connected (standalone mode)")
             except Exception as e:
-                logger.warning(
-                    "Database not available, WebSocket watchlist will be empty", error=str(e)
-                )
+                logger.warning("Database not available", error=str(e))
 
-        # Initialize Finnhub ticker provider for ticker verification
-        try:
-            ticker_provider = await create_ticker_provider(redis)
-            logger.debug("Ticker provider initialized")
-        except ValueError as e:
-            logger.warning(
-                "Ticker provider configuration error — ticker verification disabled",
-                error=str(e),
-            )
-        except Exception:
-            logger.error("Ticker provider initialization failed", exc_info=True)
-
-        # Use shared watchlist (passed from __main__.py)
-        # If not provided (standalone mode), create local instance
-        if watchlist is None and db is not None:
-            watchlist = WatchlistManager(db)
-            logger.debug("Created local WatchlistManager (standalone mode)")
-
-        processor = NewsProcessor(
-            redis,
-            ticker_provider=ticker_provider,
-            watchlist=watchlist,
-        )
+        processor = NewsProcessor(redis)
         await processor.initialize()
 
         # Start workers with simple create_task (NOT TaskGroup)
@@ -511,11 +469,6 @@ async def run_pydantic_agent(
                 await processor.close()
             except Exception:
                 logger.error("Error closing NewsProcessor", exc_info=True)
-        if ticker_provider:
-            try:
-                await ticker_provider.close()
-            except Exception:
-                logger.error("Error closing ticker provider", exc_info=True)
         # Only close resources we created (not passed from __main__.py)
         if own_db and db:
             try:

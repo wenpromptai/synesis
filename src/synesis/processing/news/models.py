@@ -1,16 +1,16 @@
 """Processing models for Flow 1: Breaking News Intelligence.
 
-These models define the data structures for the news processing pipeline:
-- Unified message format from Telegram
-- LLM classification output schema
-- Final signal output
+Models for the two-stage news processing pipeline:
+- Stage 1 (instant): LightClassification — impact score + matched tickers
+- Stage 2 (LLM): SmartAnalysis — entities, thesis, ETF impact, Polymarket
+- NewsSignal: final output combining both stages
 """
 
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field
 
 
 # =============================================================================
@@ -25,79 +25,31 @@ class SourcePlatform(str, Enum):
     twitter = "twitter"
 
 
-class NewsCategory(str, Enum):
-    """Category of news content (detected per-message, not per-source)."""
-
-    breaking = "breaking"  # Unexpected events: *BREAKING, JUST IN, sudden announcements
-    economic_calendar = "economic_calendar"  # Scheduled releases: CPI, NFP, FOMC, GDP
-    other = "other"  # Analysis, commentary, opinions, general news
-
-
 # =============================================================================
 # Unified Message
 # =============================================================================
 
 
 class UnifiedMessage(BaseModel):
-    """Normalized message from any source (Telegram).
+    """Normalized message from any source (Telegram/Twitter)."""
 
-    This is the common format after ingestion, before processing.
-    """
-
-    # Identity
-    external_id: str  # Platform-specific ID (message_id)
+    external_id: str
     source_platform: SourcePlatform
     source_account: str  # channel name
 
-    # Content
     text: str
     timestamp: datetime
 
-    # Raw data for debugging
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
 # =============================================================================
-# LLM Classification (Output Schema)
+# Topic Enums (used in Stage 2 LLM prompt for classification)
 # =============================================================================
 
 
 class PrimaryTopic(str, Enum):
-    """High-level event type, asset-class, and sector classification.
-
-    Stage 1 assigns 1-3 tags per news item. Pick the most specific that clearly apply.
-    Always include a sector tag when the news is sector-specific.
-
-    Monetary/Economy:
-      monetary_policy  — Fed, ECB, BoJ, rate decisions, QE/QT, forward guidance
-      economic_data    — CPI, NFP, GDP, PMI, retail sales, consumer confidence
-      trade_policy     — Tariffs, export controls, trade agreements, sanctions
-      fiscal_policy    — Government budget, debt ceiling, stimulus, spending
-
-    Corporate:
-      earnings         — EPS, revenue, guidance, analyst upgrades/downgrades
-      corporate_actions — M&A, IPO, buyback, dividend, layoffs, bankruptcy
-      regulatory       — SEC, antitrust, FDA, CFTC, banking regulation
-
-    Geopolitical:
-      geopolitics      — Armed conflict, sanctions, diplomacy, military action
-      political        — Elections, executive orders, legislation, cabinet
-
-    Asset Classes:
-      crypto           — BTC/ETH, exchange news, stablecoins, DeFi, ETF approval
-      commodities      — Oil/OPEC, LNG, gold, metals, agricultural
-      fixed_income     — Treasury auctions, yield curve, credit spreads, ratings
-      fx               — Currency moves, central bank intervention, carry trades
-      equities_market  — Index levels, VIX, sector rotation, flows, short squeezes
-
-    Sectors (GICS):
-      energy, materials, industrials, utilities, healthcare, financials,
-      consumer_discretionary, consumer_staples, information_technology,
-      communication_services, real_estate
-
-    Fallback:
-      other
-    """
+    """High-level event type, asset-class, and sector classification."""
 
     # Monetary/Economy
     monetary_policy = "monetary_policy"
@@ -137,100 +89,8 @@ class PrimaryTopic(str, Enum):
     other = "other"
 
 
-# Topics that indicate broad macro / cross-asset impact.
-# When Stage 1 assigns any of these, Stage 2 should consider macro ETF proxies.
-MACRO_TOPICS: frozenset[PrimaryTopic] = frozenset(
-    {
-        PrimaryTopic.geopolitics,
-        PrimaryTopic.monetary_policy,
-        PrimaryTopic.trade_policy,
-        PrimaryTopic.fiscal_policy,
-        PrimaryTopic.economic_data,
-        PrimaryTopic.commodities,
-        PrimaryTopic.fixed_income,
-        PrimaryTopic.fx,
-        PrimaryTopic.equities_market,
-    }
-)
-
-# Canonical set of macro asset-class ETF proxy tickers used in Stage 2.
-# Referenced in: analyzer.py (prompt + post-processing), telegram.py (display grouping).
-MACRO_ETF_TICKERS: frozenset[str] = frozenset({"GLD", "USO", "SPY", "TLT", "UUP", "VIXY", "EEM"})
-
-# Topics that indicate sector-specific impact.
-# When Stage 1 assigns any of these, Stage 2 should consider the corresponding sector ETF proxy.
-SECTOR_TOPICS: frozenset[PrimaryTopic] = frozenset(
-    {
-        PrimaryTopic.energy,
-        PrimaryTopic.materials,
-        PrimaryTopic.industrials,
-        PrimaryTopic.utilities,
-        PrimaryTopic.healthcare,
-        PrimaryTopic.financials,
-        PrimaryTopic.consumer_discretionary,
-        PrimaryTopic.consumer_staples,
-        PrimaryTopic.information_technology,
-        PrimaryTopic.communication_services,
-        PrimaryTopic.real_estate,
-    }
-)
-
-# PrimaryTopic → (ETF ticker, sector label) for conditional injection into Stage 2.
-SECTOR_ETF_MAP: dict[PrimaryTopic, tuple[str, str]] = {
-    PrimaryTopic.energy: ("XLE", "Energy"),
-    PrimaryTopic.materials: ("XLB", "Materials"),
-    PrimaryTopic.industrials: ("XLI", "Industrials"),
-    PrimaryTopic.utilities: ("XLU", "Utilities"),
-    PrimaryTopic.healthcare: ("XLV", "Health Care"),
-    PrimaryTopic.financials: ("XLF", "Financials"),
-    PrimaryTopic.consumer_discretionary: ("XLY", "Consumer Discretionary"),
-    PrimaryTopic.consumer_staples: ("XLP", "Consumer Staples"),
-    PrimaryTopic.information_technology: ("XLK", "Technology"),
-    PrimaryTopic.communication_services: ("XLC", "Communication Services"),
-    PrimaryTopic.real_estate: ("XLRE", "Real Estate"),
-}
-
-# Canonical set of sector ETF proxy tickers used in Stage 2.
-SECTOR_ETF_TICKERS: frozenset[str] = frozenset(etf for etf, _ in SECTOR_ETF_MAP.values())
-
-
 class SecondaryTopic(str, Enum):
-    """Granular industry / subsector classification.
-
-    Stage 1 assigns 0-3 tags. Leave empty if not clearly applicable.
-
-    Technology & Hardware:
-      semiconductors, optics_photonics, cloud_computing, software_saas,
-      cybersecurity, consumer_tech, ev_autonomous
-
-    Healthcare & Life Sciences:
-      biotech, pharma, medical_devices, health_insurance
-
-    Energy:
-      oil_gas, renewables, nuclear, utilities
-
-    Financials:
-      banks_lending, insurance, asset_management, private_equity, fintech_payments
-
-    Industrials:
-      defense_weapons, aerospace_space, automation_robotics, chemicals_materials
-
-    Consumer:
-      retail_ecommerce, food_beverage, media_entertainment, gaming,
-      luxury_fashion, travel_hospitality
-
-    Materials & Resources:
-      metals_mining, agriculture
-
-    Transport & Logistics:
-      shipping_maritime, automotive, logistics_freight
-
-    Real Estate:
-      residential_housing, commercial_real_estate
-
-    Telecom & Social:
-      telecom_5g, social_media_adtech
-    """
+    """Granular industry / subsector classification."""
 
     # Technology & Hardware
     semiconductors = "semiconductors"
@@ -293,313 +153,135 @@ class SecondaryTopic(str, Enum):
 
 
 # =============================================================================
-# Numeric Extraction (Economic/Earnings Data)
-# =============================================================================
-
-
-class BeatMissStatus(str, Enum):
-    """Whether metric beat, missed, or met expectations."""
-
-    beat = "beat"
-    miss = "miss"
-    inline = "inline"
-    unknown = "unknown"  # No estimate available
-
-
-class MetricReading(BaseModel):
-    """A single numeric metric from economic/earnings data."""
-
-    metric_name: str = Field(description="Name of metric (e.g., 'CPI Y/Y', 'EPS', 'Revenue')")
-    actual: float = Field(description="Actual reported value")
-    estimate: float | None = Field(default=None, description="Consensus estimate (expected)")
-    previous: float | None = Field(default=None, description="Previous period value")
-    unit: str = Field(default="%", description="Unit of measurement (%, bps, $, B, M, K)")
-    period: str | None = Field(default=None, description="Time period (Q4, December, 2024)")
-    beat_miss: BeatMissStatus = Field(
-        default=BeatMissStatus.unknown, description="Beat/miss/inline status"
-    )
-    surprise_magnitude: float | None = Field(
-        default=None, description="Surprise = actual - estimate (same units)"
-    )
-
-
-class NumericExtraction(BaseModel):
-    """All numeric data extracted from economic/earnings news."""
-
-    metrics: list[MetricReading] = Field(
-        default_factory=list, description="All metrics extracted from the message"
-    )
-    headline_metric: str | None = Field(
-        default=None, description="The primary/headline metric name"
-    )
-    overall_beat_miss: BeatMissStatus = Field(
-        default=BeatMissStatus.unknown, description="Overall assessment: beat/miss/inline"
-    )
-
-    @property
-    def has_surprise(self) -> bool:
-        """Check if any metric has a surprise."""
-        return any(m.estimate is not None for m in self.metrics)
-
-    @property
-    def beats(self) -> list[MetricReading]:
-        """Get metrics that beat estimates."""
-        return [m for m in self.metrics if m.beat_miss == BeatMissStatus.beat]
-
-    @property
-    def misses(self) -> list[MetricReading]:
-        """Get metrics that missed estimates."""
-        return [m for m in self.metrics if m.beat_miss == BeatMissStatus.miss]
-
-
-# =============================================================================
-# Urgency Classification
+# Urgency
 # =============================================================================
 
 
 class UrgencyLevel(str, Enum):
     """Message-level urgency for trading prioritization."""
 
-    critical = "critical"  # Act immediately: rate decision, surprise announcement, breaking M&A
-    high = "high"  # Act fast: scheduled data release, earnings with beat/miss
-    normal = "normal"  # Can wait: analysis, commentary, minor news
-    low = "low"  # Background: opinions, old news, noise
-
-
-class Direction(str, Enum):
-    """Market direction prediction."""
-
-    bullish = "bullish"
-    bearish = "bearish"
-    neutral = "neutral"
+    critical = "critical"
+    high = "high"
+    normal = "normal"
+    low = "low"
 
 
 # =============================================================================
-# Stage 2A: Investment Analysis (NEW)
-# =============================================================================
-
-
-class TickerAnalysis(BaseModel):
-    """Analysis of a single ticker affected by news.
-
-    Each ticker must pass the relevance test (score >= 0.6) to be included.
-    """
-
-    ticker: str = Field(description="Stock ticker symbol (e.g., AAPL, TSLA)")
-    company_name: str = Field(default="", description="Full company name")
-    relevance_score: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=0.7,
-        description="How directly affected (0.9-1.0: primary subject, 0.7-0.89: directly named, 0.6-0.69: secondary impact, <0.6: do not include)",
-    )
-    relevance_reason: str = Field(
-        default="",
-        description="One sentence explaining the direct causal link to this news",
-    )
-    bull_thesis: str = Field(description="Bull case: why this news is positive for the stock")
-    bear_thesis: str = Field(description="Bear case: why this news is negative for the stock")
-    net_direction: Direction = Field(description="Overall expected direction")
-    conviction: float = Field(ge=0.0, le=1.0, description="Conviction level 0.0 to 1.0")
-    time_horizon: str = Field(
-        description="Expected impact timeframe: intraday | days | weeks | months"
-    )
-    catalysts: list[str] = Field(default_factory=list, description="Key catalysts to watch")
-    risk_factors: list[str] = Field(default_factory=list, description="Key risks to the thesis")
-
-
-class ResearchQuality(str, Enum):
-    """Quality of available research data."""
-
-    high = "high"  # Strong analyst coverage, historical data
-    medium = "medium"  # Some data but gaps
-    low = "low"  # Limited or no external data
-
-
-# =============================================================================
-# Stage 1: Lightweight Classification (NEW)
+# Stage 1: Instant classification (NO LLM)
 # =============================================================================
 
 
 class LightClassification(BaseModel):
-    """Stage 1 lightweight entity extractor output.
+    """Stage 1 output — instant, no LLM.
 
-    Fast, tool-free extraction focusing on entities and keywords.
-    Minimal judgment calls (urgency only).
-    Tickers, sectors, sentiment deferred to Stage 2.
+    Produced by impact scoring + ticker matching.
     """
 
-    # News category (rule-based mostly, LLM fallback)
-    news_category: NewsCategory = Field(
-        default=NewsCategory.other,
-        description="Category: breaking (unexpected), economic_calendar (scheduled), other",
+    matched_tickers: list[str] = Field(
+        default_factory=list,
+        description="Tickers matched from text (e.g. ['NVDA', 'MRVL', '~OPENAI'])",
     )
 
-    # Topic classification (Stage 1 fast assignment)
-    primary_topics: list[PrimaryTopic] = Field(
-        default_factory=list,
-        description="Event type, asset-class, and sector tags (1-3). Always include sector when sector-specific.",
+    impact_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Numeric impact score (0-100) from additive signal scoring",
     )
-    secondary_topics: list[SecondaryTopic] = Field(
+    impact_reasons: list[str] = Field(
         default_factory=list,
-        description="Granular industry/subsector tags (0-3). Leave empty if not clearly applicable.",
-    )
-    summary: str = Field(description="One-sentence summary of the event")
-    confidence: float = Field(ge=0.0, le=1.0, description="Confidence in classification")
-
-    # Entity extraction (NO judgment calls)
-    primary_entity: str = Field(
-        description="The PRIMARY entity affected (company, person, institution)"
-    )
-    all_entities: list[str] = Field(
-        default_factory=list,
-        description="ALL entities mentioned (people, companies, institutions)",
+        description="Score component breakdown (e.g. 'wire_prefix:+15', 'mna:+15')",
     )
 
-    # Search keywords (entity-focused, for Stage 2)
-    search_keywords: list[str] = Field(
-        default_factory=list,
-        description="Keywords for web search (entity-focused)",
-    )
-    polymarket_keywords: list[str] = Field(
-        default_factory=list,
-        description="Keywords to search Polymarket (entity-focused, no noise)",
-    )
-
-    # Numeric extraction (for economic_calendar and earnings)
-    numeric_data: NumericExtraction | None = Field(
-        default=None,
-        description="Extracted numeric data (actual/estimate/previous) for economic releases and earnings",
-    )
-
-    # Urgency (hybrid: rules + LLM)
     urgency: UrgencyLevel = Field(
         default=UrgencyLevel.normal,
-        description="Message-level urgency for trading prioritization",
+        description="Derived from impact_score thresholds or fast-track rules: >=55 critical, 32-54 high, 15-31 normal, <15 low",
     )
-    urgency_reasoning: str = Field(default="", description="LLM reasoning for urgency level")
 
 
 # =============================================================================
-# Market Evaluation
+# Market Evaluation (Polymarket)
 # =============================================================================
 
 
 class MarketEvaluation(BaseModel):
-    """Individual market evaluation with relevance check.
-
-    Used by Stage 2 Smart Evaluator to filter false positive market matches
-    and evaluate relevant markets for mispricing.
-    """
+    """Individual Polymarket evaluation with relevance check."""
 
     market_id: str
     market_question: str
 
-    # Relevance check (filter false positives)
-    is_relevant: bool = Field(description="Whether this market is actually relevant to the news")
-    relevance_reasoning: str = Field(description="Explanation of why this market is/isn't relevant")
+    is_relevant: bool = Field(description="Whether this market is relevant to the news")
+    relevance_reasoning: str = Field(description="Why this market is/isn't relevant")
 
-    # Evaluation (only meaningful if relevant)
     current_price: float = Field(ge=0.0, le=1.0)
-    estimated_fair_price: float | None = Field(
-        default=None,
-        description="Fair price estimate (null if not relevant or uncertain)",
-    )
-    edge: float | None = Field(
-        default=None,
-        description="Estimated edge: fair - current (null if not relevant)",
-    )
-    verdict: str = Field(
-        description="undervalued | overvalued | fair | skip (skip if not relevant)"
-    )
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Confidence in evaluation (0 if not relevant)",
-    )
+    estimated_fair_price: float | None = Field(default=None)
+    edge: float | None = Field(default=None, description="fair - current")
+    verdict: str = Field(description="undervalued | overvalued | fair | skip")
+    confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str = Field(description="Full reasoning for the evaluation")
     recommended_side: str = Field(description="yes | no | skip")
 
 
 # =============================================================================
-# Stage 2: Smart Analysis (Consolidated Output)
+# Stage 2: Smart Analysis (LLM output)
 # =============================================================================
 
 
-class SmartAnalysis(BaseModel):
-    """Stage 2 consolidated output — all informed judgments with research context."""
+class ETFImpact(BaseModel):
+    """Sentiment assessment for a single ETF proxy."""
 
-    # Informed judgments (made with research context, NOT Stage 1)
-    tickers: list[str] = Field(
-        default_factory=list,
-        description="Stock tickers affected (informed by research)",
-    )
-    sentiment: Direction = Field(
-        default=Direction.neutral,
-        description="Sentiment (informed by research)",
-    )
+    ticker: str = Field(description="ETF ticker (e.g. SPY, GLD, XLK)")
     sentiment_score: float = Field(
         ge=-1.0,
         le=1.0,
         default=0.0,
         description="Sentiment score: -1.0 (max bearish) to 1.0 (max bullish)",
     )
+    reason: str = Field(default="", description="One sentence explaining the impact (≤100 chars)")
 
-    # Primary thesis (from investment analysis)
+
+class SmartAnalysis(BaseModel):
+    """Stage 2 output — LLM analysis with research context.
+
+    Entities, thesis, per-ETF sentiment, historical context, Polymarket.
+    """
+
+    all_entities: list[str] = Field(
+        default_factory=list,
+        description="All companies, people, institutions, and countries directly involved",
+    )
+
     primary_thesis: str = Field(
         default="",
-        description="Primary investment thesis from this news",
-    )
-    thesis_confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=0.5,
-        description="Confidence in the primary thesis",
+        description="Primary investment thesis (≤150 chars)",
     )
 
-    # Ticker-level analysis
-    ticker_analyses: list[TickerAnalysis] = Field(
+    macro_impact: list[ETFImpact] = Field(
         default_factory=list,
-        description="Analysis of individual tickers affected",
+        description="Macro ETF proxies impacted (SPY, GLD, TLT, USO, VIXY, UUP, EEM)",
+    )
+    sector_impact: list[ETFImpact] = Field(
+        default_factory=list,
+        description="Sector ETF proxies impacted (XLK, XLF, XLE, XLV, etc.)",
     )
 
-    # Historical context
     historical_context: str = Field(
         default="",
-        description="Precedent events with dates and quantified market reactions (e.g., 'Similar to March 2020 Fed cut; SPY rallied 5% over 3 days')",
+        description="Precedent events with dates and quantified market reactions",
     )
     typical_market_reaction: str = Field(
         default="",
-        description="Typical reaction pattern: immediate move, reversal probability, sector rotation (e.g., 'Initial 1% spike usually fades 50% within 24h; financials lag')",
+        description="Typical reaction pattern: initial move, reversal probability, sector rotation",
     )
 
-    # Market evaluations (prediction markets)
     market_evaluations: list[MarketEvaluation] = Field(
         default_factory=list,
         description="Prediction market evaluations",
     )
 
-    # Research quality indicator
-    research_quality: ResearchQuality = Field(
-        default=ResearchQuality.medium,
-        description="Quality of available research data",
-    )
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def has_macro_impact(self) -> bool:
-        """True when ticker_analyses includes macro asset-class ETF proxies."""
-        return any(t.ticker in MACRO_ETF_TICKERS for t in self.ticker_analyses)
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def has_sector_impact(self) -> bool:
-        """True when ticker_analyses includes sector ETF proxies."""
-        return any(t.ticker in SECTOR_ETF_TICKERS for t in self.ticker_analyses)
-
     @property
     def has_tradable_edge(self) -> bool:
-        """Check if any market has tradable edge."""
+        """Check if any Polymarket has tradable edge."""
         return any(
             e.is_relevant and e.edge is not None and abs(e.edge) > 0.05 and e.confidence > 0.5
             for e in self.market_evaluations
@@ -607,7 +289,7 @@ class SmartAnalysis(BaseModel):
 
     @property
     def best_opportunity(self) -> MarketEvaluation | None:
-        """Get the evaluation with the highest edge."""
+        """Get the Polymarket evaluation with the highest edge."""
         with_edge = [
             e
             for e in self.market_evaluations
@@ -622,18 +304,6 @@ class SmartAnalysis(BaseModel):
         """Get only the relevant market evaluations."""
         return [e for e in self.market_evaluations if e.is_relevant]
 
-    @property
-    def has_tradable_tickers(self) -> bool:
-        """Check if any tickers have high conviction."""
-        return any(t.conviction >= 0.7 for t in self.ticker_analyses)
-
-    @property
-    def top_ticker(self) -> TickerAnalysis | None:
-        """Get the ticker with highest conviction."""
-        if not self.ticker_analyses:
-            return None
-        return max(self.ticker_analyses, key=lambda t: t.conviction)
-
 
 # =============================================================================
 # News Signal (Final Output)
@@ -641,73 +311,39 @@ class SmartAnalysis(BaseModel):
 
 
 class NewsSignal(BaseModel):
-    """Real-time signal emitted for each news item.
-
-    This is the final output of Flow 1, stored in the signals hypertable and published to Redis.
-    Uses the 2-stage architecture: LightClassification (Stage 1) + SmartAnalysis (Stage 2).
-    """
+    """Final output of Flow 1. Stored in DB and published to Redis."""
 
     timestamp: datetime
 
-    # Source info
     source_platform: SourcePlatform
     source_account: str
     raw_text: str
     external_id: str
 
-    # News category (from classification or rule-based)
-    news_category: NewsCategory = Field(default=NewsCategory.other)
-
-    # Stage 1: Entity extraction (fast, no judgment calls)
     extraction: LightClassification
 
-    # Stage 2: Smart analysis (all judgment calls happen here with research context)
     analysis: SmartAnalysis | None = Field(
         default=None,
-        description="Stage 2 smart analysis output (tickers, sectors, sentiment, markets)",
+        description="Stage 2 LLM analysis (None if Stage 2 was skipped)",
     )
 
-    # Processing metadata
     is_duplicate: bool = False
     duplicate_of: str | None = None
     processing_time_ms: float | None = None
-    skipped_evaluation: bool = Field(
-        default=False,
-        description="True if Stage 2 was skipped",
-    )
-
-    # Convenience accessors for analysis data
-    @property
-    def primary_topics(self) -> list[PrimaryTopic]:
-        """Get primary topic tags from Stage 1 extraction."""
-        return self.extraction.primary_topics
+    skipped_evaluation: bool = Field(default=False)
 
     @property
-    def secondary_topics(self) -> list[SecondaryTopic]:
-        """Get secondary topic tags from Stage 1 extraction."""
-        return self.extraction.secondary_topics
-
-    @property
-    def tickers(self) -> list[str]:
-        """Get tickers from analysis (Stage 2, informed by research)."""
-        return self.analysis.tickers if self.analysis else []
-
-    @property
-    def entities(self) -> list[str]:
-        """Get all entities from extraction (Stage 1)."""
-        return self.extraction.all_entities
+    def matched_tickers(self) -> list[str]:
+        return self.extraction.matched_tickers
 
     @property
     def market_evaluations(self) -> list[MarketEvaluation]:
-        """Get market evaluations from analysis."""
         return self.analysis.market_evaluations if self.analysis else []
 
     @property
     def has_edge(self) -> bool:
-        """Check if any market has tradable edge."""
         return self.analysis.has_tradable_edge if self.analysis else False
 
     @property
     def best_opportunity(self) -> MarketEvaluation | None:
-        """Get the best opportunity by edge."""
         return self.analysis.best_opportunity if self.analysis else None

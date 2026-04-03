@@ -7,18 +7,14 @@ import pytest
 
 from synesis.core.processor import NewsProcessor, ProcessingResult
 from synesis.processing.news import (
-    Direction,
     LightClassification,
-    PrimaryTopic,
     MarketEvaluation,
-    NewsCategory,
-    ResearchQuality,
     SmartAnalysis,
     SourcePlatform,
-    TickerAnalysis,
     UnifiedMessage,
     UrgencyLevel,
 )
+from synesis.processing.news.models import ETFImpact
 
 
 def create_test_message(
@@ -43,14 +39,13 @@ def create_test_extraction(
     (urgency=critical).
     """
     return LightClassification(
-        news_category=NewsCategory.breaking,
-        primary_topics=[PrimaryTopic.monetary_policy],
-        summary="Fed announces rate cut",
-        confidence=0.95,
-        primary_entity="Federal Reserve",
-        all_entities=["Federal Reserve", "Jerome Powell"],
-        polymarket_keywords=["Fed", "rate cut"],
-        search_keywords=["Fed rate cut forecast"],
+        matched_tickers=[],
+        impact_score=57
+        if urgency == UrgencyLevel.critical
+        else 40
+        if urgency == UrgencyLevel.high
+        else 15,
+        impact_reasons=["test"],
         urgency=urgency,
     )
 
@@ -83,26 +78,14 @@ def create_test_analysis(has_edge: bool = False) -> SmartAnalysis:
 
     return SmartAnalysis(
         # Informed judgments (made with research context)
-        tickers=["SPY", "QQQ"],
-        sentiment=Direction.bullish,
-        sentiment_score=0.7,
+        macro_impact=[
+            ETFImpact(ticker="SPY", sentiment_score=0.7),
+            ETFImpact(ticker="QQQ", sentiment_score=0.7),
+        ],
         # Thesis
         primary_thesis="Dovish Fed pivot supports risk assets",
-        thesis_confidence=0.75,
-        # Ticker analysis
-        ticker_analyses=[
-            TickerAnalysis(
-                ticker="SPY",
-                bull_thesis="Rate cuts bullish for equities",
-                bear_thesis="Economic weakness",
-                net_direction=Direction.bullish,
-                conviction=0.8,
-                time_horizon="days",
-            ),
-        ],
         # Market evaluations
         market_evaluations=market_evaluations,
-        research_quality=ResearchQuality.high,
     )
 
 
@@ -185,8 +168,11 @@ class TestProcessingResult:
         assert signal.external_id == message.external_id
         assert signal.extraction == extraction
         assert signal.analysis == analysis
-        # Tickers come from analysis (Stage 2)
-        assert signal.tickers == ["SPY", "QQQ"]
+        # Macro impact comes from analysis (Stage 2)
+        assert signal.analysis is not None
+        assert len(signal.analysis.macro_impact) == 2
+        assert signal.analysis.macro_impact[0].ticker == "SPY"
+        assert signal.analysis.macro_impact[1].ticker == "QQQ"
 
     def test_to_signal_none_when_skipped(self) -> None:
         """Test to_signal returns None when skipped."""
@@ -294,15 +280,8 @@ class TestNewsProcessor:
         processor._polymarket = mock_polymarket
         processor._initialized = True
 
-        # Mock web search and enable Stage 2
-        with (
-            patch("synesis.core.processor.get_settings") as mock_settings,
-            patch(
-                "synesis.core.processor.search_market_impact",
-                new_callable=AsyncMock,
-                return_value=[{"title": "Test", "snippet": "Content", "url": "http://test.com"}],
-            ),
-        ):
+        # Enable Stage 2
+        with patch("synesis.core.processor.get_settings") as mock_settings:
             mock_settings.return_value.stage2_enabled = True
             message = create_test_message()
             result = await processor.process_message(message)
@@ -334,8 +313,8 @@ class TestProcessingResultWithNoneAnalysis:
         assert signal.external_id == message.external_id
         assert signal.extraction == extraction
         assert signal.analysis is None
-        # Tickers should be empty when analysis is None
-        assert signal.tickers == []
+        # matched_tickers from extraction should still work
+        assert signal.matched_tickers == []
 
     def test_has_edge_false_with_none_analysis(self) -> None:
         """Test has_edge is False when analysis is None."""
@@ -356,57 +335,6 @@ class TestProcessingResultWithNoneAnalysis:
         )
 
         assert result.best_opportunity is None
-
-
-class TestFetchWebResults:
-    """Tests for _fetch_web_results method."""
-
-    @pytest.fixture
-    def processor(self) -> NewsProcessor:
-        """Create a processor instance."""
-        return NewsProcessor(AsyncMock())
-
-    @pytest.mark.asyncio
-    async def test_fetch_web_results_success(self, processor: NewsProcessor) -> None:
-        """Test successful web result fetching."""
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[{"title": "Test", "snippet": "Content", "url": "http://test.com"}],
-        ):
-            results = await processor._fetch_web_results(["query1", "query2", "query3"])
-
-        assert len(results) == 3
-
-    @pytest.mark.asyncio
-    async def test_fetch_web_results_handles_errors(self, processor: NewsProcessor) -> None:
-        """Test that fetch handles errors gracefully."""
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            side_effect=Exception("Search failed"),
-        ):
-            results = await processor._fetch_web_results(["query1"])
-
-        assert len(results) == 1
-        assert "failed" in results[0].lower()
-
-    @pytest.mark.asyncio
-    async def test_fetch_web_results_handles_search_providers_exhausted(
-        self, processor: NewsProcessor
-    ) -> None:
-        """Test that SearchProvidersExhaustedError is handled with error-level logging."""
-        from synesis.processing.common import SearchProvidersExhaustedError
-
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            side_effect=SearchProvidersExhaustedError("All providers failed"),
-        ):
-            results = await processor._fetch_web_results(["query1"])
-
-        assert len(results) == 1
-        assert "unavailable" in results[0].lower() or "failed" in results[0].lower()
 
 
 class TestUrgencyGate:
@@ -467,14 +395,7 @@ class TestUrgencyGate:
             return_value=create_test_extraction(urgency=UrgencyLevel.high)
         )
 
-        with (
-            patch("synesis.core.processor.get_settings") as mock_settings,
-            patch(
-                "synesis.core.processor.search_market_impact",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
+        with patch("synesis.core.processor.get_settings") as mock_settings:
             mock_settings.return_value.stage2_enabled = True
             message = create_test_message(text="CPI comes in hot at 3.5%")
             result = await processor.process_message(message)
@@ -482,25 +403,19 @@ class TestUrgencyGate:
         assert result.analysis is not None
 
     @pytest.mark.asyncio
-    async def test_critical_urgency_calls_polymarket(self, processor: NewsProcessor) -> None:
-        """Critical urgency should call search_polymarket."""
-        processor._classifier.classify = AsyncMock(
-            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
-        )
+    async def test_critical_urgency_runs_stage2(self, processor: NewsProcessor) -> None:
+        """Critical urgency should run Stage 2 analysis."""
+        extraction = create_test_extraction(urgency=UrgencyLevel.critical)
+        extraction.matched_tickers = ["SPY"]
+        processor._classifier.classify = AsyncMock(return_value=extraction)
 
-        with (
-            patch("synesis.core.processor.get_settings") as mock_settings,
-            patch(
-                "synesis.core.processor.search_market_impact",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
+        with patch("synesis.core.processor.get_settings") as mock_settings:
             mock_settings.return_value.stage2_enabled = True
             message = create_test_message(text="*BREAKING* Fed cuts rates by 50bps")
-            await processor.process_message(message)
+            result = await processor.process_message(message)
 
-        processor._analyzer.search_polymarket.assert_called_once()
+        processor._analyzer.analyze.assert_called_once()
+        assert result.analysis is not None
 
 
 class TestStage1Callback:
@@ -538,12 +453,7 @@ class TestStage1Callback:
         )
         callback = AsyncMock()
 
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            await processor.process_message(create_test_message(), on_stage1_complete=callback)
+        await processor.process_message(create_test_message(), on_stage1_complete=callback)
 
         callback.assert_called_once()
 
@@ -555,12 +465,7 @@ class TestStage1Callback:
         )
         callback = AsyncMock()
 
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            await processor.process_message(create_test_message(), on_stage1_complete=callback)
+        await processor.process_message(create_test_message(), on_stage1_complete=callback)
 
         callback.assert_called_once()
 
@@ -596,14 +501,7 @@ class TestStage1Callback:
         )
         callback = AsyncMock(side_effect=RuntimeError("Telegram down"))
 
-        with (
-            patch("synesis.core.processor.get_settings") as mock_settings,
-            patch(
-                "synesis.core.processor.search_market_impact",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
+        with patch("synesis.core.processor.get_settings") as mock_settings:
             mock_settings.return_value.stage2_enabled = True
             result = await processor.process_message(
                 create_test_message(), on_stage1_complete=callback
@@ -620,12 +518,7 @@ class TestStage1Callback:
         callback = AsyncMock()
 
         message = create_test_message()
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            await processor.process_message(message, on_stage1_complete=callback)
+        await processor.process_message(message, on_stage1_complete=callback)
 
         callback.assert_called_once_with(message, extraction)
 
@@ -701,42 +594,13 @@ class TestStage2DisabledConfig:
         callback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stage2_disabled_skips_web_search_and_polymarket(
-        self, processor: NewsProcessor
-    ) -> None:
-        """When stage2_enabled=False, web search and Polymarket are not called."""
-        processor._classifier.classify = AsyncMock(
-            return_value=create_test_extraction(urgency=UrgencyLevel.critical)
-        )
-
-        with (
-            patch("synesis.core.processor.get_settings") as mock_settings,
-            patch(
-                "synesis.core.processor.search_market_impact",
-                new_callable=AsyncMock,
-            ) as mock_search,
-        ):
-            mock_settings.return_value.stage2_enabled = False
-            await processor.process_message(create_test_message())
-
-        mock_search.assert_not_called()
-        processor._analyzer.search_polymarket.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_stage2_enabled_runs_normally(self, processor: NewsProcessor) -> None:
         """When stage2_enabled=True (default), Stage 2 runs for critical urgency."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.critical)
         )
 
-        with (
-            patch("synesis.core.processor.get_settings") as mock_settings,
-            patch(
-                "synesis.core.processor.search_market_impact",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
+        with patch("synesis.core.processor.get_settings") as mock_settings:
             mock_settings.return_value.stage2_enabled = True
             result = await processor.process_message(create_test_message())
 
@@ -783,13 +647,8 @@ class TestNewsProcessorStage2Failure:
         processor._polymarket = mock_polymarket
         processor._initialized = True
 
-        with patch(
-            "synesis.core.processor.search_market_impact",
-            new_callable=AsyncMock,
-            return_value=[{"title": "Test", "snippet": "Content", "url": "http://test.com"}],
-        ):
-            message = create_test_message()
-            result = await processor.process_message(message)
+        message = create_test_message()
+        result = await processor.process_message(message)
 
         # Stage 1 should succeed, Stage 2 failed
         assert result.skipped is False

@@ -31,13 +31,10 @@ CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;  -- Time-series support
 CREATE TABLE IF NOT EXISTS synesis.signals (
     time TIMESTAMPTZ NOT NULL,
     flow_id TEXT NOT NULL,              -- 'news'
-    signal_type TEXT NOT NULL,          -- event type from extraction
-    payload JSONB NOT NULL,             -- Full signal data
+    payload JSONB NOT NULL,             -- Full signal data (NewsSignal JSON)
     markets JSONB,                      -- [{"market_id": "abc", "question": "...", ...}]
-    tickers TEXT[],                     -- ['AAPL', 'TSLA']
-    entities TEXT[],                    -- All entities mentioned (people, companies, institutions)
-    primary_topics TEXT[],              -- e.g. ['monetary_policy', 'trade_policy']
-    secondary_topics TEXT[],            -- e.g. ['semiconductors', 'biotech']
+    tickers TEXT[],                     -- Matched tickers from Stage 1 ['NVDA', 'MRVL']
+    entities TEXT[],                    -- All entities from Stage 2 LLM
     PRIMARY KEY (time, flow_id)
 );
 
@@ -59,18 +56,10 @@ CREATE INDEX IF NOT EXISTS idx_signals_tickers
 CREATE INDEX IF NOT EXISTS idx_signals_entities
     ON synesis.signals USING GIN (entities);
 
--- Index for TEXT[] primary_topics column
-CREATE INDEX IF NOT EXISTS idx_signals_primary_topics
-    ON synesis.signals USING GIN (primary_topics);
-
--- Index for TEXT[] secondary_topics column
-CREATE INDEX IF NOT EXISTS idx_signals_secondary_topics
-    ON synesis.signals USING GIN (secondary_topics);
-
 -- Enable compression after 7 days
 ALTER TABLE synesis.signals SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'flow_id, signal_type'
+    timescaledb.compress_segmentby = 'flow_id'
 );
 SELECT add_compression_policy('synesis.signals', INTERVAL '7 days', if_not_exists => TRUE);
 

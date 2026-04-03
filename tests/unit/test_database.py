@@ -159,10 +159,8 @@ class TestDatabaseSignalOperations:
     async def test_insert_signal(self) -> None:
         """Test inserting a NewsSignal."""
         from synesis.processing.news import (
-            Direction,
             LightClassification,
             NewsSignal,
-            PrimaryTopic,
             SmartAnalysis,
             SourcePlatform,
         )
@@ -179,21 +177,8 @@ class TestDatabaseSignalOperations:
         )
         db._pool = mock_pool
 
-        extraction = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Fed cuts rates",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
-            all_entities=["Federal Reserve", "Jerome Powell"],
-        )
-        analysis = SmartAnalysis(
-            tickers=["SPY"],
-            sectors=["financials"],
-            sentiment=Direction.bullish,
-            sentiment_score=0.7,
-            primary_thesis="Bullish",
-            thesis_confidence=0.8,
-        )
+        extraction = LightClassification(impact_score=50)
+        analysis = SmartAnalysis(primary_thesis="Bullish")
         signal = NewsSignal(
             timestamp=datetime.now(timezone.utc),
             source_platform=SourcePlatform.telegram,
@@ -207,62 +192,11 @@ class TestDatabaseSignalOperations:
         await db.insert_signal(signal)
 
         mock_conn.execute.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_insert_signal_with_analysis(self) -> None:
-        """Test inserting a NewsSignal with analysis data."""
-        from synesis.processing.news import (
-            Direction,
-            LightClassification,
-            NewsSignal,
-            PrimaryTopic,
-            SmartAnalysis,
-            SourcePlatform,
-        )
-
-        db = Database(dsn="postgresql://localhost/db")
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(return_value="INSERT 1")
-
-        mock_pool = MagicMock()
-        mock_pool.acquire = MagicMock(
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()
-            )
-        )
-        db._pool = mock_pool
-
-        extraction = LightClassification(
-            primary_topics=[PrimaryTopic.earnings],
-            summary="AAPL beats earnings",
-            confidence=0.9,
-            primary_entity="Apple",
-        )
-        analysis = SmartAnalysis(
-            tickers=["AAPL", "MSFT"],
-            sectors=["technology"],
-            sentiment=Direction.bullish,
-            sentiment_score=0.8,
-            primary_thesis="Strong earnings",
-            thesis_confidence=0.85,
-        )
-        signal = NewsSignal(
-            timestamp=datetime.now(timezone.utc),
-            source_platform=SourcePlatform.telegram,
-            source_account="@test",
-            raw_text="AAPL beats",
-            external_id="456",
-            extraction=extraction,
-            analysis=analysis,
-        )
-
-        await db.insert_signal(signal)
-
-        mock_conn.execute.assert_called_once()
         call_args = mock_conn.execute.call_args
-        # Verify 9 columns (time, flow_id, signal_type, payload, markets, tickers, entities, primary_topics, secondary_topics)
         assert "INSERT INTO signals" in call_args[0][0]
-        assert len(call_args[0]) == 10  # query + 9 params
+        assert (
+            len(call_args[0]) == 7
+        )  # query + 6 params (time, flow_id, payload, markets, tickers, entities)
 
     @pytest.mark.anyio
     async def test_insert_raw_message(self) -> None:

@@ -28,14 +28,14 @@ class Database:
         self._dsn = dsn
         self._min_size = min_size
         self._max_size = max_size
-        self._pool: asyncpg.Pool[asyncpg.Record] | None = None
+        self._pool: asyncpg.Pool | None = None
 
     async def connect(self) -> None:
         """Create connection pool."""
         # Convert SQLAlchemy-style DSN to asyncpg format
         dsn = self._dsn.replace("postgresql+asyncpg://", "postgresql://")
 
-        async def init_connection(conn: asyncpg.Connection[asyncpg.Record]) -> None:
+        async def init_connection(conn: asyncpg.Connection) -> None:
             """Initialize each connection with synesis schema search_path."""
             await conn.execute("SET search_path TO synesis, public")
 
@@ -54,7 +54,7 @@ class Database:
             logger.debug("Database pool closed")
 
     @asynccontextmanager
-    async def acquire(self) -> AsyncIterator[asyncpg.Connection[asyncpg.Record]]:
+    async def acquire(self) -> AsyncIterator[Any]:
         """Acquire a connection from the pool."""
         if not self._pool:
             raise RuntimeError("Database not connected. Call connect() first.")
@@ -99,72 +99,51 @@ class Database:
         # Serialize signal to JSON for payload
         payload = signal.model_dump(mode="json")
 
-        # Build tickers list from Stage 2 analysis (informed by research)
+        # Build tickers list from Stage 1 matched tickers
         tickers = None
-        if signal.analysis and signal.analysis.tickers:
-            tickers = signal.analysis.tickers
+        if signal.extraction.matched_tickers:
+            # Filter out private tickers (~OPENAI) for DB column
+            tickers = [t for t in signal.extraction.matched_tickers if not t.startswith("~")]
+            tickers = tickers or None
 
-        # Build entities list from Stage 1 extraction
-        entities = signal.extraction.all_entities if signal.extraction.all_entities else None
-
-        # Build topic arrays from Stage 1 extraction
-        primary_topics = (
-            [t.value for t in signal.extraction.primary_topics]
-            if signal.extraction and signal.extraction.primary_topics
-            else None
-        )
-        secondary_topics = (
-            [t.value for t in signal.extraction.secondary_topics]
-            if signal.extraction and signal.extraction.secondary_topics
-            else None
-        )
+        # Entities from Stage 2 analysis
+        entities = None
+        if signal.analysis and signal.analysis.all_entities:
+            entities = signal.analysis.all_entities
 
         # Build markets list from Stage 2 analysis market evaluations
         markets = None
         if signal.analysis and signal.analysis.market_evaluations:
             markets = [
                 {
-                    "market_id": eval.market_id,
-                    "question": eval.market_question,
-                    "verdict": eval.verdict,
-                    "edge": eval.edge,
-                    "is_relevant": eval.is_relevant,
+                    "market_id": ev.market_id,
+                    "question": ev.market_question,
+                    "verdict": ev.verdict,
+                    "edge": ev.edge,
+                    "is_relevant": ev.is_relevant,
                 }
-                for eval in signal.analysis.market_evaluations
-                if eval.is_relevant
+                for ev in signal.analysis.market_evaluations
+                if ev.is_relevant
             ]
 
-        # Get primary topic from extraction
-        signal_type = (
-            signal.extraction.primary_topics[0].value
-            if signal.extraction and signal.extraction.primary_topics
-            else "other"
-        )
-
         query = """
-            INSERT INTO signals (time, flow_id, signal_type, payload, markets, tickers, entities, primary_topics, secondary_topics)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO signals (time, flow_id, payload, markets, tickers, entities)
+            VALUES ($1, $2, $3, $4, $5, $6)
         """
         await self.execute(
             query,
             signal.timestamp,
             "news",
-            signal_type,
             orjson.dumps(payload).decode("utf-8"),
             orjson.dumps(markets).decode("utf-8") if markets else None,
             tickers,
             entities,
-            primary_topics,
-            secondary_topics,
         )
         logger.debug(
             "Signal inserted",
             external_id=signal.external_id,
-            signal_type=signal_type,
             tickers=tickers,
             entities=entities,
-            primary_topics=primary_topics,
-            secondary_topics=secondary_topics,
             markets_count=len(markets) if markets else 0,
         )
 
@@ -539,7 +518,7 @@ class Database:
     ) -> list[asyncpg.Record]:
         """Get recent news signals from the last N hours."""
         query = """
-            SELECT time, signal_type, payload, tickers, primary_topics
+            SELECT time, payload, tickers, entities
             FROM signals
             WHERE time >= NOW() - make_interval(hours => $1)
             ORDER BY time DESC

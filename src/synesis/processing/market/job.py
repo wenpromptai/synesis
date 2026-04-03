@@ -75,10 +75,9 @@ async def _gather_context(
             signals.append(
                 {
                     "time": str(r["time"]),
-                    "signal_type": r["signal_type"],
                     "payload": orjson.loads(r["payload"]),
                     "tickers": r["tickers"],
-                    "primary_topics": r["primary_topics"],
+                    "entities": r["entities"],
                 }
             )
         except Exception:

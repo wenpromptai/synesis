@@ -1,240 +1,55 @@
-"""Stage 1: Fast Entity Extractor for breaking news.
+"""Stage 1: Instant news classifier — NO LLM.
 
-This module provides fast, tool-free entity extraction that:
-- Extracts primary entity and all mentioned entities
-- Generates search keywords for web and Polymarket research
-- Determines news category and event type
-- Estimates urgency for Stage 2 gating
+Produces LightClassification from:
+  1. Impact scoring (impact_scorer.py) — urgency + score
+  2. Ticker matching (ticker_matcher.py) — matched tickers from text
 
-Stage 1 makes minimal judgment calls (urgency only).
-Tickers, sectors, sentiment deferred to Stage 2 Smart Analyzer.
+All LLM-dependent work (entity extraction, sentiment, ETF impact)
+is deferred to Stage 2.
 """
 
-from pydantic_ai import Agent
-from pydantic_ai.output import PromptedOutput
-
 from synesis.core.logging import get_logger
-from synesis.processing.common.llm import create_model
-from synesis.processing.news.categorizer import categorize_by_rules, classify_urgency_by_rules
+from synesis.processing.news.impact_scorer import compute_impact_score
 from synesis.processing.news.models import (
     LightClassification,
     UnifiedMessage,
 )
+from synesis.processing.news.ticker_matcher import match_tickers
 
 logger = get_logger(__name__)
 
-# System prompt for Stage 1: Entity Extraction (minimal judgment calls)
-CLASSIFIER_SYSTEM_PROMPT = """Fast entity extractor. Extract entities, keywords, numeric data, urgency. NO tickers/sectors/sentiment.
-
-## Extract
-
-1. **primary_entity**: Main entity AFFECTED (not who's commenting)
-   "Trump praises Visa" → "Visa" | "Fed cuts rates" → "Federal Reserve"
-
-2. **all_entities**: All companies/people/institutions mentioned. EXCLUDE news sources (@DeItaone) and URLs.
-
-3. **news_category**: breaking | economic_calendar | other
-
-4. **primary_topics** (1-3 tags): Event type, asset-class, AND sector. Pick the most specific that clearly apply.
-   Always add a sector tag when the news is sector-specific.
-   Monetary/Economy: monetary_policy | economic_data | trade_policy | fiscal_policy
-   Corporate:        earnings | corporate_actions | regulatory
-   Geopolitical:     geopolitics | political
-   Asset Classes:    crypto | commodities | fixed_income | fx | equities_market
-   Sectors (GICS):   energy | materials | industrials | utilities | healthcare | financials |
-                     consumer_discretionary | consumer_staples | information_technology |
-                     communication_services | real_estate
-   Fallback:         other
-
-5. **secondary_topics** (0-3 tags): Specific industry/subsector. Leave empty if not clearly applicable.
-   Technology:    semiconductors | optics_photonics | cloud_computing | software_saas |
-                  cybersecurity | consumer_tech | ev_autonomous
-   Healthcare:    biotech | pharma | medical_devices | health_insurance
-   Energy:        oil_gas | renewables | nuclear | utilities
-   Financials:    banks_lending | insurance | asset_management | private_equity | fintech_payments
-   Industrials:   defense_weapons | aerospace_space | automation_robotics | chemicals_materials
-   Consumer:      retail_ecommerce | food_beverage | media_entertainment | gaming |
-                  luxury_fashion | travel_hospitality
-   Materials:     metals_mining | agriculture
-   Transport:     shipping_maritime | automotive | logistics_freight
-   Real Estate:   residential_housing | commercial_real_estate
-   Telecom:       telecom_5g | social_media_adtech
-
-   Examples:
-   - "Fed cuts rates 25bps" → primary=[monetary_policy], secondary=[]
-   - "Apple Q4 earnings beat, raises guidance" → primary=[earnings, information_technology], secondary=[consumer_tech]
-   - "Trump imposes 25% tariffs on China" → primary=[trade_policy, political], secondary=[]
-   - "OPEC cuts production by 1M bpd" → primary=[commodities, energy], secondary=[oil_gas]
-   - "Bitcoin ETF approved by SEC" → primary=[crypto, regulatory], secondary=[]
-   - "NFP: +200k jobs, beats estimate" → primary=[economic_data], secondary=[]
-   - "Nvidia data center revenue surges on AI demand" → primary=[earnings, information_technology], secondary=[semiconductors]
-   - "TSMC beats on strong AI chip demand" → primary=[earnings, information_technology], secondary=[semiconductors]
-   - "FDA approves Pfizer drug" → primary=[regulatory, healthcare], secondary=[pharma]
-   - "JPMorgan beats Q4 earnings on strong trading" → primary=[earnings, financials], secondary=[banks_lending]
-   - "Boeing 737 MAX deliveries halted" → primary=[corporate_actions, industrials], secondary=[aerospace_space]
-
-6. **summary**: One sentence.
-
-7. **search_keywords**: Generate 3 web search queries for CURRENT context only:
-
-   - Query 1: "{primary_entity} {event}"
-     → Core query about what happened
-   - Query 2: "{primary_entity} {event} market reaction" or "{primary_entity} {event} stocks"
-     → Immediate market impact
-   - Query 3: "{primary_entity} {event} forecast" or "{primary_entity} {event} expectations"
-     → Forward-looking analyst views
-
-   IMPORTANT:
-   - Do NOT search for historical data here (Stage 2 will do that with tools)
-   - Focus on CURRENT event and immediate reaction
-   - Always include year (2026) for recency
-
-   Examples:
-   - "Fed cuts rates 25bps" →
-     ["Fed rate cut 25bps 2026", "Fed rate cut market reaction", "Fed rate forecast"]
-   - "Apple Q4 earnings beat" →
-     ["Apple Q4 earnings 2026", "Apple earnings market reaction", "Apple stock forecast"]
-   - "Trump announces China tariffs" →
-     ["Trump China tariff 2026", "China tariff stocks affected", "trade war market reaction"]
-
-8. **polymarket_keywords**: 3-5 keywords for prediction markets:
-
-   Pattern: [primary phrase, 2-3 variations, related terms]
-
-   Examples:
-   - "Fed rate cut" → ["Fed rate cut", "interest rate", "FOMC", "Federal Reserve"]
-   - "Trump China tariff" → ["Trump tariff", "China tariff", "trade war", "US China trade"]
-   - "Apple earnings" → ["Apple earnings", "AAPL earnings", "Apple Q4 results"]
-
-9. **numeric_data** (economic/earnings only):
-   Extract metrics: actual (required), estimate ("vs X est"), previous ("prev X"), unit (%, bps, $, B, M), period
-   beat_miss: inflation lower=beat | growth higher=beat | inline if within 0.1 | unknown if no estimate
-   surprise_magnitude: actual - estimate
-
-10. **urgency** + urgency_reasoning (1 sentence):
-   - critical: Surprise Fed, breaking M&A, unexpected policy, major geopolitical escalation (military strikes, invasion, nuclear threats)
-   - high: Scheduled data release, earnings beat/miss, new sanctions/tariffs, geopolitical tensions (troop movements, diplomatic breakdown, territorial disputes)
-   - normal: News with identifiable financial/market impact
-   - low: No financial relevance, opinions, social banter, promotional
-
-   ALWAYS mark LOW if ANY apply:
-   - No identifiable asset, sector, or economic impact
-   - Social banter, replies, or meta-commentary (not about markets)
-   - Pure opinion with no data or news event
-   - Promotional: giveaways, engagement bait, self-promotion
-
-## DO NOT Extract (Stage 2)
-Tickers, sentiment - Stage 2 determines with research."""
-
-
-def create_classifier_agent() -> Agent[None, LightClassification]:
-    """Create a PydanticAI agent for lightweight classification.
-
-    Uses fast model (gpt-4o-mini) with NO tools for speed and cost.
-
-    Returns:
-        Agent configured for LightClassification output
-    """
-    # Use fast model for classification (smart=False)
-    model = create_model(smart=False)
-
-    agent: Agent[None, LightClassification] = Agent(
-        model,
-        output_type=PromptedOutput(LightClassification),
-        system_prompt=CLASSIFIER_SYSTEM_PROMPT,
-    )
-
-    # NO tools - this is lightweight classification only
-
-    return agent
-
 
 class NewsClassifier:
-    """Stage 1: Fast entity extractor for breaking news and analysis.
+    """Stage 1: Instant classifier — impact scoring + ticker matching.
 
-    Fast, tool-free extraction that:
-    - Extracts entities and keywords (no judgment calls)
-    - All judgment calls (tickers, sectors, sentiment) happen in Stage 2
+    No LLM calls. Produces LightClassification in ~2ms.
     """
 
-    def __init__(self) -> None:
-        self._agent: Agent[None, LightClassification] | None = None
-
-    @property
-    def agent(self) -> Agent[None, LightClassification]:
-        """Get or create the classifier agent."""
-        if self._agent is None:
-            self._agent = create_classifier_agent()
-        return self._agent
-
     async def classify(self, message: UnifiedMessage) -> LightClassification:
-        """Classify a unified message.
+        """Classify a message instantly (no LLM).
 
-        Uses hybrid categorization:
-        1. Rule-based categorization first (fast, free)
-        2. Rule-based urgency classification (fast, free)
-        3. LLM classification for full analysis
-        4. Rule-based category/urgency overrides LLM if rules matched
-
-        Args:
-            message: The message to classify
-
-        Returns:
-            LightClassification with extracted information
+        Returns LightClassification with impact score and matched tickers.
         """
-        # Try rule-based categorization first
-        rule_category = categorize_by_rules(message.text)
-        rule_urgency = classify_urgency_by_rules(message.text)
+        # 1. Impact scoring (~1ms)
+        impact = compute_impact_score(message.text, message.source_account)
 
-        # Build the prompt
-        prompt = self._build_prompt(message)
+        # 2. Ticker matching (~1ms)
+        tickers = match_tickers(message.text)
 
-        logger.debug(
-            "Extracting entities (Stage 1)",
-            message_id=message.external_id,
-            source=message.source_account,
-            text_preview=message.text[:100],
-            rule_category=rule_category.value if rule_category else "ambiguous",
-            rule_urgency=rule_urgency.value if rule_urgency else "ambiguous",
+        extraction = LightClassification(
+            matched_tickers=tickers,
+            impact_score=impact.score,
+            impact_reasons=impact.reasons,
+            urgency=impact.urgency,
         )
 
-        # Run extraction (NO tool calls - pure entity extraction)
-        result = await self.agent.run(prompt)
-        extraction = result.output
-
-        # Apply rule-based category if rules matched (override LLM)
-        if rule_category is not None:
-            extraction.news_category = rule_category
-
-        # Apply rule-based urgency if rules matched (override LLM)
-        if rule_urgency is not None:
-            extraction.urgency = rule_urgency
-            extraction.urgency_reasoning = "rule-based match"
-
-        logger.debug(
-            "Stage 1 extraction complete",
+        logger.info(
+            "Stage 1 complete",
             message_id=message.external_id,
-            news_category=extraction.news_category.value,
-            primary_topics=[t.value for t in extraction.primary_topics],
-            primary_entity=extraction.primary_entity,
-            all_entities=extraction.all_entities,
-            polymarket_keywords=extraction.polymarket_keywords,
-            urgency=extraction.urgency.value,
-            has_numeric_data=extraction.numeric_data is not None,
+            impact_score=impact.score,
+            urgency=impact.urgency.value,
+            matched_tickers=tickers,
+            impact_reasons=impact.reasons[:5],
         )
 
         return extraction
-
-    def _build_prompt(self, message: UnifiedMessage) -> str:
-        """Build the extraction prompt."""
-        return f"""Extract entities and keywords from this financial message:
-
-Source: {message.source_account} ({message.source_platform.value})
-Timestamp: {message.timestamp.isoformat()}
-
-Message:
-{message.text}
-
-Focus on the PRIMARY ENTITY affected (not peripheral mentions).
-Extract ALL entities mentioned for the all_entities list.
-Generate search keywords for web research and Polymarket."""

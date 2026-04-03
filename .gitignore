@@ -63,3 +63,7 @@ output/**
 dist/
 build/
 *.egg-info/
+
+# Data files (large, local only)
+data/marketfeed.jsonl
+data/marketfeed.bak.jsonl

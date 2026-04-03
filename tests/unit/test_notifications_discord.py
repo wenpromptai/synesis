@@ -7,8 +7,6 @@ import pytest
 from pydantic import SecretStr
 
 from synesis.notifications.discord import (
-    COLOR_BEARISH,
-    COLOR_BULLISH,
     COLOR_CRITICAL,
     COLOR_NEUTRAL,
     COLOR_URGENT,
@@ -17,18 +15,14 @@ from synesis.notifications.discord import (
     send_discord,
 )
 from synesis.processing.news import (
-    Direction,
     LightClassification,
     MarketEvaluation,
-    PrimaryTopic,
-    ResearchQuality,
-    SecondaryTopic,
     SmartAnalysis,
     SourcePlatform,
-    TickerAnalysis,
     UnifiedMessage,
     UrgencyLevel,
 )
+from synesis.processing.news.models import ETFImpact
 
 
 def _make_message(text: str = "Test message", account: str = "@test") -> UnifiedMessage:
@@ -43,10 +37,9 @@ def _make_message(text: str = "Test message", account: str = "@test") -> Unified
 
 def _make_extraction(**kwargs: object) -> LightClassification:
     defaults: dict = {
-        "primary_topics": [PrimaryTopic.monetary_policy],
-        "summary": "Fed cuts rates 25bps",
-        "confidence": 0.9,
-        "primary_entity": "Federal Reserve",
+        "matched_tickers": ["AAPL"],
+        "impact_score": 60,
+        "impact_reasons": ["wire_prefix:+15"],
         "urgency": UrgencyLevel.high,
     }
     defaults.update(kwargs)
@@ -55,23 +48,9 @@ def _make_extraction(**kwargs: object) -> LightClassification:
 
 def _make_analysis(**kwargs: object) -> SmartAnalysis:
     defaults: dict = {
-        "tickers": ["SPY"],
-        "sentiment": Direction.bullish,
-        "sentiment_score": 0.7,
+        "macro_impact": [ETFImpact(ticker="SPY", sentiment_score=0.7)],
         "primary_thesis": "Dovish pivot supports risk assets",
-        "thesis_confidence": 0.75,
-        "ticker_analyses": [
-            TickerAnalysis(
-                ticker="SPY",
-                bull_thesis="Rate cuts bullish",
-                bear_thesis="Slowdown risk",
-                net_direction=Direction.bullish,
-                conviction=0.8,
-                time_horizon="days",
-            ),
-        ],
         "market_evaluations": [],
-        "research_quality": ResearchQuality.high,
     }
     defaults.update(kwargs)
     return SmartAnalysis(**defaults)
@@ -97,26 +76,22 @@ class TestFormatStage1Embed:
         assert embed[0]["color"] == COLOR_URGENT
         assert "1st Pass" in embed[0]["title"]
 
-    def test_entities_in_fields(self) -> None:
+    def test_tickers_in_fields(self) -> None:
         embed = format_stage1_embed(
             _make_message(),
-            _make_extraction(all_entities=["Apple", "Tim Cook"]),
+            _make_extraction(matched_tickers=["NVDA", "MRVL"]),
         )
-        entities_field = next(f for f in embed[0]["fields"] if f["name"] == "Entities")
-        assert "Apple" in entities_field["value"]
-        assert "Tim Cook" in entities_field["value"]
+        tickers_field = next(f for f in embed[0]["fields"] if f["name"] == "Tickers")
+        assert "NVDA" in tickers_field["value"]
+        assert "MRVL" in tickers_field["value"]
 
-    def test_topics_in_fields(self) -> None:
+    def test_impact_in_fields(self) -> None:
         embed = format_stage1_embed(
             _make_message(),
-            _make_extraction(
-                primary_topics=[PrimaryTopic.earnings],
-                secondary_topics=[SecondaryTopic.semiconductors],
-            ),
+            _make_extraction(impact_score=75),
         )
-        topics_field = next(f for f in embed[0]["fields"] if f["name"] == "Topics")
-        assert "earnings" in topics_field["value"]
-        assert "semiconductors" in topics_field["value"]
+        impact_field = next(f for f in embed[0]["fields"] if f["name"] == "Impact")
+        assert "75/100" in impact_field["value"]
 
     def test_source_account_in_author(self) -> None:
         embed = format_stage1_embed(_make_message(account="@DeItaone"), _make_extraction())
@@ -135,38 +110,33 @@ class TestFormatStage1Embed:
 class TestFormatStage2Embed:
     """Tests for format_stage2_embed."""
 
-    def test_bullish_color_and_label(self) -> None:
-        embed = format_stage2_embed(_make_message(), _make_analysis(sentiment=Direction.bullish))
-        assert embed[0]["color"] == COLOR_BULLISH
-        assert "BULLISH" in embed[0]["title"]
-
-    def test_bearish_color_and_label(self) -> None:
-        embed = format_stage2_embed(_make_message(), _make_analysis(sentiment=Direction.bearish))
-        assert embed[0]["color"] == COLOR_BEARISH
-        assert "BEARISH" in embed[0]["title"]
-
-    def test_neutral_color_and_label(self) -> None:
-        embed = format_stage2_embed(_make_message(), _make_analysis(sentiment=Direction.neutral))
+    def test_default_color_and_title(self) -> None:
+        embed = format_stage2_embed(_make_message(), _make_analysis())
         assert embed[0]["color"] == COLOR_NEUTRAL
-        assert "NEUTRAL" in embed[0]["title"]
+        assert "Analysis" in embed[0]["title"]
 
-    def test_ticker_in_fields(self) -> None:
+    def test_macro_etf_in_fields(self) -> None:
         analysis = _make_analysis(
-            tickers=["AAPL"],
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="AAPL",
-                    bull_thesis="Strong earnings",
-                    bear_thesis="Valuation risk",
-                    net_direction=Direction.bullish,
-                    conviction=0.8,
-                    time_horizon="days",
-                ),
-            ],
+            macro_impact=[
+                ETFImpact(ticker="SPY", sentiment_score=0.7),
+                ETFImpact(ticker="GLD", sentiment_score=-0.3),
+            ]
         )
         embed = format_stage2_embed(_make_message(), analysis)
-        tickers_field = next(f for f in embed[0]["fields"] if f["name"] == "Tickers")
-        assert "$AAPL" in tickers_field["value"]
+        macro_field = next(f for f in embed[0]["fields"] if f["name"] == "Macro Impact")
+        assert "`SPY`" in macro_field["value"]
+        assert "`GLD`" in macro_field["value"]
+
+    def test_sector_etf_in_fields(self) -> None:
+        analysis = _make_analysis(
+            sector_impact=[
+                ETFImpact(ticker="XLK", sentiment_score=-0.5),
+                ETFImpact(ticker="XLF", sentiment_score=0.3),
+            ]
+        )
+        embed = format_stage2_embed(_make_message(), analysis)
+        sector_field = next(f for f in embed[0]["fields"] if f["name"] == "Sector Impact")
+        assert "`XLK`" in sector_field["value"]
 
     def test_polymarket_field_when_relevant(self) -> None:
         analysis = _make_analysis(

@@ -1,235 +1,125 @@
-"""Tests for Stage 1 lightweight LLM classifier (entity extraction)."""
+"""Tests for Stage 1 instant classifier (no LLM).
+
+Tests that NewsClassifier.classify() produces correct LightClassification
+from impact scoring + ticker matching.
+"""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from synesis.processing.news.classifier import (
-    CLASSIFIER_SYSTEM_PROMPT,
-    NewsClassifier,
-    create_classifier_agent,
-)
+from synesis.processing.news.classifier import NewsClassifier
 from synesis.processing.news import (
     LightClassification,
-    NewsCategory,
-    PrimaryTopic,
     SourcePlatform,
     UnifiedMessage,
+    UrgencyLevel,
 )
 
 
-def create_test_message(text: str) -> UnifiedMessage:
-    """Create a test message."""
+def _msg(text: str, source: str = "FirstSquawk") -> UnifiedMessage:
     return UnifiedMessage(
-        external_id="test_123",
+        external_id=f"test:{source}:1",
         source_platform=SourcePlatform.telegram,
-        source_account="@DeItaone",
+        source_account=source,
         text=text,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
     )
-
-
-def create_mock_classification() -> LightClassification:
-    """Create a mock classification result.
-
-    Note: LightClassification is Stage 1 entity extraction only.
-    It does NOT contain: sentiment, tickers, sectors.
-    Those fields are in Stage 2 SmartAnalysis.
-    """
-    return LightClassification(
-        news_category=NewsCategory.breaking,
-        primary_topics=[PrimaryTopic.monetary_policy],
-        summary="Fed announces rate cut of 25 basis points",
-        confidence=0.95,
-        primary_entity="Federal Reserve",
-        all_entities=["Federal Reserve", "Jerome Powell"],
-        polymarket_keywords=["Fed", "rate cut", "interest rate"],
-        search_keywords=["Fed rate cut analyst forecast", "Fed rate cut market reaction"],
-    )
-
-
-class TestClassifierSystemPrompt:
-    """Tests for the classifier system prompt."""
-
-    def test_prompt_contains_key_instructions(self) -> None:
-        """Test that the system prompt contains key instructions."""
-        assert "entity extractor" in CLASSIFIER_SYSTEM_PROMPT.lower()
-        assert "topics" in CLASSIFIER_SYSTEM_PROMPT.lower()
-        assert "polymarket" in CLASSIFIER_SYSTEM_PROMPT.lower()
-
-    def test_prompt_lists_topic_tags(self) -> None:
-        """Test that the prompt lists primary and secondary topic tags."""
-        # Primary topics
-        assert "monetary_policy" in CLASSIFIER_SYSTEM_PROMPT
-        assert "earnings" in CLASSIFIER_SYSTEM_PROMPT
-        assert "geopolitics" in CLASSIFIER_SYSTEM_PROMPT
-        assert "corporate_actions" in CLASSIFIER_SYSTEM_PROMPT
-        assert "regulatory" in CLASSIFIER_SYSTEM_PROMPT
-        assert "crypto" in CLASSIFIER_SYSTEM_PROMPT
-        assert "trade_policy" in CLASSIFIER_SYSTEM_PROMPT
-        # Secondary topics
-        assert "semiconductors" in CLASSIFIER_SYSTEM_PROMPT
-        assert "biotech" in CLASSIFIER_SYSTEM_PROMPT
-        assert "primary_topics" in CLASSIFIER_SYSTEM_PROMPT
-        assert "secondary_topics" in CLASSIFIER_SYSTEM_PROMPT
-
-    def test_prompt_clarifies_no_judgment_calls(self) -> None:
-        """Test that the prompt clarifies Stage 1 makes no judgment calls."""
-        lower = CLASSIFIER_SYSTEM_PROMPT.lower()
-        assert "no judgment" in lower or "not to extract" in lower or "stage 2" in lower
 
 
 class TestNewsClassifier:
-    """Tests for NewsClassifier."""
+    """Tests for the instant (no LLM) classifier."""
 
     @pytest.fixture
-    def mock_agent_result(self) -> MagicMock:
-        """Create a mock agent result."""
-        result = MagicMock()
-        result.output = create_mock_classification()
-        return result
+    def classifier(self) -> NewsClassifier:
+        return NewsClassifier()
 
     @pytest.mark.asyncio
-    async def test_classify_returns_classification(self, mock_agent_result: MagicMock) -> None:
-        """Test that classify returns a LightClassification."""
-        classifier = NewsClassifier()
-
-        # Mock the agent
-        mock_agent = AsyncMock()
-        mock_agent.run = AsyncMock(return_value=mock_agent_result)
-        classifier._agent = mock_agent
-
-        message = create_test_message("Breaking: Fed cuts rates by 25bps")
-        result = await classifier.classify(message)
-
+    async def test_returns_light_classification(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(
+            _msg("*NVIDIA INVESTS $2B IN MARVELL TECHNOLOGY", "DeItaone")
+        )
         assert isinstance(result, LightClassification)
-        assert PrimaryTopic.monetary_policy in result.primary_topics
-        assert result.confidence == 0.95
-        assert result.primary_entity == "Federal Reserve"
 
     @pytest.mark.asyncio
-    async def test_classify_builds_correct_prompt(self, mock_agent_result: MagicMock) -> None:
-        """Test that classify builds the correct prompt."""
-        classifier = NewsClassifier()
+    async def test_impact_score_populated(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(
+            _msg("*NVIDIA INVESTS $2B IN MARVELL TECHNOLOGY", "DeItaone")
+        )
+        assert result.impact_score > 0
+        assert len(result.impact_reasons) > 0
 
-        # Mock the agent to capture the prompt
-        mock_agent = AsyncMock()
-        mock_agent.run = AsyncMock(return_value=mock_agent_result)
-        classifier._agent = mock_agent
+    @pytest.mark.asyncio
+    async def test_urgency_critical(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(
+            _msg("*NVIDIA INVESTS $2B IN MARVELL TECHNOLOGY", "DeItaone")
+        )
+        assert result.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
 
-        message = create_test_message("Test message content")
-        await classifier.classify(message)
+    @pytest.mark.asyncio
+    async def test_urgency_low(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(_msg("Markets open higher today", "unknown"))
+        assert result.urgency in (UrgencyLevel.normal, UrgencyLevel.low)
 
-        # Check that run was called with a prompt containing the message
-        call_args = mock_agent.run.call_args
-        prompt = call_args[0][0]
-        assert "Test message content" in prompt
-        assert "@DeItaone" in prompt
-        assert "telegram" in prompt
+    @pytest.mark.asyncio
+    async def test_tickers_matched(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(
+            _msg("*NVIDIA INVESTS $2B IN MARVELL TECHNOLOGY", "DeItaone")
+        )
+        assert "NVDA" in result.matched_tickers
+        assert "MRVL" in result.matched_tickers
 
-    def test_build_prompt_includes_source_info(self) -> None:
-        """Test that _build_prompt includes source information."""
-        classifier = NewsClassifier()
-        message = create_test_message("Fed cuts rates")
+    @pytest.mark.asyncio
+    async def test_no_tickers_for_macro(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(
+            _msg("US CPI (YOY) ACTUAL: 2.5% VS 2.6% EST", "FirstSquawk")
+        )
+        assert result.matched_tickers == []
 
-        prompt = classifier._build_prompt(message)
+    @pytest.mark.asyncio
+    async def test_private_tickers(self, classifier: NewsClassifier) -> None:
+        result = await classifier.classify(_msg("JUST IN: OPENAI RAISES $122B", "WatcherGuru"))
+        assert "~OPENAI" in result.matched_tickers
 
-        assert "@DeItaone" in prompt
-        assert "telegram" in prompt
-        assert "Fed cuts rates" in prompt
-
-
-class TestCreateClassifierAgent:
-    """Tests for create_classifier_agent."""
-
-    def test_creates_agent_with_correct_output_type(self) -> None:
-        """Test that the agent has the correct output type."""
-        with patch("synesis.processing.news.classifier.create_model") as mock_create_model:
-            mock_create_model.return_value = "test"  # Use 'test' model to avoid API key requirement
-
-            agent = create_classifier_agent()
-
-            from pydantic_ai.output import PromptedOutput
-
-            assert isinstance(agent.output_type, PromptedOutput)
+    @pytest.mark.asyncio
+    async def test_no_llm_fields(self, classifier: NewsClassifier) -> None:
+        """LightClassification should NOT have old LLM-dependent fields."""
+        result = await classifier.classify(_msg("*NVIDIA INVESTS $2B IN MARVELL", "DeItaone"))
+        assert not hasattr(result, "summary")
+        assert not hasattr(result, "primary_entity")
+        assert not hasattr(result, "all_entities")
+        assert not hasattr(result, "primary_topics")
+        assert not hasattr(result, "search_keywords")
 
 
 class TestLightClassificationModel:
-    """Tests for the LightClassification model itself."""
+    """Tests for the LightClassification model fields."""
 
-    def test_light_classification_fields(self) -> None:
-        """Test that LightClassification has expected Stage 1 fields."""
-        classification = create_mock_classification()
-
-        # Stage 1 fields that SHOULD exist
-        assert hasattr(classification, "primary_topics")
-        assert hasattr(classification, "secondary_topics")
-        assert hasattr(classification, "summary")
-        assert hasattr(classification, "confidence")
-        assert hasattr(classification, "primary_entity")
-        assert hasattr(classification, "all_entities")
-        assert hasattr(classification, "polymarket_keywords")
-        assert hasattr(classification, "search_keywords")
-        assert hasattr(classification, "news_category")
-
-    def test_light_classification_does_not_have_stage2_fields(self) -> None:
-        """Test that LightClassification does NOT have Stage 2 fields.
-
-        These fields live in SmartAnalysis in the 2-stage architecture.
-        """
-        classification = create_mock_classification()
-
-        # Stage 2 fields that should NOT exist on LightClassification
-        assert not hasattr(classification, "sentiment")
-        assert not hasattr(classification, "sentiment_score")
-        assert not hasattr(classification, "tickers")
-        assert not hasattr(classification, "sectors")
-
-    def test_confidence_bounds(self) -> None:
-        """Test that confidence is bounded 0-1."""
-        classification = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Test",
-            confidence=0.0,
-            primary_entity="Test",
+    def test_has_stage1_fields(self) -> None:
+        lc = LightClassification(
+            matched_tickers=["NVDA", "MRVL"],
+            impact_score=57,
+            impact_reasons=["wire_prefix:+15"],
+            urgency=UrgencyLevel.critical,
         )
-        assert classification.confidence == 0.0
+        assert lc.matched_tickers == ["NVDA", "MRVL"]
+        assert lc.impact_score == 57
+        assert lc.urgency == UrgencyLevel.critical
 
-        classification2 = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Test",
-            confidence=1.0,
-            primary_entity="Test",
-        )
-        assert classification2.confidence == 1.0
+    def test_does_not_have_llm_fields(self) -> None:
+        lc = LightClassification()
+        assert not hasattr(lc, "summary")
+        assert not hasattr(lc, "primary_entity")
+        assert not hasattr(lc, "all_entities")
+        assert not hasattr(lc, "primary_topics")
+        assert not hasattr(lc, "secondary_topics")
+        assert not hasattr(lc, "confidence")
+        assert not hasattr(lc, "search_keywords")
+        assert not hasattr(lc, "polymarket_keywords")
+        assert not hasattr(lc, "numeric_data")
 
     def test_defaults(self) -> None:
-        """Test default values."""
-        classification = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Unknown",
-        )
-
-        assert classification.news_category == NewsCategory.other
-        assert classification.all_entities == []
-        assert classification.polymarket_keywords == []
-        assert classification.search_keywords == []
-        assert classification.secondary_topics == []
-
-    def test_multiple_topics(self) -> None:
-        """Test that multiple primary topic tags can be assigned."""
-        from synesis.processing.news import SecondaryTopic
-
-        classification = LightClassification(
-            primary_topics=[PrimaryTopic.earnings],
-            secondary_topics=[SecondaryTopic.semiconductors],
-            summary="Nvidia Q4 earnings beat on AI demand",
-            confidence=0.9,
-            primary_entity="Nvidia",
-        )
-        assert len(classification.primary_topics) == 1
-        assert PrimaryTopic.earnings in classification.primary_topics
-        assert SecondaryTopic.semiconductors in classification.secondary_topics
+        lc = LightClassification()
+        assert lc.matched_tickers == []
+        assert lc.impact_score == 0
+        assert lc.urgency == UrgencyLevel.normal

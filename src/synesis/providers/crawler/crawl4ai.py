@@ -164,8 +164,22 @@ class Crawl4AICrawlerProvider:
         """
         client = self._get_http_client()
 
-        # Build request payload
-        payload: dict[str, Any] = {"urls": urls}
+        # Build request payload with anti-bot bypass enabled by default.
+        # magic=True activates Crawl4AI's stealth features: random user agents,
+        # navigator override, and common bot-detection pattern handling.
+        # This helps bypass 403s from Cloudflare, DataDome, etc.
+        payload: dict[str, Any] = {
+            "urls": urls,
+            "magic": True,
+            "simulate_user": True,
+            "override_navigator": True,
+            "headers": {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+            },
+        }
 
         if wait_for:
             payload["wait_for"] = wait_for

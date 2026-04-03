@@ -1,30 +1,31 @@
-"""Tests for numeric extraction and urgency classification.
+"""Tests for impact scoring.
 
-Tests the new Stage 1 features:
-- Numeric extraction for economic/earnings data (BeatMissStatus, MetricReading, NumericExtraction)
-- Urgency classification (UrgencyLevel, classify_urgency_by_rules)
+Tests Stage 1 features:
+- Impact scoring (compute_impact_score)
 """
 
-from synesis.processing.news.categorizer import classify_urgency_by_rules
+from synesis.processing.news.impact_scorer import (
+    ImpactResult,
+    compute_impact_score,
+    _max_dollar_amount,
+    _parse_dollar,
+    _resolve_source,
+    _text_pattern_score,
+    _content_type_score,
+    _magnitude_score,
+    _suppressor_score,
+    _DOLLAR_RE,
+    CRITICAL_THRESHOLD,
+    HIGH_THRESHOLD,
+    NORMAL_THRESHOLD,
+    _TEXT_PATTERN_CAP,
+    _CONTENT_TYPE_CAP,
+    _MAGNITUDE_CAP,
+)
 from synesis.processing.news import (
-    BeatMissStatus,
     LightClassification,
-    MetricReading,
-    NewsCategory,
-    NumericExtraction,
-    PrimaryTopic,
     UrgencyLevel,
 )
-
-
-class TestBeatMissStatus:
-    """Tests for BeatMissStatus enum."""
-
-    def test_beat_miss_status_values(self) -> None:
-        assert BeatMissStatus.beat.value == "beat"
-        assert BeatMissStatus.miss.value == "miss"
-        assert BeatMissStatus.inline.value == "inline"
-        assert BeatMissStatus.unknown.value == "unknown"
 
 
 class TestUrgencyLevel:
@@ -37,351 +38,451 @@ class TestUrgencyLevel:
         assert UrgencyLevel.low.value == "low"
 
 
-class TestMetricReading:
-    """Tests for MetricReading model."""
+class TestLightClassificationModel:
+    """Tests for the new lightweight LightClassification (no LLM fields)."""
 
-    def test_create_metric_reading_full(self) -> None:
-        metric = MetricReading(
-            metric_name="CPI Y/Y",
-            actual=2.4,
-            estimate=2.5,
-            previous=2.8,
-            unit="%",
-            period="Q4",
-            beat_miss=BeatMissStatus.beat,
-            surprise_magnitude=-0.1,
+    def test_default_values(self) -> None:
+        """LightClassification has sensible defaults."""
+        lc = LightClassification()
+        assert lc.matched_tickers == []
+        assert lc.impact_score == 0
+        assert lc.impact_reasons == []
+        assert lc.urgency == UrgencyLevel.normal
+
+    def test_with_tickers_and_score(self) -> None:
+        """LightClassification with tickers and impact score."""
+        lc = LightClassification(
+            matched_tickers=["NVDA", "MRVL"],
+            impact_score=57,
+            impact_reasons=["source:DeItaone:wire_relay:+15", "wire_prefix:+15", "mna:+15"],
+            urgency=UrgencyLevel.critical,
         )
+        assert lc.matched_tickers == ["NVDA", "MRVL"]
+        assert lc.impact_score == 57
+        assert lc.urgency == UrgencyLevel.critical
 
-        assert metric.metric_name == "CPI Y/Y"
-        assert metric.actual == 2.4
-        assert metric.estimate == 2.5
-        assert metric.previous == 2.8
-        assert metric.unit == "%"
-        assert metric.period == "Q4"
-        assert metric.beat_miss == BeatMissStatus.beat
-        assert metric.surprise_magnitude == -0.1
-
-    def test_create_metric_reading_minimal(self) -> None:
-        """Test creating metric with only required fields."""
-        metric = MetricReading(
-            metric_name="GDP",
-            actual=3.2,
-        )
-
-        assert metric.metric_name == "GDP"
-        assert metric.actual == 3.2
-        assert metric.estimate is None
-        assert metric.previous is None
-        assert metric.unit == "%"  # default
-        assert metric.period is None
-        assert metric.beat_miss == BeatMissStatus.unknown  # default
-        assert metric.surprise_magnitude is None
-
-    def test_create_metric_reading_different_units(self) -> None:
-        """Test metric with different units."""
-        # Basis points
-        metric_bps = MetricReading(
-            metric_name="Fed Funds Rate",
-            actual=5.25,
-            estimate=5.00,
-            unit="bps",
-            beat_miss=BeatMissStatus.miss,  # Higher rate when cut expected = miss
-        )
-        assert metric_bps.unit == "bps"
-
-        # Dollar billions
-        metric_dollar = MetricReading(
-            metric_name="Revenue",
-            actual=125.5,
-            estimate=120.0,
-            unit="B",
-            beat_miss=BeatMissStatus.beat,
-        )
-        assert metric_dollar.unit == "B"
-
-
-class TestNumericExtraction:
-    """Tests for NumericExtraction model."""
-
-    def test_create_empty_extraction(self) -> None:
-        extraction = NumericExtraction()
-
-        assert extraction.metrics == []
-        assert extraction.headline_metric is None
-        assert extraction.overall_beat_miss == BeatMissStatus.unknown
-        assert extraction.has_surprise is False
-        assert extraction.beats == []
-        assert extraction.misses == []
-
-    def test_create_extraction_with_metrics(self) -> None:
-        """Test extraction with multiple metrics."""
-        cpi_yoy = MetricReading(
-            metric_name="CPI Y/Y",
-            actual=2.4,
-            estimate=2.5,
-            previous=2.8,
-            beat_miss=BeatMissStatus.beat,  # Lower inflation = beat
-        )
-        cpi_qoq = MetricReading(
-            metric_name="CPI Q/Q",
-            actual=0.2,
-            estimate=0.3,
-            beat_miss=BeatMissStatus.beat,
-        )
-        trimmed_mean = MetricReading(
-            metric_name="Trimmed Mean CPI Y/Y",
-            actual=3.2,
-            estimate=3.3,
-            beat_miss=BeatMissStatus.beat,
-        )
-
-        extraction = NumericExtraction(
-            metrics=[cpi_yoy, cpi_qoq, trimmed_mean],
-            headline_metric="CPI Y/Y",
-            overall_beat_miss=BeatMissStatus.beat,
-        )
-
-        assert len(extraction.metrics) == 3
-        assert extraction.headline_metric == "CPI Y/Y"
-        assert extraction.overall_beat_miss == BeatMissStatus.beat
-        assert extraction.has_surprise is True  # All have estimates
-        assert len(extraction.beats) == 3
-        assert len(extraction.misses) == 0
-
-    def test_has_surprise_property(self) -> None:
-        """Test has_surprise property with mixed metrics."""
-        # One metric with estimate, one without
-        with_estimate = MetricReading(
-            metric_name="CPI Y/Y",
-            actual=2.4,
-            estimate=2.5,
-        )
-        without_estimate = MetricReading(
-            metric_name="Core CPI",
-            actual=3.0,
-        )
-
-        extraction = NumericExtraction(metrics=[with_estimate, without_estimate])
-        assert extraction.has_surprise is True  # At least one has estimate
-
-        # No estimates at all
-        extraction_no_surprise = NumericExtraction(metrics=[without_estimate])
-        assert extraction_no_surprise.has_surprise is False
-
-    def test_beats_and_misses_filters(self) -> None:
-        """Test beats and misses filter properties."""
-        beat_metric = MetricReading(
-            metric_name="GDP",
-            actual=3.5,
-            estimate=3.0,
-            beat_miss=BeatMissStatus.beat,
-        )
-        miss_metric = MetricReading(
-            metric_name="Employment",
-            actual=150,
-            estimate=200,
-            beat_miss=BeatMissStatus.miss,
-        )
-        inline_metric = MetricReading(
-            metric_name="Inflation",
-            actual=2.0,
-            estimate=2.0,
-            beat_miss=BeatMissStatus.inline,
-        )
-        unknown_metric = MetricReading(
-            metric_name="Other",
-            actual=1.0,
-            beat_miss=BeatMissStatus.unknown,
-        )
-
-        extraction = NumericExtraction(
-            metrics=[beat_metric, miss_metric, inline_metric, unknown_metric]
-        )
-
-        assert len(extraction.beats) == 1
-        assert extraction.beats[0].metric_name == "GDP"
-        assert len(extraction.misses) == 1
-        assert extraction.misses[0].metric_name == "Employment"
-
-
-class TestLightClassificationWithNumericData:
-    """Tests for LightClassification with numeric extraction and urgency."""
-
-    def test_light_classification_with_numeric_data(self) -> None:
-        """Test LightClassification includes numeric_data field."""
-        numeric = NumericExtraction(
-            metrics=[
-                MetricReading(
-                    metric_name="CPI Y/Y",
-                    actual=2.4,
-                    estimate=2.5,
-                    beat_miss=BeatMissStatus.beat,
-                )
-            ],
-            headline_metric="CPI Y/Y",
-            overall_beat_miss=BeatMissStatus.beat,
-        )
-
-        classification = LightClassification(
-            news_category=NewsCategory.economic_calendar,
-            primary_topics=[PrimaryTopic.economic_data],
-            summary="Australia CPI comes in below expectations",
-            confidence=0.95,
-            primary_entity="Australia",
-            all_entities=["Australia", "Reserve Bank of Australia"],
-            numeric_data=numeric,
+    def test_serialization(self) -> None:
+        """JSON serialization of new LightClassification."""
+        lc = LightClassification(
+            matched_tickers=["AAPL", "~OPENAI"],
+            impact_score=43,
+            impact_reasons=["just_in:+10", "mna:+15"],
             urgency=UrgencyLevel.high,
-            urgency_reasoning="Scheduled economic data with surprise",
         )
-
-        assert classification.numeric_data is not None
-        assert len(classification.numeric_data.metrics) == 1
-        assert classification.numeric_data.headline_metric == "CPI Y/Y"
-        assert classification.urgency == UrgencyLevel.high
-        assert classification.urgency_reasoning == "Scheduled economic data with surprise"
-
-    def test_light_classification_without_numeric_data(self) -> None:
-        """Test LightClassification works without numeric_data (default None)."""
-        classification = LightClassification(
-            primary_topics=[PrimaryTopic.corporate_actions],
-            summary="Company announces merger",
-            confidence=0.9,
-            primary_entity="Acme Corp",
-        )
-
-        assert classification.numeric_data is None
-        assert classification.urgency == UrgencyLevel.normal  # default
-        assert classification.urgency_reasoning == ""  # default
-
-    def test_light_classification_serialization(self) -> None:
-        """Test JSON serialization with numeric data."""
-        numeric = NumericExtraction(
-            metrics=[
-                MetricReading(
-                    metric_name="EPS",
-                    actual=1.50,
-                    estimate=1.40,
-                    beat_miss=BeatMissStatus.beat,
-                    surprise_magnitude=0.10,
-                )
-            ],
-            headline_metric="EPS",
-            overall_beat_miss=BeatMissStatus.beat,
-        )
-
-        classification = LightClassification(
-            news_category=NewsCategory.economic_calendar,
-            primary_topics=[PrimaryTopic.earnings],
-            summary="Apple beats EPS estimates",
-            confidence=0.95,
-            primary_entity="Apple",
-            numeric_data=numeric,
-            urgency=UrgencyLevel.high,
-            urgency_reasoning="Earnings beat",
-        )
-
-        data = classification.model_dump(mode="json")
-        assert isinstance(data, dict)
-        assert data["numeric_data"]["headline_metric"] == "EPS"
-        assert data["numeric_data"]["metrics"][0]["actual"] == 1.50
-        assert data["numeric_data"]["metrics"][0]["beat_miss"] == "beat"
+        data = lc.model_dump(mode="json")
+        assert data["matched_tickers"] == ["AAPL", "~OPENAI"]
+        assert data["impact_score"] == 43
         assert data["urgency"] == "high"
 
 
-class TestClassifyUrgencyByRules:
-    """Tests for classify_urgency_by_rules function."""
+class TestImpactScoring:
+    """Tests for compute_impact_score (replaces classify_urgency_by_rules)."""
 
-    # Critical patterns
-    def test_urgency_critical_breaking(self) -> None:
-        """Test critical urgency for breaking news markers."""
-        assert (
-            classify_urgency_by_rules("*BREAKING: Fed announces emergency cut")
-            == UrgencyLevel.critical
+    # --- Fast-track: Econ data releases ---
+
+    def test_econ_t1_release_critical(self) -> None:
+        """Tier 1 econ release from known source → critical."""
+        r = compute_impact_score(
+            "US CPI (YOY) (MAR) ACTUAL: 2.5% VS 1.9% PREVIOUS; EST 2.6%", "FirstSquawk"
         )
-        assert (
-            classify_urgency_by_rules("**FLASH: Market circuit breaker hit")
-            == UrgencyLevel.critical
+        assert r.urgency == UrgencyLevel.critical
+
+    def test_econ_t1_gdp_release(self) -> None:
+        """GDP release with actual/est → critical."""
+        r = compute_impact_score(
+            "US GDP (QOQ) (Q4) ACTUAL: 2.3% VS 3.1% PREVIOUS; EST 2.6%", "FirstSquawk"
         )
-        assert classify_urgency_by_rules("ALERT: Major bank failure") == UrgencyLevel.critical
+        assert r.urgency == UrgencyLevel.critical
 
-    def test_urgency_critical_fed_decision(self) -> None:
-        """Test critical urgency for Fed rate decisions."""
-        assert classify_urgency_by_rules("Fed rate decision: 50bps cut") == UrgencyLevel.critical
-        assert classify_urgency_by_rules("FOMC decision: rates unchanged") == UrgencyLevel.critical
-        assert classify_urgency_by_rules("Fed rate hike surprises markets") == UrgencyLevel.critical
-
-    def test_urgency_critical_surprise(self) -> None:
-        """Test critical urgency for surprise announcements."""
-        assert classify_urgency_by_rules("SURPRISE rate cut from ECB") == UrgencyLevel.critical
-        assert classify_urgency_by_rules("UNEXPECTED earnings revision") == UrgencyLevel.critical
-        assert classify_urgency_by_rules("EMERGENCY meeting called") == UrgencyLevel.critical
-
-    # High patterns
-    def test_urgency_high_economic_data(self) -> None:
-        """Test high urgency for economic data WITH numbers."""
-        assert (
-            classify_urgency_by_rules("CPI comes in at 2.4% vs 2.5% expected") == UrgencyLevel.high
+    def test_econ_t2_release_high(self) -> None:
+        """Tier 2 econ release from known source → at least high."""
+        r = compute_impact_score(
+            "US INITIAL JOBLESS CLAIMS ACTUAL: 202K VS 210K PREVIOUS; EST 212K", "FirstSquawk"
         )
-        assert classify_urgency_by_rules("NFP: 200K jobs added") == UrgencyLevel.high
-        assert classify_urgency_by_rules("GDP growth 3.5% in Q4") == UrgencyLevel.high
-        assert classify_urgency_by_rules("PPI rises 0.3% m/m") == UrgencyLevel.high
-        assert classify_urgency_by_rules("PCE inflation 2.8%") == UrgencyLevel.high
+        assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
 
-    def test_urgency_high_earnings_with_outcome(self) -> None:
-        """Test high urgency for earnings with beat/miss."""
-        assert classify_urgency_by_rules("AAPL EARNINGS BEAT expectations") == UrgencyLevel.high
-        assert classify_urgency_by_rules("Tesla earnings miss by wide margin") == UrgencyLevel.high
-
-    def test_urgency_high_basis_points(self) -> None:
-        """Test high urgency for basis point moves."""
-        assert classify_urgency_by_rules("10Y yield up 15bps") == UrgencyLevel.high
-        assert classify_urgency_by_rules("Spread widened by 25 bps") == UrgencyLevel.high
-
-    # Low patterns
-    def test_urgency_low_opinions(self) -> None:
-        """Test low urgency for opinions and analysis."""
-        assert classify_urgency_by_rules("In my OPINION, rates will fall") == UrgencyLevel.low
-        assert classify_urgency_by_rules("My ANALYSIS suggests bullish") == UrgencyLevel.low
-        assert classify_urgency_by_rules("COMMENTARY on the Fed") == UrgencyLevel.low
-        assert classify_urgency_by_rules("IMO the market is overreacting") == UrgencyLevel.low
-        assert classify_urgency_by_rules("I think we'll see a pullback") == UrgencyLevel.low
-
-    def test_urgency_low_reposts_and_threads(self) -> None:
-        """Test low urgency for forwarded reposts and threads."""
-        assert (
-            classify_urgency_by_rules("RT @analyst: Great insight on markets") == UrgencyLevel.low
+    def test_econ_commentary_not_fast_tracked(self) -> None:
+        """Commentary about CPI (no ACTUAL/EST) should NOT fast-track."""
+        r = compute_impact_score(
+            "FED'S WILLIAMS: WAR COULD INCREASE INFLATION AND CPI", "financialjuice"
         )
-        assert classify_urgency_by_rules("THREAD on Fed policy 1/10") == UrgencyLevel.low
+        assert r.urgency != UrgencyLevel.critical
 
-    # Ambiguous (returns None - let LLM decide)
-    def test_urgency_ambiguous(self) -> None:
-        """Test ambiguous cases that return None."""
-        assert classify_urgency_by_rules("Markets open higher today") is None
-        assert classify_urgency_by_rules("Apple announces new product") is None
-        assert classify_urgency_by_rules("Oil prices stable") is None
-        # Just CPI mention without numbers - not confident enough
-        assert classify_urgency_by_rules("CPI report coming tomorrow") is None
+    def test_econ_unknown_source_not_fast_tracked(self) -> None:
+        """Econ release from unknown source should NOT fast-track."""
+        r = compute_impact_score("US CPI ACTUAL: 2.5% VS 2.6% EST", "unknown_channel")
+        assert r.urgency != UrgencyLevel.critical
 
-    # Edge cases
-    def test_urgency_case_insensitive(self) -> None:
-        """Test patterns are case insensitive."""
-        # Breaking at start with colon is critical
-        assert classify_urgency_by_rules("BREAKING: Major news") == UrgencyLevel.critical
-        # Opinion patterns are case insensitive
-        assert classify_urgency_by_rules("OPINION piece") == UrgencyLevel.low
-        assert classify_urgency_by_rules("opinion piece") == UrgencyLevel.low
-        # Economic data with numbers
-        assert classify_urgency_by_rules("cpi comes in at 2.5%") == UrgencyLevel.high
-        assert classify_urgency_by_rules("CPI comes in at 2.5%") == UrgencyLevel.high
+    # --- Fast-track: M&A with large dollar amounts ---
 
-    def test_urgency_critical_takes_priority(self) -> None:
-        """Test critical patterns take priority over high patterns."""
-        # Contains both critical (BREAKING) and high (CPI with number) patterns
-        text = "*BREAKING: CPI 2.4% vs 2.5% expected"
-        assert classify_urgency_by_rules(text) == UrgencyLevel.critical
+    def test_mna_billion_dollar_critical(self) -> None:
+        """M&A with $1B+ dollar amount → critical."""
+        r = compute_impact_score("*NVIDIA INVESTS $2B IN MARVELL TECHNOLOGY", "DeItaone")
+        assert r.urgency == UrgencyLevel.critical
 
-    def test_urgency_economic_data_without_numbers_is_ambiguous(self) -> None:
-        """Economic data indicators without actual numbers should be ambiguous."""
-        # "CPI" alone without a number - could be scheduled release announcement
-        assert classify_urgency_by_rules("CPI report scheduled for tomorrow") is None
-        assert classify_urgency_by_rules("Waiting for NFP data") is None
+    def test_mna_raises_critical(self) -> None:
+        """Fundraising with large dollar amount → critical."""
+        r = compute_impact_score(
+            "JUST IN: OPENAI RAISES $122,000,000,000 AT $852 BILLION VALUATION.", "WatcherGuru"
+        )
+        assert r.urgency == UrgencyLevel.critical
+
+    def test_mna_stake_before_dollar(self) -> None:
+        """$X STAKE pattern (dollar before keyword) → critical."""
+        r = compute_impact_score(
+            "SPACEX IN TALKS WITH SAUDI PIF FOR $5 BLN ANCHOR STAKE IN 2026 IPO", "FirstSquawk"
+        )
+        assert r.urgency == UrgencyLevel.critical
+
+    def test_mna_without_dollar_not_critical(self) -> None:
+        """M&A without dollar amount should NOT fast-track to critical."""
+        r = compute_impact_score("OPENAI HAS ACQUIRED TECH TALK SHOW TBPN", "FirstSquawk")
+        assert r.urgency != UrgencyLevel.critical
+
+    # --- Fast-track: Breaking from wire sources ---
+
+    def test_breaking_wire_high(self) -> None:
+        """BREAKING from wire source → at least high."""
+        r = compute_impact_score(
+            "⚠ BREAKING: IRAN: DRAFTING PROTOCOL WITH OMAN FOR HORMUZ STRAIT", "financialjuice"
+        )
+        assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
+
+    def test_breaking_non_wire_not_fast_tracked(self) -> None:
+        """BREAKING from non-wire source does NOT fast-track."""
+        r = compute_impact_score("BREAKING: TRUMP REMOVES BONDI AS AG", "unusual_whales")
+        # unusual_whales is "curated" not in WIRE_RELAY_SOURCES, so no fast-track
+        assert r.urgency not in (UrgencyLevel.high, UrgencyLevel.critical)
+
+    # --- Scoring: Source reliability ---
+
+    def test_wire_source_boosts_score(self) -> None:
+        """Wire source (DeItaone +15) boosts score significantly."""
+        r_wire = compute_impact_score("*US MORTGAGE RATES RISE FOR FIFTH WEEK", "DeItaone")
+        r_unknown = compute_impact_score("*US MORTGAGE RATES RISE FOR FIFTH WEEK", "unknown_acct")
+        assert r_wire.score > r_unknown.score
+
+    def test_sensational_source_zero_weight(self) -> None:
+        """Sensational sources get zero weight (no boost)."""
+        r = compute_impact_score("JUST IN: SILVER CRASHES UNDER $70", "WatcherGuru")
+        assert r.components["source"] == 0
+
+    # --- Scoring: Suppressors ---
+
+    def test_rt_suppressed(self) -> None:
+        """RT / retweet is suppressed."""
+        r = compute_impact_score("RT @analyst: Great insight on markets", "unknown")
+        assert r.urgency == UrgencyLevel.low
+
+    def test_opinion_suppressed(self) -> None:
+        """Opinion markers reduce score."""
+        r = compute_impact_score("IMO the market is overreacting to CPI data", "unknown")
+        assert r.components["suppressor"] < 0
+
+    def test_digest_suppressed(self) -> None:
+        """News digests are suppressed."""
+        r = compute_impact_score("🌅 Market News Digest\nTop Stories", "unknown")
+        assert r.components["suppressor"] < 0
+
+    def test_promo_suppressed(self) -> None:
+        """Promotional content is heavily suppressed."""
+        r = compute_impact_score("SUBSCRIBE to our channel for market alerts!", "unknown")
+        assert r.urgency == UrgencyLevel.low
+
+    # --- Scoring: Dollar magnitude ---
+
+    def test_dollar_billion_magnitude(self) -> None:
+        """$1B+ dollar amounts contribute to magnitude score."""
+        r = compute_impact_score("COMPANY INVESTS $10B IN NEW PROJECT", "FirstSquawk")
+        assert r.components["magnitude"] >= 12
+
+    def test_dollar_no_suffix_ignored(self) -> None:
+        """Dollar amounts without magnitude suffix are ignored (avoids $141/BBL)."""
+        r = compute_impact_score("OIL REACHES $141.37 PER BARREL", "FirstSquawk")
+        assert r.components["magnitude"] == 0
+
+    # --- Scoring: Content type ---
+
+    def test_geopolitical_scored(self) -> None:
+        """Geopolitical escalation detected."""
+        r = compute_impact_score("IRAN LAUNCHES MISSILE STRIKES ON ISRAEL", "FirstSquawk")
+        assert r.components["content_type"] > 0
+
+    def test_tariff_scored(self) -> None:
+        """Tariff news detected."""
+        r = compute_impact_score("TRUMP IMPOSES 25% TARIFFS ON CHINA", "FirstSquawk")
+        assert r.components["content_type"] > 0
+
+
+class TestResolveSource:
+    """Tests for _resolve_source — maps channel names to wire sources."""
+
+    def test_direct_match(self) -> None:
+        """Source account directly in SOURCE_RELIABILITY."""
+        assert _resolve_source("FirstSquawk", "some text") == "FirstSquawk"
+
+    def test_fallback_to_xcom_url(self) -> None:
+        """Unknown channel but x.com URL contains known source."""
+        text = "Headlines via https://x.com/DeItaone/status/123456"
+        assert _resolve_source("marketfeed", text) == "DeItaone"
+
+    def test_fallback_to_twitter_url(self) -> None:
+        """twitter.com URL also works."""
+        text = "Via https://twitter.com/FirstSquawk/status/789"
+        assert _resolve_source("some_channel", text) == "FirstSquawk"
+
+    def test_unknown_source_no_url(self) -> None:
+        """Unknown channel, no URL → returns source_account unchanged."""
+        assert _resolve_source("random_channel", "just some text") == "random_channel"
+
+    def test_url_with_unknown_handle(self) -> None:
+        """URL present but handle not in SOURCE_RELIABILITY → returns source_account."""
+        text = "https://x.com/nobody_known/status/111"
+        assert _resolve_source("my_channel", text) == "my_channel"
+
+    def test_telegram_channel_direct(self) -> None:
+        """Telegram channels listed directly in SOURCE_RELIABILITY."""
+        assert _resolve_source("disclosetv", "any text") == "disclosetv"
+
+
+class TestParseDollar:
+    """Tests for _parse_dollar — extracts dollar amounts from regex matches."""
+
+    def _parse(self, text: str) -> float:
+        m = _DOLLAR_RE.search(text)
+        assert m is not None, f"No dollar match in: {text}"
+        return _parse_dollar(m)
+
+    def test_billion_bln(self) -> None:
+        assert self._parse("$5 BLN") == 5e9
+
+    def test_billion_full(self) -> None:
+        assert self._parse("$777 BILLION") == 777e9
+
+    def test_billion_short(self) -> None:
+        assert self._parse("$110B") == 110e9
+
+    def test_million_full(self) -> None:
+        assert self._parse("$500 MILLION") == 500e6
+
+    def test_million_short(self) -> None:
+        assert self._parse("$500M") == 500e6
+
+    def test_trillion(self) -> None:
+        assert self._parse("$1.5 TRILLION") == 1.5e12
+
+    def test_thousand(self) -> None:
+        assert self._parse("$10K") == 10e3
+
+    def test_comma_separated(self) -> None:
+        assert self._parse("$122,000 MILLION") == 122_000e6
+
+
+class TestMaxDollarAmount:
+    """Tests for _max_dollar_amount — finds largest dollar amount in text."""
+
+    def test_multiple_amounts_returns_largest(self) -> None:
+        text = "Raised $500M in round A and $2B in round B"
+        assert _max_dollar_amount(text) == 2e9
+
+    def test_no_amounts_returns_zero(self) -> None:
+        assert _max_dollar_amount("No dollar amounts here") == 0.0
+
+    def test_price_without_suffix_ignored(self) -> None:
+        """$141.37/BBL has no valid suffix → 0."""
+        assert _max_dollar_amount("Oil at $141.37/BBL") == 0.0
+
+    def test_single_amount(self) -> None:
+        assert _max_dollar_amount("Deal worth $10B") == 10e9
+
+
+class TestThresholdBoundaries:
+    """Tests for score-to-urgency mapping at exact boundaries."""
+
+    def _make_result(self, score: int) -> ImpactResult:
+        """Create an ImpactResult at an exact score to test threshold mapping."""
+        r = compute_impact_score("neutral text", "unknown_source")
+        # Override the score and re-derive urgency
+        if score >= CRITICAL_THRESHOLD:
+            urgency = UrgencyLevel.critical
+        elif score >= HIGH_THRESHOLD:
+            urgency = UrgencyLevel.high
+        elif score >= NORMAL_THRESHOLD:
+            urgency = UrgencyLevel.normal
+        else:
+            urgency = UrgencyLevel.low
+        return ImpactResult(score=score, urgency=urgency)
+
+    def test_critical_at_55(self) -> None:
+        assert self._make_result(55).urgency == UrgencyLevel.critical
+
+    def test_high_at_54(self) -> None:
+        assert self._make_result(54).urgency == UrgencyLevel.high
+
+    def test_high_at_32(self) -> None:
+        assert self._make_result(32).urgency == UrgencyLevel.high
+
+    def test_normal_at_31(self) -> None:
+        assert self._make_result(31).urgency == UrgencyLevel.normal
+
+    def test_normal_at_15(self) -> None:
+        assert self._make_result(15).urgency == UrgencyLevel.normal
+
+    def test_low_at_14(self) -> None:
+        assert self._make_result(14).urgency == UrgencyLevel.low
+
+    def test_low_at_0(self) -> None:
+        assert self._make_result(0).urgency == UrgencyLevel.low
+
+    def test_threshold_constants(self) -> None:
+        """Verify threshold constants match expected values."""
+        assert CRITICAL_THRESHOLD == 55
+        assert HIGH_THRESHOLD == 32
+        assert NORMAL_THRESHOLD == 15
+
+
+class TestComponentCaps:
+    """Tests for per-component score caps."""
+
+    def test_text_pattern_capped_at_35(self) -> None:
+        """Stacking many text patterns should cap at 35."""
+        # Wire prefix + BREAKING + JUST IN + ALERT + EXCLUSIVE + SUPERLATIVE + SURPRISE + EXTREME
+        text = (
+            "*BREAKING: JUST IN - ALERT: EXCLUSIVE SCOOP: "
+            "SURPRISE CRASH — WORST SINCE 2008"
+        )
+        score, _ = _text_pattern_score(text)
+        assert score == _TEXT_PATTERN_CAP
+        assert score == 35
+
+    def test_content_type_capped_at_20(self) -> None:
+        """Stacking many content types should cap at 20."""
+        # M&A + geopolitical + tariff + bankruptcy — triggers multiple patterns
+        text = "SANCTIONS ON ACQUISITION TARGET AMID TRADE WAR AND BANKRUPTCY"
+        score, _ = _content_type_score(text)
+        assert score <= _CONTENT_TYPE_CAP
+
+    def test_magnitude_capped_at_20(self) -> None:
+        """Large dollar + large pct should cap at 20."""
+        text = "$500B WORTH OF STOCK SURGED 15%"
+        score, _ = _magnitude_score(text)
+        assert score <= _MAGNITUDE_CAP
+
+    def test_suppressor_uncapped(self) -> None:
+        """Suppressors have no cap — can go deeply negative."""
+        text = "RT @promo: SUBSCRIBE for GIVEAWAY! Follow us for faster headlines! YESTERDAY'S RECAP"
+        score, _ = _suppressor_score(text)
+        assert score < -20  # Multiple suppressors stack
+
+
+class TestScoreClamping:
+    """Tests for total score clamping to [0, 100]."""
+
+    def test_heavy_suppression_floors_at_zero(self) -> None:
+        """Spam text should score 0, not negative."""
+        r = compute_impact_score(
+            "RT @scammer: SUBSCRIBE NOW! GIVEAWAY AIRDROP! Follow us for faster headlines!",
+            "unknown",
+        )
+        assert r.score == 0
+
+    def test_score_never_exceeds_100(self) -> None:
+        """Even max stacking should not exceed 100."""
+        r = compute_impact_score(
+            "*BREAKING: JUST IN - ALERT: EXCLUSIVE: SURPRISE CRASH — WORST SINCE 2008! "
+            "IRAN LAUNCHES MISSILE STRIKES, TARIFFS IMPOSED, BANKRUPTCY FILED! "
+            "US CPI (YOY) ACTUAL: 10% — $500 TRILLION WIPED OUT, SURGED 50%",
+            "FirstSquawk",
+        )
+        assert r.score <= 100
+
+
+class TestFastTrackUpgradeOnly:
+    """Tests that fast-track rules only upgrade, never downgrade."""
+
+    def test_high_score_with_high_fast_track_stays_critical(self) -> None:
+        """If additive score is already critical, fast-track high doesn't downgrade."""
+        # This message scores very high additively AND triggers BREAKING wire fast-track (high)
+        r = compute_impact_score(
+            "*BREAKING: JUST IN - ALERT: IRAN LAUNCHES MISSILE STRIKES "
+            "US CPI ACTUAL: 10% VS 2% PREVIOUS — $100B WIPED OUT, SURGED 50%",
+            "FirstSquawk",
+        )
+        # Should be critical from additive score, not downgraded by fast-track:high
+        assert r.urgency == UrgencyLevel.critical
+
+    def test_fast_track_upgrades_low_score(self) -> None:
+        """Fast-track can upgrade a message that scores low additively."""
+        # T1 econ release from wire source — fast-tracks to critical even if text is short
+        r = compute_impact_score("US CPI ACTUAL: 2.5% VS 2.6% EST", "FirstSquawk")
+        assert r.urgency == UrgencyLevel.critical
+
+
+class TestTextPatternScoring:
+    """Tests for individual text pattern signals."""
+
+    def test_wire_prefix_star(self) -> None:
+        """Leading * gives +15."""
+        score, reasons = _text_pattern_score("*SOME HEADLINE")
+        assert score >= 15
+        assert any("wire_prefix" in r for r in reasons)
+
+    def test_breaking(self) -> None:
+        """BREAKING gives +12."""
+        score, reasons = _text_pattern_score("BREAKING: Major news")
+        assert score >= 12
+        assert any("breaking" in r for r in reasons)
+
+    def test_just_in(self) -> None:
+        """JUST IN gives +10."""
+        score, reasons = _text_pattern_score("JUST IN: Something happened")
+        assert score >= 10
+        assert any("just_in" in r for r in reasons)
+
+    def test_flash_alert(self) -> None:
+        """ALERT: gives +12."""
+        score, reasons = _text_pattern_score("ALERT: Market crash incoming")
+        assert score >= 12
+        assert any("flash_alert" in r for r in reasons)
+
+    def test_superlative(self) -> None:
+        """HIGHEST SINCE gives +10."""
+        score, reasons = _text_pattern_score("PRICES HIT HIGHEST SINCE 2008")
+        assert score >= 10
+        assert any("superlative" in r for r in reasons)
+
+    def test_surprise(self) -> None:
+        """SURPRISE gives +10."""
+        score, reasons = _text_pattern_score("SURPRISE FED CUT")
+        assert score >= 10
+        assert any("surprise" in r for r in reasons)
+
+    def test_plain_text_zero(self) -> None:
+        """Plain text with no signals → 0."""
+        score, _ = _text_pattern_score("The weather is nice today")
+        assert score == 0
+
+
+class TestPercentageMoveScoring:
+    """Tests for percentage move detection in magnitude scoring."""
+
+    def test_large_move_10pct(self) -> None:
+        """10%+ move with action verb → +10."""
+        score, reasons = _magnitude_score("OIL PRICES SURGED NEARLY 10%")
+        assert any("pct_move" in r for r in reasons)
+        assert score >= 10
+
+    def test_medium_move_3pct(self) -> None:
+        """2-5% move → +6."""
+        score, reasons = _magnitude_score("STOCK FALLS 3%")
+        assert any("pct_move" in r and "+6" in r for r in reasons)
+
+    def test_small_move_1pct_ignored(self) -> None:
+        """<2% move → no pct_move score."""
+        score, reasons = _magnitude_score("STOCK ROSE 1% TODAY")
+        assert not any("pct_move" in r for r in reasons)
+
+    def test_pct_without_verb_ignored(self) -> None:
+        """Percentage without action verb → no match."""
+        score, reasons = _magnitude_score("CPI AT 2.5%")
+        assert not any("pct_move" in r for r in reasons)

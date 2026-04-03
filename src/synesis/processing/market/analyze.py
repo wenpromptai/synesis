@@ -108,26 +108,21 @@ def _format_signals_context(signals: list[dict[str, Any]]) -> str:
     for sig in signals[:20]:  # Cap at 20 most recent
         payload = sig.get("payload") or {}
         tickers = sig.get("tickers") or []
-        topics = sig.get("primary_topics") or []
+        entities = sig.get("entities") or []
         timestamp = sig.get("time", "")
 
         # Extract key fields from signal payload
-        extraction = payload.get("extraction") or {}
-        headline = extraction.get("headline", "")
-        summary = extraction.get("summary", "")
-
+        raw_text = payload.get("raw_text", "")
         analysis = payload.get("analysis") or {}
-        market_impact = analysis.get("market_impact_summary", "")
+        thesis = analysis.get("primary_thesis", "")
 
-        parts = [f"[{timestamp}] {headline}"]
-        if summary:
-            parts.append(f"  {summary[:200]}")
-        if market_impact:
-            parts.append(f"  Impact: {market_impact[:200]}")
+        parts = [f"[{timestamp}] {raw_text[:200]}"]
+        if thesis:
+            parts.append(f"  Thesis: {thesis[:200]}")
         if tickers:
             parts.append(f"  Tickers: {', '.join(tickers[:8])}")
-        if topics:
-            parts.append(f"  Topics: {', '.join(topics[:5])}")
+        if entities:
+            parts.append(f"  Entities: {', '.join(entities[:5])}")
         lines.append("\n".join(parts))
 
     return "\n\n".join(lines)

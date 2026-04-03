@@ -1,5 +1,7 @@
 """General application constants — rate limits, cache TTLs, thresholds, processing limits, API URLs."""
 
+import re
+
 # ─────────────────────────────────────────────────────────────
 # API Rate Limits (external constraints)
 # ─────────────────────────────────────────────────────────────
@@ -42,6 +44,14 @@ DEFAULT_FINNHUB_API_URL = "https://finnhub.io/api/v1"
 # News Processing (Flow 1)
 # ─────────────────────────────────────────────────────────────
 MIN_THESIS_CONFIDENCE_FOR_ALERT = 0.30  # Skip notifications below this confidence
+
+# ─────────────────────────────────────────────────────────────
+# Shared Patterns
+# ─────────────────────────────────────────────────────────────
+
+# Extract news wire source from x.com/twitter.com URL embedded in message text
+# e.g. "https://x.com/DeItaone/status/123" → "DeItaone"
+NEWS_SOURCE_RE = re.compile(r"(?:x\.com|twitter\.com)/(\w+)/status")
 
 # ─────────────────────────────────────────────────────────────
 # Options Snapshot

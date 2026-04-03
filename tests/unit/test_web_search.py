@@ -8,7 +8,6 @@ import pytest
 
 from synesis.processing.common.web_search import (
     SearchProvidersExhaustedError,
-    _crawl_top_results,
     _extract_article_content,
     _get_date_range,
     format_search_results,
@@ -151,118 +150,6 @@ class TestExtractArticleContent:
         assert len(result) > 0
 
 
-class TestEnrichTopResult:
-    """Tests for _crawl_top_results."""
-
-    @pytest.mark.anyio
-    async def test_no_crawl4ai_url_returns_unchanged(self) -> None:
-        """When crawl4ai_url is not configured, results are returned unchanged."""
-        results = [{"title": "T", "snippet": "S", "url": "https://example.com"}]
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.crawl4ai_url = None
-            enriched = await _crawl_top_results(results)
-        assert enriched == results
-
-    @pytest.mark.anyio
-    async def test_no_urls_in_results_returns_unchanged(self) -> None:
-        """When results have no url keys, returns unchanged."""
-        results = [{"title": "T", "snippet": "S"}]
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.crawl4ai_url = "http://crawl4ai:11235"
-            enriched = await _crawl_top_results(results)
-        assert enriched == results
-
-    @pytest.mark.anyio
-    async def test_crawl_success_replaces_snippet(self) -> None:
-        """Successful crawl replaces the snippet of the top result."""
-        results = [
-            {"title": "T1", "snippet": "short", "url": "https://example.com/1"},
-            {"title": "T2", "snippet": "short2", "url": "https://example.com/2"},
-            {"title": "T3", "snippet": "short3", "url": "https://example.com/3"},
-        ]
-
-        crawl_result = MagicMock()
-        crawl_result.success = True
-        crawl_result.markdown = "## Article\n\nFull article content here."
-
-        mock_crawler = AsyncMock()
-        mock_crawler.crawl = AsyncMock(return_value=crawl_result)
-        mock_crawler.close = AsyncMock()
-
-        with (
-            patch("synesis.processing.common.web_search.get_settings") as mock_settings,
-            patch(
-                "synesis.providers.crawler.crawl4ai.Crawl4AICrawlerProvider",
-                return_value=mock_crawler,
-            ),
-        ):
-            mock_settings.return_value.crawl4ai_url = "http://crawl4ai:11235"
-            enriched = await _crawl_top_results(results)
-
-        # Top 2 get enriched, index 2 unchanged
-        assert enriched[0]["snippet"] != "short"
-        assert enriched[1]["snippet"] != "short2"
-        assert enriched[2]["snippet"] == "short3"
-        # Other fields preserved
-        assert enriched[0]["title"] == "T1"
-        assert enriched[0]["url"] == "https://example.com/1"
-
-    @pytest.mark.anyio
-    async def test_partial_crawl_failure_others_still_enriched(self) -> None:
-        """When one URL fails, the other is still enriched."""
-        results = [
-            {"title": "T1", "snippet": "short1", "url": "https://example.com/1"},
-            {"title": "T2", "snippet": "short2", "url": "https://example.com/2"},
-        ]
-
-        good_crawl = MagicMock()
-        good_crawl.success = True
-        good_crawl.markdown = "## Title\n\nGood content."
-
-        async def crawl_side_effect(url: str):
-            if "1" in url:
-                raise httpx.RequestError("timeout")
-            return good_crawl
-
-        mock_crawler = AsyncMock()
-        mock_crawler.crawl = AsyncMock(side_effect=crawl_side_effect)
-        mock_crawler.close = AsyncMock()
-
-        with (
-            patch("synesis.processing.common.web_search.get_settings") as mock_settings,
-            patch(
-                "synesis.providers.crawler.crawl4ai.Crawl4AICrawlerProvider",
-                return_value=mock_crawler,
-            ),
-        ):
-            mock_settings.return_value.crawl4ai_url = "http://crawl4ai:11235"
-            enriched = await _crawl_top_results(results)
-
-        assert enriched[0]["snippet"] == "short1"  # failed, kept original
-        assert enriched[1]["snippet"] != "short2"  # enriched
-
-    @pytest.mark.anyio
-    async def test_crawler_close_called_even_on_error(self) -> None:
-        """crawler.close() is called in finally even if crawl raises."""
-        results = [{"title": "T", "snippet": "S", "url": "https://example.com"}]
-
-        mock_crawler = AsyncMock()
-        mock_crawler.crawl = AsyncMock(side_effect=Exception("boom"))
-        mock_crawler.close = AsyncMock()
-
-        with (
-            patch("synesis.processing.common.web_search.get_settings") as mock_settings,
-            patch(
-                "synesis.providers.crawler.crawl4ai.Crawl4AICrawlerProvider",
-                return_value=mock_crawler,
-            ),
-        ):
-            mock_settings.return_value.crawl4ai_url = "http://crawl4ai:11235"
-            await _crawl_top_results(results)
-
-        mock_crawler.close.assert_called_once()
-
-
 class TestSearchMarketImpact:
     """Tests for search_market_impact function."""
 
@@ -283,21 +170,12 @@ class TestSearchMarketImpact:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with (
-            patch("synesis.processing.common.web_search.get_settings") as mock_settings,
-            patch(
-                "synesis.processing.common.web_search._crawl_top_results", new_callable=AsyncMock
-            ) as mock_enrich,
-        ):
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             settings = MagicMock()
             settings.brave_api_key = MagicMock()
             settings.brave_api_key.get_secret_value.return_value = "brave-key"
             settings.brave_min_interval = 0.0
-            settings.crawl4ai_url = None
             mock_settings.return_value = settings
-            mock_enrich.return_value = [
-                {"title": "Brave Result", "snippet": "Content", "url": "https://example.com"}
-            ]
 
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
@@ -310,7 +188,6 @@ class TestSearchMarketImpact:
 
         assert len(results) == 1
         assert results[0]["title"] == "Brave Result"
-        mock_enrich.assert_called_once()
 
     @pytest.mark.anyio
     async def test_brave_fails_falls_back_to_exa(self) -> None:

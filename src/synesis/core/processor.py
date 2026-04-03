@@ -1,29 +1,24 @@
-"""Two-stage news processor with unified analysis.
+"""Two-stage news processor.
 
 Architecture:
-  Message → [Stage 1: Entity Extractor] → [Pre-fetch Context] → [Stage 2: Smart Analyzer]
-                                                                        ↓
-                                                                  Signal Output
+  Message → [Stage 1: Impact scoring + ticker matching] → [Stage 2: LLM analysis]
+                                                                    ↓
+                                                              Signal Output
 
-Stage 1 (Entity Extractor):
-- Fast, tool-free entity extraction
-- Extracts entities and keywords for search
-- NO judgment calls (tickers, sectors, sentiment)
+Stage 1 (Instant, no LLM):
+- Impact scoring (rule-based urgency)
+- Ticker matching (regex + curated names)
 
-Stage 2 (Smart Analyzer):
-- Takes message + extraction + web results + markets
-- Makes ALL informed judgments with research context
-- Returns unified SmartAnalysis output
+Stage 2 (LLM with tools):
+- Entity extraction, sentiment, ETF impact
+- Web search, page reading, Polymarket search via tools
 """
 
-import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
-
-from typing import TYPE_CHECKING
 
 from synesis.config import get_settings
 
@@ -41,15 +36,6 @@ from synesis.processing.news import (
     UrgencyLevel,
     create_deduplicator,
 )
-from synesis.processing.common import (
-    SearchProvidersExhaustedError,
-    WatchlistManager,
-    format_search_results,
-    search_market_impact,
-)
-
-if TYPE_CHECKING:
-    from synesis.providers.base import TickerProvider
 
 logger = get_logger(__name__)
 
@@ -94,7 +80,6 @@ class ProcessingResult:
             source_account=self.message.source_account,
             raw_text=self.message.text,
             external_id=self.message.external_id,
-            news_category=self.extraction.news_category,
             extraction=self.extraction,
             analysis=self.analysis,
             is_duplicate=self.is_duplicate,
@@ -138,19 +123,13 @@ class NewsProcessor:
     def __init__(
         self,
         redis: Redis,
-        ticker_provider: "TickerProvider | None" = None,
-        watchlist: WatchlistManager | None = None,
     ) -> None:
         """Initialize the processor.
 
         Args:
             redis: Redis client for deduplication storage
-            ticker_provider: Optional TickerProvider for ticker verification
-            watchlist: Optional WatchlistManager for ticker tracking
         """
         self._redis = redis
-        self._ticker_provider = ticker_provider
-        self._watchlist = watchlist
         self._deduplicator: MessageDeduplicator | None = None
         self._classifier: NewsClassifier | None = None
         self._analyzer: SmartAnalyzer | None = None
@@ -234,34 +213,6 @@ class NewsProcessor:
             raise RuntimeError("NewsProcessor not initialized. Call initialize() first.")
         return self._polymarket
 
-    async def _fetch_web_results(self, queries: list[str]) -> list[str]:
-        """Fetch web search results for given queries in parallel.
-
-        Args:
-            queries: List of search queries
-
-        Returns:
-            List of formatted search result strings
-        """
-
-        async def safe_search(query: str) -> str:
-            try:
-                search_results = await search_market_impact(query, count=5)
-                return format_search_results(search_results)
-            except SearchProvidersExhaustedError:
-                # All search providers failed - this is an infrastructure issue
-                logger.error(
-                    "All search providers exhausted",
-                    query=query,
-                )
-                return "Search unavailable: all providers failed or not configured"
-            except Exception as e:
-                logger.warning("Web search failed", query=query, error=str(e))
-                return f"Search failed: {e}"
-
-        results = await asyncio.gather(*[safe_search(q) for q in queries])
-        return list(results)
-
     async def process_message(
         self,
         message: UnifiedMessage,
@@ -314,28 +265,19 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 2. Stage 1: Entity extraction (fast, no judgment calls)
-        log.debug("Stage 1: Extracting entities")
+        # 2. Stage 1: Instant classification (no LLM)
         extraction = await self.classifier.classify(message)
 
-        log.info(
-            "Stage 1 complete",
-            primary_topics=[t.value for t in extraction.primary_topics],
-            primary_entity=extraction.primary_entity,
-            all_entities=extraction.all_entities,
-            urgency=extraction.urgency.value,
-        )
-
-        # 3. Early exit for low/normal urgency (no Stage 1 callback, no Stage 2)
+        # 3. Early exit for low/normal urgency (skip notification + Stage 2)
         low_urgency = extraction.urgency in (UrgencyLevel.low, UrgencyLevel.normal)
 
         if low_urgency:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
                 "Skipping Stage 2",
-                skip_reason="filtered by urgency",
+                skip_reason="filtered by impact",
+                impact_score=extraction.impact_score,
                 urgency=extraction.urgency.value,
-                urgency_reason=extraction.urgency_reasoning,
                 processing_time_ms=f"{elapsed_ms:.1f}",
             )
             return ProcessingResult(
@@ -383,28 +325,14 @@ class NewsProcessor:
                 processing_time_ms=elapsed_ms,
             )
 
-        # 6. Pre-fetch context (web search + Polymarket in parallel)
-        log.debug(
-            "Pre-fetching context",
-            search_keywords=extraction.search_keywords[:2],
-            polymarket_keywords=extraction.polymarket_keywords,
-        )
-
-        web_results, markets_text = await asyncio.gather(
-            self._fetch_web_results(extraction.search_keywords),
-            self.analyzer.search_polymarket(extraction.polymarket_keywords),
-        )
-
-        # 7. Stage 2: Smart analysis (all informed judgments)
-        log.debug("Stage 2: Smart analysis with context")
+        # 6. Stage 2: Smart analysis (entities, sentiment, ETF impact, Polymarket)
+        # Polymarket search is done inside the analyzer via LLM tool calls
+        log.debug("Stage 2: Smart analysis starting")
 
         analysis = await self.analyzer.analyze(
             message,
             extraction,
-            web_results,
-            markets_text,
-            http_client=self.polymarket._get_client(),  # Reuse existing client for additional searches
-            ticker_provider=self._ticker_provider,
+            http_client=self.polymarket._get_client(),
         )
 
         if analysis is None:
@@ -416,25 +344,12 @@ class NewsProcessor:
         else:
             log.info(
                 "Stage 2 complete",
-                tickers=analysis.tickers,
-                sentiment=analysis.sentiment.value,
-                sentiment_score=analysis.sentiment_score,
+                macro_impact=[e.ticker for e in analysis.macro_impact],
+                sector_impact=[e.ticker for e in analysis.sector_impact],
                 thesis=analysis.primary_thesis[:100] if analysis.primary_thesis else "None",
-                thesis_confidence=f"{analysis.thesis_confidence:.0%}",
                 markets_evaluated=len(analysis.market_evaluations),
                 has_edge=analysis.has_tradable_edge,
             )
-
-            # Add validated tickers to watchlist for price tracking
-            # Note: Ticker verification is now done by the LLM via verify_ticker tool
-            if self._watchlist and analysis.tickers:
-                reason = analysis.primary_thesis[:200] if analysis.primary_thesis else None
-                for ticker in analysis.tickers:
-                    await self._watchlist.add_ticker(
-                        ticker,
-                        source=f"@{message.source_account}",
-                        added_reason=reason,
-                    )
 
             # Log if edge found
             if analysis.has_tradable_edge and analysis.best_opportunity:

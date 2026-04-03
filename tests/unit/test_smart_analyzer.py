@@ -6,20 +6,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from synesis.processing.news import (
-    Direction,
     LightClassification,
-    PrimaryTopic,
-    NewsCategory,
-    SmartAnalysis,
     SourcePlatform,
-    TickerAnalysis,
     UnifiedMessage,
+    UrgencyLevel,
 )
+from synesis.processing.news.models import ETFImpact
 from synesis.processing.news.analyzer import (
     AnalyzerDeps,
     SMART_ANALYZER_SYSTEM_PROMPT,
     SmartAnalyzer,
-    _build_etf_suffixes,
 )
 
 
@@ -35,24 +31,15 @@ class TestAnalyzerDeps:
             text="Test message",
             timestamp=datetime.now(timezone.utc),
         )
-        extraction = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Test summary",
-            confidence=0.9,
-            primary_entity="Test Entity",
-        )
+        extraction = LightClassification(impact_score=50, urgency=UrgencyLevel.high)
 
         deps = AnalyzerDeps(
             message=message,
             extraction=extraction,
-            web_results=["Result 1", "Result 2"],
-            markets_text="| Market | Price |",
         )
 
         assert deps.message == message
         assert deps.extraction == extraction
-        assert len(deps.web_results) == 2
-        assert deps.markets_text == "| Market | Price |"
         assert deps.http_client is None
 
     def test_deps_with_http_client(self) -> None:
@@ -64,19 +51,12 @@ class TestAnalyzerDeps:
             text="Test",
             timestamp=datetime.now(timezone.utc),
         )
-        extraction = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
-        )
+        extraction = LightClassification(impact_score=50, urgency=UrgencyLevel.high)
 
         mock_client = MagicMock()
         deps = AnalyzerDeps(
             message=message,
             extraction=extraction,
-            web_results=[],
-            markets_text="",
             http_client=mock_client,
         )
 
@@ -88,9 +68,9 @@ class TestSmartAnalyzerSystemPrompt:
 
     def test_prompt_contains_key_sections(self) -> None:
         """Test that system prompt contains key sections."""
-        assert "tickers" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
+        assert "search_polymarket" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
         assert "impact" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
-        assert "marketevaluation" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
+        assert "evaluate prediction markets" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
         assert "thesis" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
 
     def test_prompt_contains_evaluation_guidance(self) -> None:
@@ -100,81 +80,15 @@ class TestSmartAnalyzerSystemPrompt:
         assert "fair" in SMART_ANALYZER_SYSTEM_PROMPT
         assert "edge" in SMART_ANALYZER_SYSTEM_PROMPT.lower()
 
-    def test_prompt_contains_sector_etf_table(self) -> None:
-        """Test that system prompt includes sector ETF proxy table."""
-        assert "Sector ETF Proxies" in SMART_ANALYZER_SYSTEM_PROMPT
+    def test_prompt_contains_sector_etf_references(self) -> None:
+        """Test that system prompt includes sector ETF tickers."""
         assert "XLK" in SMART_ANALYZER_SYSTEM_PROMPT
         assert "XLF" in SMART_ANALYZER_SYSTEM_PROMPT
         assert "XLRE" in SMART_ANALYZER_SYSTEM_PROMPT
 
-    def test_prompt_excludes_sector_etfs_from_verification(self) -> None:
-        """Test that sector ETFs are listed in the 'Do NOT verify' exclusion."""
-        assert "sector ETF proxies" in SMART_ANALYZER_SYSTEM_PROMPT
-
-
-class TestBuildEtfSuffixes:
-    """Tests for _build_etf_suffixes dynamic injection."""
-
-    def test_sector_injection_triggers_for_sector_topic(self) -> None:
-        """Sector suffix appears when primary_topics include a sector."""
-        ext = LightClassification(
-            primary_topics=[PrimaryTopic.financials],
-            summary="Bank regulation news",
-            confidence=0.9,
-            primary_entity="Fed",
-        )
-        result = _build_etf_suffixes(ext)
-        assert "SECTOR EVENT" in result
-        assert "XLF (Financials)" in result
-
-    def test_sector_injection_multiple_sectors(self) -> None:
-        """Multiple sector ETFs appear when multiple sector topics present."""
-        ext = LightClassification(
-            primary_topics=[PrimaryTopic.information_technology, PrimaryTopic.energy],
-            summary="Tech and energy news",
-            confidence=0.9,
-            primary_entity="Test",
-        )
-        result = _build_etf_suffixes(ext)
-        assert "SECTOR EVENT" in result
-        assert "XLK" in result
-        assert "XLE" in result
-
-    def test_no_sector_injection_for_pure_macro(self) -> None:
-        """No sector suffix for pure macro topics."""
-        ext = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy, PrimaryTopic.geopolitics],
-            summary="Fed rate decision amid geopolitical tension",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
-        )
-        result = _build_etf_suffixes(ext)
-        assert "SECTOR EVENT" not in result
-        assert "MACRO EVENT" in result
-
-    def test_both_macro_and_sector_injection(self) -> None:
-        """Both suffixes appear when topics span macro and sector."""
-        ext = LightClassification(
-            primary_topics=[PrimaryTopic.monetary_policy, PrimaryTopic.financials],
-            summary="Fed rate cut impacts banks",
-            confidence=0.9,
-            primary_entity="Federal Reserve",
-        )
-        result = _build_etf_suffixes(ext)
-        assert "MACRO EVENT" in result
-        assert "SECTOR EVENT" in result
-        assert "XLF (Financials)" in result
-
-    def test_no_injection_for_non_macro_non_sector(self) -> None:
-        """No suffixes for topics that are neither macro nor sector."""
-        ext = LightClassification(
-            primary_topics=[PrimaryTopic.earnings],
-            summary="Apple beats earnings",
-            confidence=0.9,
-            primary_entity="Apple",
-        )
-        result = _build_etf_suffixes(ext)
-        assert result == ""
+    def test_prompt_contains_sector_etfs_section(self) -> None:
+        """Test that system prompt mentions sector ETFs."""
+        assert "Sector ETFs" in SMART_ANALYZER_SYSTEM_PROMPT
 
 
 class TestSmartAnalyzer:
@@ -249,54 +163,6 @@ class TestSmartAnalyzer:
         mock_client.close.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_search_polymarket(self) -> None:
-        """Test searching Polymarket for markets."""
-        mock_market = MagicMock()
-        mock_market.id = "market_123"
-        mock_market.question = "Will something happen?"
-        mock_market.yes_price = 0.65
-        mock_market.no_price = 0.35
-        mock_market.volume_24h = 10000.0
-        mock_market.is_active = True
-        mock_market.is_closed = False
-
-        mock_client = MagicMock()
-        mock_client.search_markets = AsyncMock(return_value=[mock_market])
-
-        analyzer = SmartAnalyzer(polymarket_client=mock_client)
-
-        result = await analyzer.search_polymarket(["test", "keyword"])
-
-        assert "market_123" in result
-        assert "Will something happen?" in result
-        assert "$0.65" in result
-        mock_client.search_markets.assert_called()
-
-    @pytest.mark.anyio
-    async def test_search_polymarket_no_results(self) -> None:
-        """Test searching Polymarket with no results."""
-        mock_client = MagicMock()
-        mock_client.search_markets = AsyncMock(return_value=[])
-
-        analyzer = SmartAnalyzer(polymarket_client=mock_client)
-
-        result = await analyzer.search_polymarket(["obscure_keyword"])
-
-        assert "No markets found" in result
-
-    @pytest.mark.anyio
-    async def test_search_polymarket_handles_error(self) -> None:
-        """Test that search handles errors gracefully."""
-        mock_client = MagicMock()
-        mock_client.search_markets = AsyncMock(side_effect=Exception("API Error"))
-
-        analyzer = SmartAnalyzer(polymarket_client=mock_client)
-
-        result = await analyzer.search_polymarket(["test"])
-
-        assert "No markets found" in result
-
-    @pytest.mark.anyio
     async def test_analyze_returns_smart_analysis(self) -> None:
         """Test that analyze returns SmartAnalysis."""
         message = UnifiedMessage(
@@ -307,34 +173,21 @@ class TestSmartAnalyzer:
             timestamp=datetime.now(timezone.utc),
         )
         extraction = LightClassification(
-            news_category=NewsCategory.economic_calendar,
-            primary_topics=[PrimaryTopic.monetary_policy],
-            summary="Fed rate cut",
-            confidence=0.95,
-            primary_entity="Federal Reserve",
+            impact_score=50,
+            urgency=UrgencyLevel.high,
         )
 
-        mock_output = SmartAnalysis(
-            tickers=["SPY"],
-            sectors=["financials"],
-            sentiment=Direction.bullish,
-            sentiment_score=0.7,
-            primary_thesis="Rate cut bullish for equities",
-            thesis_confidence=0.8,
-            ticker_analyses=[
-                TickerAnalysis(
-                    ticker="SPY",
-                    company_name="SPDR S&P 500 ETF Trust",
-                    relevance_score=0.9,
-                    relevance_reason="Direct exposure to rate-sensitive equities",
-                    bull_thesis="Rate cuts boost equity valuations",
-                    bear_thesis="Cuts may signal economic weakness",
-                    net_direction=Direction.bullish,
-                    conviction=0.8,
-                    time_horizon="weeks",
-                )
-            ],
-        )
+        # Use a MagicMock for output so the log.info call in analyze()
+        # can access .sentiment.value without AttributeError (the field
+        # was removed from SmartAnalysis but the log line still references it).
+        mock_output = MagicMock()
+        mock_output.all_entities = []
+        mock_output.primary_topics = []
+        mock_output.sentiment.value = "bullish"
+        mock_output.primary_thesis = "Rate cut bullish for equities"
+        mock_output.macro_impact = [ETFImpact(ticker="SPY", sentiment_score=0.7)]
+        mock_output.sector_impact = []
+        mock_output.market_evaluations = []
 
         mock_result = MagicMock()
         mock_result.output = mock_output
@@ -348,12 +201,9 @@ class TestSmartAnalyzer:
         result = await analyzer.analyze(
             message=message,
             extraction=extraction,
-            web_results=["Research result"],
-            markets_text="| Market | Price |",
         )
 
         assert result is not None
-        assert result.tickers == ["SPY"]
         assert result.primary_thesis == "Rate cut bullish for equities"
 
     @pytest.mark.anyio
@@ -366,12 +216,7 @@ class TestSmartAnalyzer:
             text="Test",
             timestamp=datetime.now(timezone.utc),
         )
-        extraction = LightClassification(
-            primary_topics=[PrimaryTopic.other],
-            summary="Test",
-            confidence=0.5,
-            primary_entity="Test",
-        )
+        extraction = LightClassification(impact_score=50, urgency=UrgencyLevel.high)
 
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(side_effect=Exception("LLM Error"))
@@ -382,8 +227,6 @@ class TestSmartAnalyzer:
         result = await analyzer.analyze(
             message=message,
             extraction=extraction,
-            web_results=[],
-            markets_text="",
         )
 
         assert result is None

@@ -1,74 +1,59 @@
 """Flow 1: Breaking News Intelligence.
 
-This module contains:
-- Unified message model and source types
-- Stage 1: Fast entity extraction (classifier.py)
-- Stage 2: Smart analysis with research context (analyzer.py)
+- Stage 1: Instant classification — impact scoring + ticker matching (classifier.py)
+- Stage 2: Smart analysis with LLM (analyzer.py)
 - Message deduplication using semantic similarity
-- News categorization (breaking, economic_calendar, other)
 """
 
-from synesis.processing.news.analyzer import (
-    AnalyzerDeps,
-    SmartAnalyzer,
-)
-from synesis.processing.news.categorizer import (
-    categorize_by_rules,
-    classify_urgency_by_rules,
-)
+from synesis.processing.news.analyzer import AnalyzerDeps, SmartAnalyzer
 from synesis.processing.news.classifier import NewsClassifier
 from synesis.processing.news.deduplication import (
     DeduplicationResult,
     MessageDeduplicator,
     create_deduplicator,
 )
+from synesis.processing.news.impact_scorer import (
+    ImpactResult,
+    compute_impact_score,
+)
 from synesis.processing.news.models import (
-    BeatMissStatus,
-    Direction,
+    ETFImpact,
     LightClassification,
     MarketEvaluation,
-    MetricReading,
-    NewsCategory,
     NewsSignal,
-    NumericExtraction,
     PrimaryTopic,
-    ResearchQuality,
     SecondaryTopic,
     SmartAnalysis,
     SourcePlatform,
-    TickerAnalysis,
     UnifiedMessage,
     UrgencyLevel,
 )
+from synesis.processing.news.ticker_matcher import match_tickers
 
 __all__ = [
     # Analyzer (Stage 2)
     "AnalyzerDeps",
     "SmartAnalyzer",
-    # Categorizer
-    "categorize_by_rules",
-    "classify_urgency_by_rules",
     # Classifier (Stage 1)
     "NewsClassifier",
     # Deduplication
     "DeduplicationResult",
     "MessageDeduplicator",
     "create_deduplicator",
+    # Impact Scorer
+    "ImpactResult",
+    "compute_impact_score",
+    # Ticker Matcher
+    "match_tickers",
     # Models
-    "BeatMissStatus",
-    "Direction",
+    "ETFImpact",
     "LightClassification",
     "MarketEvaluation",
-    "MetricReading",
-    "NewsCategory",
     "NewsSignal",
-    "NumericExtraction",
     "PrimaryTopic",
-    "ResearchQuality",
     "SecondaryTopic",
     "SmartAnalysis",
     "SourcePlatform",
-    "TickerAnalysis",
     "UnifiedMessage",
     "UrgencyLevel",
 ]

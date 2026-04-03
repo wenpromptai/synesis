@@ -2,17 +2,13 @@
 
 Provides web search with fallback chain: Brave -> Exa.
 Brave (2000 req/month refreshing) is primary. Exa (1000/key, finite reserve)
-is fallback. SearXNG is only used for ticker-specific searches (search_ticker_analysis).
+is fallback.
 
-Crawl4AI enrichment applies to Brave results only (not Exa fallback):
-- Top 2 Brave result URLs are crawled in parallel (~2000 chars each)
-- Results 3+ keep the bare Brave snippet (50-300 chars)
-- If Exa is used instead, all results are bare snippets (no crawling)
-- Crawling is skipped entirely if crawl4ai_url is not configured
+Crawl4AI page reading is handled separately by the Stage 2 LLM's web_read tool —
+the LLM decides which URLs to read in full after reviewing search results.
 
 The Brave rate limiter (_brave_lock, _brave_last_call) is a module-level singleton
-shared across all callers (news processor, twitter analyzer, etc.).
-The interval is configured via settings.brave_min_interval (default 1.5s).
+shared across all callers. Interval: settings.brave_min_interval (default 1.5s).
 """
 
 import asyncio
@@ -47,7 +43,6 @@ class SearchProvidersExhaustedError(Exception):
 
 # Timeouts
 SEARCH_TIMEOUT = 10.0
-CRAWL_TIMEOUT = 15.0
 
 # Recency options
 Recency = Literal["day", "week", "month", "year", "none"]
@@ -84,7 +79,6 @@ async def search_market_impact(
             )
             if results:
                 logger.debug("Brave search successful", query=query, results=len(results))
-                results = await _crawl_top_results(results)
                 return results
         except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
             logger.warning("Brave search failed, trying Exa", error=str(e))
@@ -173,52 +167,42 @@ def _extract_article_content(markdown: str, max_chars: int = _CRAWL_MAX_CHARS) -
     return result[:max_chars].strip()
 
 
-async def _crawl_top_results(
-    results: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Crawl the top 2 result URLs via Crawl4AI in parallel and replace their snippets with article content.
+# Default max chars for page reads
+_READ_MAX_CHARS = 4000
 
-    Returns the original results unchanged if crawling fails or is unavailable.
+
+async def read_web_page(url: str, max_chars: int = _READ_MAX_CHARS) -> str:
+    """Read the full content of a web page via Crawl4AI.
+
+    Shared utility used by LLM tool implementations across analyzers.
+    Returns cleaned article content (~4000 chars) or an error message.
+
+    Args:
+        url: The URL to read
+        max_chars: Maximum chars to return (default 4000)
     """
     settings = get_settings()
     if not settings.crawl4ai_url:
-        return results
-
-    # Crawl top 2 results in parallel
-    indices_to_crawl = [i for i in range(min(2, len(results))) if results[i].get("url")]
-    if not indices_to_crawl:
-        return results
+        return "Web reading not available (Crawl4AI not configured)."
 
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
 
-    crawler = Crawl4AICrawlerProvider(base_url=settings.crawl4ai_url, timeout=CRAWL_TIMEOUT)
-
-    async def _crawl_one(idx: int) -> tuple[int, str | None]:
-        url = results[idx]["url"]
-        try:
-            crawl_result = await crawler.crawl(url)
-            if crawl_result.success and crawl_result.markdown:
-                content = _extract_article_content(crawl_result.markdown)
-                if content:
-                    logger.debug("Crawl4AI enrichment successful", url=url, chars=len(content))
-                    return idx, content
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.warning("Crawl4AI enrichment failed, using Brave snippet", url=url, error=str(e))
-        return idx, None
-
+    crawler = Crawl4AICrawlerProvider(base_url=settings.crawl4ai_url, timeout=15.0)
     try:
-        crawl_results = await asyncio.gather(*[_crawl_one(i) for i in indices_to_crawl])
+        result = await crawler.crawl(url)
+        if result.success and result.markdown:
+            content = _extract_article_content(result.markdown, max_chars=max_chars)
+            if content:
+                logger.debug("read_web_page success", url=url, chars=len(content))
+                return content
+        return "Page crawled but no readable content extracted."
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning("read_web_page failed", url=url, error=str(e))
+        return f"Failed to read page: {e}"
     finally:
         await crawler.close()
-
-    enriched = list(results)
-    for idx, content in crawl_results:
-        if content:
-            enriched[idx] = {**results[idx], "snippet": content}
-
-    return enriched
 
 
 async def _search_searxng(
@@ -342,17 +326,23 @@ async def _search_brave(
 
 
 def format_search_results(results: list[dict[str, Any]]) -> str:
-    """Format search results as text for LLM consumption."""
+    """Format search results for LLM — includes URLs so it can call web_read on them."""
     if not results:
         return "No search results found."
 
     lines = []
-    for r in results:
+    for i, r in enumerate(results, 1):
         title = r.get("title", "Untitled")
         snippet = r.get("snippet", "")
+        url = r.get("url", "")
+        line = f"{i}. **{title}**"
         if snippet:
-            lines.append(f"- {title}: {snippet}")
-        else:
-            lines.append(f"- {title}")
+            line += f"\n   {snippet[:200]}"
+        if url:
+            line += f"\n   URL: {url}"
+        lines.append(line)
 
+    lines.append(
+        "\nCall web_read(url) on the most relevant URLs above to read full article content."
+    )
     return "\n".join(lines)

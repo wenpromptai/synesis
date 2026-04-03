@@ -17,8 +17,7 @@ from synesis.core.constants import TELEGRAM_MAX_MESSAGE_LENGTH
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
-    from synesis.processing.news.models import TickerAnalysis
+    from synesis.processing.news import ETFImpact, LightClassification, SmartAnalysis, UnifiedMessage
 
 logger = get_logger(__name__)
 
@@ -194,12 +193,12 @@ def format_stage1_signal(
 ) -> str:
     """Format a Stage 1 signal for Telegram — the first-pass notification.
 
-    Sent immediately after Gate 1 for high/critical urgency signals.
-    Contains entity extraction and urgency info only (no tickers/sectors/markets).
+    Sent immediately after gate for high/critical urgency signals.
+    Contains impact score + matched tickers only (no LLM output).
 
     Args:
         message: Original unified message
-        extraction: Stage 1 light classification output
+        extraction: Stage 1 classification (impact score + tickers)
 
     Returns:
         Formatted HTML message for Telegram
@@ -207,12 +206,15 @@ def format_stage1_signal(
     urgency_prefix = {"critical": "🚨", "high": "⚡"}
     prefix = urgency_prefix.get(extraction.urgency.value, "")
 
-    primary = _escape_html(" | ".join(t.value for t in extraction.primary_topics) or "other")
-    secondary = _escape_html(" | ".join(t.value for t in extraction.secondary_topics))
-    entities = (
-        ", ".join(extraction.all_entities[:5])
-        if extraction.all_entities
-        else extraction.primary_entity
+    # Author line: "channel_name · news_source" or just "channel_name"
+    from synesis.core.constants import NEWS_SOURCE_RE
+
+    source_match = NEWS_SOURCE_RE.search(message.text)
+    news_source = source_match.group(1) if source_match else None
+    author = (
+        f"{message.source_account} · {news_source}"
+        if news_source and news_source != message.source_account
+        else message.source_account
     )
 
     # Truncate original message to ~400 chars for the blockquote
@@ -221,22 +223,18 @@ def format_stage1_signal(
         original_text = original_text[:397] + "..."
 
     lines = [
-        f"<b>{prefix}[1st pass]</b> — {_escape_html(message.source_account)}",
+        f"<b>{prefix}[1st pass]</b> — {_escape_html(author)}",
         "",
         f"<blockquote>{_escape_html(original_text)}</blockquote>",
-        "",
     ]
 
-    if extraction.summary:
-        lines += ["📝 <b>Summary</b>", _escape_html(extraction.summary), ""]
+    # Matched tickers
+    if extraction.matched_tickers:
+        tickers_str = _escape_html(", ".join(extraction.matched_tickers))
+        lines += ["", f"🏷 <b>Tickers</b> {tickers_str}"]
 
-    lines += [
-        "📌 <b>Topics</b>",
-        primary + "  ·  " + secondary if secondary else primary,
-        "",
-        "👤 <b>Entities</b>",
-        _escape_html(entities),
-    ]
+    # Impact score
+    lines += ["", f"📊 <b>Impact</b> {extraction.impact_score}/100"]
 
     return "\n".join(lines)
 
@@ -262,62 +260,35 @@ def format_condensed_signal(
     Returns:
         Formatted HTML message for Telegram (single message, ~1500-2000 chars)
     """
-    sentiment_emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
-
-    sentiment = analysis.sentiment.value
-
     # Truncate original message to ~300 chars
     original_text = message.text
     if len(original_text) > 300:
         original_text = original_text[:297] + "..."
-        logger.debug(
-            "Message truncated for condensed format",
-            message_id=message.external_id,
-            original_length=len(message.text),
-        )
 
     # Build message
     msg = f"""➕ <b>[add story]</b> — {_escape_html(message.source_account)}
 
-📢 <b>SIGNAL</b> {sentiment_emoji.get(sentiment, "⚪")} {sentiment.upper()} ({analysis.sentiment_score:+.2f})
-
 <blockquote>{_escape_html(original_text)}</blockquote>
 
-💡 <b>Thesis:</b> {_escape_html(analysis.primary_thesis)}
-<i>Confidence: {analysis.thesis_confidence:.0%}</i>"""
+💡 <b>Thesis:</b> {_escape_html(analysis.primary_thesis)}"""
 
-    # Split tickers into stock tickers vs macro ETF proxies
-    from synesis.processing.news.models import MACRO_ETF_TICKERS, SECTOR_ETF_TICKERS
+    # ETF impact with per-ETF sentiment
+    def _format_etf_impact(impacts: list[ETFImpact]) -> str:
+        lines = []
+        for etf in impacts:
+            emoji = "🟢" if etf.sentiment_score > 0 else "🔴" if etf.sentiment_score < 0 else "⚪"
+            line = f"{emoji} <code>{etf.ticker}</code> ({etf.sentiment_score:+.1f})"
+            if etf.reason:
+                line += f"\n<blockquote>{_escape_html(etf.reason)}</blockquote>"
+            lines.append(line)
+        return "\n".join(lines)
 
-    stock_tickers = [
-        ta
-        for ta in analysis.ticker_analyses
-        if ta.ticker not in MACRO_ETF_TICKERS and ta.ticker not in SECTOR_ETF_TICKERS
-    ]
-    sector_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker in SECTOR_ETF_TICKERS]
-    macro_tickers = [ta for ta in analysis.ticker_analyses if ta.ticker in MACRO_ETF_TICKERS]
+    # Macro before sector
+    if analysis.macro_impact:
+        msg += f"\n\n<b>Macro Impact</b>\n{_format_etf_impact(analysis.macro_impact)}"
 
-    def _format_ticker_lines(tickers: list[TickerAnalysis]) -> str:
-        lines = ""
-        for ta in tickers:
-            ticker_dir = sentiment_emoji.get(ta.net_direction.value, "⚪")
-            company_name = f" - {_escape_html(ta.company_name)}" if ta.company_name else ""
-            lines += f"\n{ticker_dir} <code>${ta.ticker}</code>{company_name} {ta.net_direction.value} ({ta.conviction:.0%})"
-            if ta.relevance_reason:
-                lines += f"\n   ↳ {_escape_html(ta.relevance_reason)}"
-        return lines
-
-    if stock_tickers:
-        msg += "\n\n📊 <b>Tickers</b>"
-        msg += _format_ticker_lines(stock_tickers)
-
-    if sector_tickers:
-        msg += "\n\n🏢 <b>Sector Impact</b>"
-        msg += _format_ticker_lines(sector_tickers)
-
-    if macro_tickers:
-        msg += "\n\n🌍 <b>Macro Impact</b>"
-        msg += _format_ticker_lines(macro_tickers)
+    if analysis.sector_impact:
+        msg += f"\n\n<b>Sector Impact</b>\n{_format_etf_impact(analysis.sector_impact)}"
 
     # Historical context (full, no truncation)
     if analysis.historical_context:

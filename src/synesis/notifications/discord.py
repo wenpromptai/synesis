@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from pydantic import SecretStr
 
+from synesis.core.constants import NEWS_SOURCE_RE as _NEWS_SOURCE_RE
+
 from synesis.config import get_settings
 from synesis.core.constants import (
     COLOR_BEARISH,
@@ -25,8 +27,7 @@ from synesis.core.constants import (
 from synesis.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from synesis.processing.news import LightClassification, SmartAnalysis, UnifiedMessage
-    from synesis.processing.news.models import TickerAnalysis
+    from synesis.processing.news import ETFImpact, LightClassification, SmartAnalysis, UnifiedMessage
     from synesis.processing.twitter.models import Theme, TwitterAgentAnalysis
 
 logger = get_logger(__name__)
@@ -130,49 +131,57 @@ def format_stage1_embed(
 ) -> list[dict[str, Any]]:
     """Format a Stage 1 signal as a Discord embed.
 
-    Sent immediately after Gate 1 for high/critical urgency signals.
+    Sent immediately after gate for high/critical urgency signals.
+    Contains impact score + matched tickers only (no LLM output).
 
     Args:
         message: Original unified message
-        extraction: Stage 1 light classification output
+        extraction: Stage 1 classification (impact score + tickers)
 
     Returns:
         List containing one embed dict
     """
     is_critical = extraction.urgency.value == "critical"
     color = COLOR_CRITICAL if is_critical else COLOR_URGENT
-    urgency_label = "CRITICAL" if is_critical else "HIGH"
 
     # Truncate original message
     original_text = message.text
     if len(original_text) > 400:
         original_text = original_text[:397] + "..."
 
-    # Build description
-    description = f"> {original_text}"
-    if extraction.summary:
-        description += f"\n\n**Summary**\n{extraction.summary}"
-
-    primary = " | ".join(t.value for t in extraction.primary_topics) or "other"
-    secondary = " | ".join(t.value for t in extraction.secondary_topics)
-    entities = (
-        ", ".join(extraction.all_entities[:5])
-        if extraction.all_entities
-        else extraction.primary_entity
+    # Extract news source from x.com URL in text (e.g. "FirstSquawk", "DeItaone")
+    source_match = _NEWS_SOURCE_RE.search(message.text)
+    news_source = source_match.group(1) if source_match else None
+    # Author line: "channel_name · news_source" or just "channel_name"
+    author = (
+        f"{message.source_account} · {news_source}"
+        if news_source and news_source != message.source_account
+        else message.source_account
     )
 
-    fields: list[dict[str, Any]] = [
-        {"name": "Urgency", "value": urgency_label, "inline": False},
+    description = f"> {original_text}"
+
+    fields: list[dict[str, Any]] = []
+
+    if extraction.matched_tickers:
+        fields.append(
+            {
+                "name": "Tickers",
+                "value": ", ".join(extraction.matched_tickers),
+                "inline": False,
+            }
+        )
+
+    fields.append(
         {
-            "name": "Topics",
-            "value": primary + (" | " + secondary if secondary else ""),
-            "inline": False,
+            "name": "Impact",
+            "value": f"{extraction.impact_score}/100",
+            "inline": True,
         },
-        {"name": "Entities", "value": entities, "inline": False},
-    ]
+    )
 
     embed: dict[str, Any] = {
-        "author": {"name": message.source_account},
+        "author": {"name": author},
         "title": "\U0001f6a8 1st Pass" if is_critical else "\u26a1 1st Pass",
         "color": color,
         "description": description[:4096],
@@ -197,17 +206,6 @@ def format_stage2_embed(
     Returns:
         List of embed dicts
     """
-    from synesis.processing.news.models import MACRO_ETF_TICKERS, SECTOR_ETF_TICKERS
-
-    sentiment = analysis.sentiment.value
-    sentiment_colors = {
-        "bullish": COLOR_BULLISH,
-        "bearish": COLOR_BEARISH,
-        "neutral": COLOR_NEUTRAL,
-    }
-    sentiment_labels = {k: f"{v} {k.upper()}" for k, v in SENTIMENT_ICON.items()}
-    color = sentiment_colors.get(sentiment, COLOR_NEUTRAL)
-    label = sentiment_labels.get(sentiment, "\u26aa NEUTRAL")
 
     # Truncate original message
     original_text = message.text
@@ -220,60 +218,42 @@ def format_stage2_embed(
     if analysis.historical_context:
         description += f"\n**Context:** *{analysis.historical_context}*\n\u200b"
 
-    # Top-level metrics
     fields: list[dict[str, Any]] = [
-        {
-            "name": "Signal",
-            "value": f"**{label}** ({analysis.sentiment_score:+.2f})",
-            "inline": True,
-        },
-        {"name": "Confidence", "value": f"{analysis.thesis_confidence:.0%}", "inline": True},
         {"name": "Source", "value": message.source_account, "inline": True},
     ]
 
-    # Ticker sections
-    stock_tickers = [
-        t
-        for t in analysis.ticker_analyses
-        if t.ticker not in MACRO_ETF_TICKERS and t.ticker not in SECTOR_ETF_TICKERS
-    ]
-    sector_tickers = [t for t in analysis.ticker_analyses if t.ticker in SECTOR_ETF_TICKERS]
-    macro_tickers = [t for t in analysis.ticker_analyses if t.ticker in MACRO_ETF_TICKERS]
-
-    def _format_ticker_lines(tickers: list[TickerAnalysis]) -> str:
+    # ETF impact with per-ETF sentiment — reason in blockquote
+    def _format_etf_impact(impacts: list[ETFImpact]) -> str:
         lines = []
-        for ta in tickers:
-            emoji = SENTIMENT_ICON.get(ta.net_direction.value, "\u26aa")
-            name = f" - {ta.company_name}" if ta.company_name else ""
-            line = f"{emoji} `${ta.ticker}`{name} {ta.net_direction.value} ({ta.conviction:.0%})"
-            if ta.relevance_reason:
-                line += f"\n> {ta.relevance_reason}"
+        for etf in impacts:
+            emoji = (
+                "\U0001f7e2"
+                if etf.sentiment_score > 0
+                else "\U0001f534"
+                if etf.sentiment_score < 0
+                else "\u26aa"
+            )
+            line = f"{emoji} `{etf.ticker}` ({etf.sentiment_score:+.1f})"
+            if etf.reason:
+                line += f"\n> {etf.reason}"
             lines.append(line)
         return "\n".join(lines)
 
-    if stock_tickers:
-        fields.append(
-            {
-                "name": "Tickers",
-                "value": _format_ticker_lines(stock_tickers)[:1024],
-                "inline": False,
-            }
-        )
-
-    if sector_tickers:
-        fields.append(
-            {
-                "name": "Sector Impact",
-                "value": _format_ticker_lines(sector_tickers)[:1024],
-                "inline": False,
-            }
-        )
-
-    if macro_tickers:
+    # Macro before sector
+    if analysis.macro_impact:
         fields.append(
             {
                 "name": "Macro Impact",
-                "value": _format_ticker_lines(macro_tickers)[:1024],
+                "value": _format_etf_impact(analysis.macro_impact)[:1024],
+                "inline": False,
+            }
+        )
+
+    if analysis.sector_impact:
+        fields.append(
+            {
+                "name": "Sector Impact",
+                "value": _format_etf_impact(analysis.sector_impact)[:1024],
                 "inline": False,
             }
         )
@@ -306,8 +286,8 @@ def format_stage2_embed(
 
     embed: dict[str, Any] = {
         "author": {"name": message.source_account},
-        "title": f"{label} Signal",
-        "color": color,
+        "title": "\U0001f4ca Analysis",
+        "color": COLOR_NEUTRAL,
         "description": description[:4096],
         "fields": fields[:25],
         "footer": {"text": "Synesis | Stage 2 Analysis"},

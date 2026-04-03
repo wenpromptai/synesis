@@ -20,6 +20,7 @@ from synesis.ingestion.twitterapi import Tweet
 from synesis.processing.common.llm import create_model
 from synesis.processing.common.ticker_tools import verify_ticker as _verify_ticker
 from synesis.processing.common.web_search import (
+    read_web_page,
     Recency,
     SearchProvidersExhaustedError,
     format_search_results,
@@ -56,16 +57,16 @@ asymmetric payoff, or IV surface anomaly. These 3 get the full treatment:
   what you already know from equity analysis alone
 
 **Other tickers** (beyond the top 3):
-- `get_quote()` + `web_search()` — no `get_options_snapshot()`
+- `get_quote()` + `web_search()` + `web_read()` — no `get_options_snapshot()`
 - Direction + reasoning; note any options thesis for next session if budget is exhausted
 
 **Macro ETFs** (SPY, QQQ, TLT, GLD, USO, UUP, VIXY, EEM):
-- Use `web_search()` to verify macro claims if needed
+- Use `web_search()` + `web_read()` to verify macro claims if needed
 - Call `get_quote()` or `get_options_snapshot()` if useful for the trade idea (counts against budget)
 - State the view with reasoning; add a specific trade idea if options data was fetched
 
 **Sector ETFs** (XLF, XLK, XLE, XLV, XLI, XLU, XLP, XLY, XLC, XLB, XLRE, SMH, IBB, KRE, XHB, etc.):
-- Use `web_search()` to verify sector-level claims if needed
+- Use `web_search()` + `web_read()` to verify sector-level claims if needed
 - Call `get_quote()` or `get_options_snapshot()` if useful for the trade idea (counts against budget)
 - State direction with reasoning; add a specific trade idea if options data was fetched
 
@@ -76,25 +77,28 @@ skip when the thesis is already clear and options data won't change the recommen
 
 1. **Identify themes** (3-7) from the tweets. Merge related topics.
 2. **For each theme**, follow this research loop:
-   a. **Verify tickers**: `verify_ticker()` for any individual stock ticker you're not 100% certain about — do this BEFORE fetching quotes/history/options so you don't waste calls on invalid symbols. Automatically searches SearXNG on NOT FOUND — review results before excluding.
-   b. **Verify claims**: tweet says "DRAM prices falling" → `web_search("DRAM spot prices 2026")`
+   a. **Verify tickers**: `verify_ticker()` for any individual stock ticker you're not 100% certain about — do this BEFORE fetching quotes/history/options so you don't waste calls on invalid symbols.
+   b. **Verify claims**: tweet says "DRAM prices falling" → `web_search("DRAM spot prices 2026")` → scan results → `web_read(best_url)` for full context
    c. **Price context** (individual stocks only): `get_quote()` — current price, MA levels, today's move
-   d. **Expand thesis**: `web_search()` for deeper context on the investment thesis
+   d. **Expand thesis**: `web_search()` to find relevant articles → `web_read()` on the best 1-2 URLs for deeper context
    e. **Options & trade idea**: see "Options strategy thinking" below
    f. **Macro/sector ETFs**: assign direction with reasoning; use tools if they add value to the trade idea
 3. **Synthesize** a concise market overview (3-5 sentences).
 
 ## Tool budget
-~12-18 total tool calls. Breakdown:
+~15-25 total tool calls. Breakdown:
 - 3 `get_options_snapshot()` calls max = ~12 yfinance calls
 - ~3-5 `get_quote()` calls
 - ~4-7 `web_search()` calls (hard cap: 7)
+- Unlimited `web_read()` calls — use freely to read articles from web_search results
 - ~1-3 `verify_ticker()` as needed
 
-## Search tips
-- Include the current year/month in web search queries for time-sensitive data
+## Web research tips
+- `web_search()` returns titles + snippets + URLs. Scan the results, then call `web_read(url)` on the most relevant 1-2 URLs to get full article content (~4000 chars each).
+- Include the current year/month in search queries for time-sensitive data
   (e.g. "DRAM spot prices March 2026" not just "DRAM spot prices").
 - The `recency` param filters by time window but does not add date context to the query itself.
+- Use `web_read()` when a snippet looks promising but you need more detail — it's free and gives you 10-20x more content than the snippet.
 
 ## Options strategy thinking
 
@@ -184,6 +188,7 @@ class TwitterAgentDeps:
     yfinance: YFinanceClient | None = field(default=None, repr=False)
     ticker_provider: TickerProvider | None = field(default=None, repr=False)
     web_search_calls: int = field(default=0)  # Counter for LLM web_search tool calls (hard cap: 7)
+    web_read_calls: int = field(default=0)  # Counter for web_read calls (unlimited)
 
     @property
     def accounts(self) -> list[str]:
@@ -281,6 +286,20 @@ class TwitterAgentAnalyzer:
             except Exception as e:
                 logger.warning("Web search failed in twitter analyzer", query=query, error=str(e))
                 return "Search failed — try a different query"
+
+        @agent.tool
+        async def web_read(
+            ctx: RunContext[TwitterAgentDeps],
+            url: str,
+        ) -> str:
+            """Read the full content of a web page. Use after web_search to read
+            the most relevant articles in depth (~4000 chars).
+
+            Args:
+                url: The URL to read (from web_search results)
+            """
+            ctx.deps.web_read_calls += 1
+            return await read_web_page(url)
 
         @agent.tool
         async def get_quote(

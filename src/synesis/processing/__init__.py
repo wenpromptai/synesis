@@ -5,8 +5,8 @@ Submodules:
 - common: Shared utilities (LLM factory, web search, watchlist)
 """
 
-# Re-exports for backward compatibility (deprecated, use submodule imports)
 from synesis.processing.common.llm import create_model
+from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.common.web_search import (
     Recency,
     SearchProvidersExhaustedError,
@@ -18,44 +18,30 @@ from synesis.processing.news.analyzer import (
     SmartAnalyzer,
 )
 from synesis.processing.news.models import (
-    BeatMissStatus,
-    Direction,
+    ETFImpact,
     LightClassification,
     MarketEvaluation,
-    MetricReading,
-    NewsCategory,
     NewsSignal,
-    NumericExtraction,
     PrimaryTopic,
-    ResearchQuality,
     SecondaryTopic,
     SmartAnalysis,
     SourcePlatform,
-    TickerAnalysis,
     UnifiedMessage,
     UrgencyLevel,
 )
-from synesis.processing.common.watchlist import WatchlistManager
 
 __all__ = [
-    # News (Flow 1) - Analyzer
+    # News (Flow 1)
     "AnalyzerDeps",
     "SmartAnalyzer",
-    # News (Flow 1) - Models
-    "BeatMissStatus",
-    "Direction",
+    "ETFImpact",
     "LightClassification",
     "MarketEvaluation",
-    "MetricReading",
-    "NewsCategory",
     "NewsSignal",
-    "NumericExtraction",
     "PrimaryTopic",
-    "ResearchQuality",
     "SecondaryTopic",
     "SmartAnalysis",
     "SourcePlatform",
-    "TickerAnalysis",
     "UnifiedMessage",
     "UrgencyLevel",
     "WatchlistManager",
