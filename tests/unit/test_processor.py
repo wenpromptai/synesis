@@ -490,9 +490,7 @@ class TestStage1Callback:
         processor._classifier.classify = AsyncMock(return_value=extraction)
         callback = AsyncMock()
 
-        result = await processor.process_message(
-            create_test_message(), on_stage1_complete=callback
-        )
+        result = await processor.process_message(create_test_message(), on_stage1_complete=callback)
 
         callback.assert_called_once()
         assert result.extraction == extraction

@@ -168,7 +168,7 @@ class TestMessageDeduplicator:
 
     def test_similarity_threshold(self) -> None:
         """Test that the default similarity threshold is sensible."""
-        assert SIMILARITY_THRESHOLD == 0.75
+        assert SIMILARITY_THRESHOLD == 0.85
         assert 0.0 < SIMILARITY_THRESHOLD < 1.0
 
 

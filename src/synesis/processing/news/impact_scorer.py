@@ -86,8 +86,10 @@ _LEVEL_RANK: dict[str, int] = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 # =============================================================================
 
 # "*BREAKING: FED CUTS RATES", "JUST IN: OPENAI RAISES $122B", "⚠ BREAKING: IRAN..."
+# "🔴US CPI ACTUAL: 2.5%", "🚨 BREAKING: ..."
 _BREAKING_RE = re.compile(
-    r"\*+\s*BREAKING|^BREAKING[:\s]|⚠\s*BREAKING|JUST\s+IN[:\s-]|(?:FLASH|ALERT|URGENT)[:\s]",
+    r"\*+\s*BREAKING|^BREAKING[:\s]|⚠\s*BREAKING|JUST\s+IN[:\s-]"
+    r"|(?:FLASH|ALERT|URGENT)[:\s]|[🔴🚨]",
     re.IGNORECASE,
 )
 
@@ -188,11 +190,11 @@ _EXTREME_MOVE_RE = re.compile(
 _TEXT_SIGNALS: list[tuple[re.Pattern[str], int, str]] = [
     (_WIRE_PREFIX_RE, 15, "wire_prefix"),
     (_BREAKING_ONLY_RE, 12, "breaking"),
-    (_JUST_IN_RE, 10, "just_in"),
+    (_JUST_IN_RE, 12, "just_in"),
     (_FLASH_ALERT_RE, 12, "flash_alert"),
     (_EXCLUSIVE_RE, 10, "exclusive"),
     (_SUPERLATIVE_RE, 10, "superlative"),
-    (_RED_CIRCLE_RE, 6, "red_circle"),
+    (_RED_CIRCLE_RE, 12, "red_circle"),
     (_SURPRISE_RE, 10, "surprise"),
     (_EXTREME_MOVE_RE, 8, "extreme_move"),
 ]
@@ -482,9 +484,9 @@ def _fast_track(text: str, source: str) -> tuple[UrgencyLevel, str] | None:
     if _MNA_RE.search(text) and amt >= 1e9:
         return (UrgencyLevel.critical, f"fast_track:mna_${amt / 1e9:.0f}B")
 
-    # BREAKING/JUST IN from wire sources → HIGH
-    if source in WIRE_RELAY_SOURCES and _BREAKING_RE.search(text):
-        return (UrgencyLevel.high, f"fast_track:breaking_wire:{source}")
+    # BREAKING/JUST IN from known source → HIGH
+    if is_known and _BREAKING_RE.search(text):
+        return (UrgencyLevel.high, f"fast_track:breaking:{source}")
 
     return None
 

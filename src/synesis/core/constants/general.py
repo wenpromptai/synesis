@@ -31,7 +31,7 @@ NASDAQ_CACHE_TTL_EARNINGS = 21600  # 6 hours for earnings calendar
 # ─────────────────────────────────────────────────────────────
 # Default Thresholds (can be overridden in Settings)
 # ─────────────────────────────────────────────────────────────
-DEFAULT_SIMILARITY_THRESHOLD = 0.75
+DEFAULT_SIMILARITY_THRESHOLD = 0.85
 
 # ─────────────────────────────────────────────────────────────
 # API URL Defaults (used as defaults in Settings)

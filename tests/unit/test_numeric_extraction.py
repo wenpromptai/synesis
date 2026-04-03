@@ -148,11 +148,20 @@ class TestImpactScoring:
         )
         assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
 
-    def test_breaking_non_wire_not_fast_tracked(self) -> None:
-        """BREAKING from non-wire source does NOT fast-track."""
+    def test_breaking_non_wire_fast_tracked(self) -> None:
+        """BREAKING from any source → at least high."""
         r = compute_impact_score("BREAKING: TRUMP REMOVES BONDI AS AG", "unusual_whales")
-        # unusual_whales is "curated" not in WIRE_RELAY_SOURCES, so no fast-track
-        assert r.urgency not in (UrgencyLevel.high, UrgencyLevel.critical)
+        assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
+
+    def test_red_circle_fast_tracked(self) -> None:
+        """🔴 prefix → at least high."""
+        r = compute_impact_score("🔴US CPI (YOY) (MAR) ACTUAL: 2.5%", "financialjuice")
+        assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
+
+    def test_siren_emoji_fast_tracked(self) -> None:
+        """🚨 prefix from known source → at least high."""
+        r = compute_impact_score("🚨 BREAKING: IRAN LAUNCHES STRIKES", "FirstSquawk")
+        assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
 
     # --- Scoring: Source reliability ---
 
