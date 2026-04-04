@@ -37,7 +37,6 @@ class TestDeduplicationResult:
             is_duplicate=False,
             duplicate_of=None,
             similarity=None,
-            processing_time_ms=5.0,
         )
         assert not result.is_duplicate
         assert result.duplicate_of is None
@@ -47,7 +46,6 @@ class TestDeduplicationResult:
             is_duplicate=True,
             duplicate_of="original_123",
             similarity=0.92,
-            processing_time_ms=3.5,
         )
         assert result.is_duplicate
         assert result.duplicate_of == "original_123"

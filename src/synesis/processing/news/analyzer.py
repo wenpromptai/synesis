@@ -1,4 +1,4 @@
-"""Stage 2: Smart analysis with LLM — entity extraction, sentiment, ETF impact, Polymarket.
+"""Stage 2: Smart analysis with LLM — entity analysis, sentiment, ETF impact, Polymarket.
 
 Takes a message + Stage 1 extraction (impact score + matched tickers) and produces
 a full SmartAnalysis using a smart LLM model with web_search, web_read, and

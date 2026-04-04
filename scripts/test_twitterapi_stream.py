@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Test script to verify Twitter Stream client is working.
 
+Connects to twitterapi.io WebSocket stream, prints tweets to console
+and saves raw JSONL to output/test/twitter_stream.jsonl.
+
 Prerequisites:
 1. Subscribe to twitterapi.io Stream plan (Starter $29/mo for 6 accounts)
 2. Configure filter rules at https://twitterapi.io/tweet-filter-rules
 3. Set TWITTERAPI_API_KEY in .env
+
+Run: uv run python scripts/test_twitterapi_stream.py
 """
 
 import asyncio

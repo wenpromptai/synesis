@@ -1,7 +1,7 @@
 """PydanticAI agent runner - two-stage controlled flow implementation.
 
 This runner uses the two-stage news processing architecture:
-- Stage 1: Entity extraction (fast, no judgment calls)
+- Stage 1: Impact scoring + ticker matching (fast, no LLM)
 - Stage 2: Smart analysis (all informed judgments with research context)
 
 Key characteristics:
@@ -78,13 +78,15 @@ async def emit_signal_to_db(
     message: UnifiedMessage,
     extraction: LightClassification,
     analysis: SmartAnalysis | None,
+    stage1_ms: float = 0.0,
 ) -> None:
     """Store signal to signals table (DB only, no notification).
 
     Args:
         message: Original message
-        extraction: Stage 1 entity extraction
+        extraction: Stage 1 classification result
         analysis: Stage 2 smart analysis (None for low/normal urgency signals)
+        stage1_ms: Stage 1 processing time in milliseconds
     """
     try:
         db = get_database()
@@ -101,6 +103,7 @@ async def emit_signal_to_db(
             external_id=message.external_id,
             extraction=extraction,
             analysis=analysis,
+            stage1_ms=stage1_ms,
         )
         await db.insert_signal(signal)
         logger.debug(
@@ -152,11 +155,11 @@ async def emit_stage1_notification(
 ) -> None:
     """Send Stage 1 first-pass notification via configured channel.
 
-    Sent immediately after Gate 1 for high/critical urgency signals.
+    Sent immediately after Stage 1 for normal/high/critical urgency signals.
 
     Args:
         message: Original message
-        extraction: Stage 1 entity extraction
+        extraction: Stage 1 classification result
     """
     sent = await emit_stage1(message, extraction)
     if not sent:
@@ -251,9 +254,11 @@ async def emit_signal(
     urgency = result.extraction.urgency
     is_high_urgency = urgency in (UrgencyLevel.high, UrgencyLevel.critical)
 
+    stage1_ms = result.stage1_ms
+
     if not is_high_urgency:
         # Low/normal urgency: store extraction-only signal to DB (no Stage 2 ran)
-        await emit_signal_to_db(result.message, result.extraction, None)
+        await emit_signal_to_db(result.message, result.extraction, None, stage1_ms)
         return
 
     # Stage 1 notification is sent immediately via on_stage1_complete callback
@@ -266,11 +271,11 @@ async def emit_signal(
             message_id=result.message.external_id,
             urgency=urgency.value,
         )
-        await emit_signal_to_db(result.message, result.extraction, None)
+        await emit_signal_to_db(result.message, result.extraction, None, stage1_ms)
         return
 
     # 1. Store full signal to DB (extraction + analysis, signals table)
-    await emit_signal_to_db(result.message, result.extraction, result.analysis)
+    await emit_signal_to_db(result.message, result.extraction, result.analysis, stage1_ms)
 
     # 2. Store each prediction to DB (predictions table)
     for evaluation in result.analysis.market_evaluations:
@@ -332,7 +337,7 @@ async def process_worker(
             log.debug(
                 "Worker processed message",
                 message_id=message.external_id,
-                processing_time_ms=f"{processing_result.processing_time_ms:.1f}",
+                stage1_ms=f"{processing_result.stage1_ms:.1f}",
             )
         except Exception as e:
             log.exception("Worker error processing message", error=str(e))

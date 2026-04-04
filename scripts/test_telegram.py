@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Test script to verify Telegram listener is working."""
+"""Test script to verify Telegram listener is working.
+
+Connects to Telegram, listens on configured channels, prints messages
+to console and saves raw JSONL to output/test/telegram_messages.jsonl.
+
+Requires TELEGRAM_API_ID and TELEGRAM_API_HASH in .env.
+
+Run: uv run python scripts/test_telegram.py
+"""
 
 import asyncio
 from datetime import datetime, timezone

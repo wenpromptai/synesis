@@ -66,7 +66,7 @@ src/synesis/
 ├── core/              # Logging, constants, dependencies
 ├── ingestion/         # Telegram, Twitter listeners
 ├── processing/        # All analysis pipelines
-│   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
+│   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
 │   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
 │   ├── events/        # Event radar: daily digest
@@ -75,9 +75,10 @@ src/synesis/
 ├── providers/         # External data providers
 │   ├── finnhub/       # Real-time prices, fundamentals
 │   ├── nasdaq/        # NASDAQ earnings calendar
-│   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
+│   ├── sec_edgar/     # SEC EDGAR filings, insiders, 13F holdings, ownership, XBRL
 │   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains
 │   ├── fred/          # FRED economic data (series, releases, observations)
+│   ├── massive/       # Massive.com stocks + options (free tier, Polygon-compatible)
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
 ├── notifications/     # Telegram & Discord notifications
@@ -117,6 +118,7 @@ scripts/               # Utility scripts
 - **SEC EDGAR API**: `https://data.sec.gov` (filings, Form 4, XBRL — free, no key)
 - **NASDAQ Earnings**: `https://api.nasdaq.com` (earnings calendar — free, no key)
 - **FRED API**: `https://api.stlouisfed.org/fred` (economic data — free key required)
+- **Massive.com API**: `https://api.massive.com` (stocks + options — free tier, 5 calls/min)
 
 ## API Routes
 

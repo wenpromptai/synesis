@@ -4,7 +4,7 @@ Produces LightClassification from:
   1. Impact scoring (impact_scorer.py) — urgency + score
   2. Ticker matching (ticker_matcher.py) — matched tickers from text
 
-All LLM-dependent work (entity extraction, sentiment, ETF impact)
+All LLM-dependent work (entity analysis, sentiment, ETF impact)
 is deferred to Stage 2.
 """
 

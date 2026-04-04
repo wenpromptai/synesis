@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Test script to verify Twitter client is working."""
+"""Test script to verify Twitter polling client is working.
+
+Polls configured Twitter accounts, prints tweets to console and saves
+raw JSONL to output/test/twitter_tweets.jsonl. Legacy — prefer the
+stream variant (test_twitterapi_stream.py) for real-time monitoring.
+
+Requires TWITTERAPI_API_KEY and TWITTER_ACCOUNTS in .env.
+
+Run: uv run python scripts/test_twitterapi.py
+"""
 
 import asyncio
 from datetime import datetime, timezone

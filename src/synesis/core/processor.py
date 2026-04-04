@@ -10,7 +10,7 @@ Stage 1 (Instant, no LLM):
 - Ticker matching (regex + curated names)
 
 Stage 2 (LLM with tools):
-- Entity extraction, sentiment, ETF impact
+- Entity analysis, sentiment, ETF impact
 - Web search, page reading, Polymarket search via tools
 """
 
@@ -57,14 +57,14 @@ class ProcessingResult:
     is_duplicate: bool = False
     duplicate_of: str | None = None
 
-    # Stage 1: Entity Extraction
+    # Stage 1: Impact scoring + ticker matching
     extraction: LightClassification | None = None
 
     # Stage 2: Smart Analysis (all informed judgments)
     analysis: SmartAnalysis | None = None
 
-    # Timing
-    processing_time_ms: float = 0.0
+    # Stage 1 processing time (dedup + classification)
+    stage1_ms: float = 0.0
 
     def to_signal(self) -> NewsSignal | None:
         """Convert to NewsSignal for storage/notification.
@@ -82,7 +82,7 @@ class ProcessingResult:
             external_id=self.message.external_id,
             extraction=self.extraction,
             analysis=self.analysis,
-            processing_time_ms=self.processing_time_ms,
+            stage1_ms=self.stage1_ms,
         )
 
     @property
@@ -144,7 +144,7 @@ class NewsProcessor:
         # Create deduplicator (loads Model2Vec)
         self._deduplicator = await create_deduplicator(self._redis)
 
-        # Create Stage 1 classifier (entity extraction, no judgment calls)
+        # Create Stage 1 classifier (impact scoring + ticker matching, no LLM)
         self._classifier = NewsClassifier()
 
         # Create Polymarket client (shared with Stage 2)
@@ -260,21 +260,23 @@ class NewsProcessor:
                 skip_reason="duplicate",
                 is_duplicate=True,
                 duplicate_of=dedup_result.duplicate_of,
-                processing_time_ms=elapsed_ms,
+                stage1_ms=elapsed_ms,
             )
 
         # 2. Stage 1: Instant classification (no LLM)
         extraction = await self.classifier.classify(message)
 
+        # Capture Stage 1 processing time (dedup + classification)
+        stage1_ms = (time.perf_counter() - start_time) * 1000
+
         # 3. Early exit for low urgency (skip everything)
         if extraction.urgency == UrgencyLevel.low:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
                 "Skipping Stage 2",
                 skip_reason="filtered by impact",
                 impact_score=extraction.impact_score,
                 urgency=extraction.urgency.value,
-                processing_time_ms=f"{elapsed_ms:.1f}",
+                stage1_ms=f"{stage1_ms:.1f}",
             )
             return ProcessingResult(
                 message=message,
@@ -284,7 +286,7 @@ class NewsProcessor:
                 analysis=None,
                 is_duplicate=False,
                 duplicate_of=None,
-                processing_time_ms=elapsed_ms,
+                stage1_ms=stage1_ms,
             )
 
         # 4. Fire Stage 1 callback (sends Discord notification for normal/high/critical)
@@ -301,13 +303,12 @@ class NewsProcessor:
 
         # 5. Early exit for normal urgency (Discord sent above, but skip Stage 2)
         if extraction.urgency == UrgencyLevel.normal:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
                 "Skipping Stage 2",
                 skip_reason="normal urgency (Stage 1 notified)",
                 impact_score=extraction.impact_score,
                 urgency=extraction.urgency.value,
-                processing_time_ms=f"{elapsed_ms:.1f}",
+                stage1_ms=f"{stage1_ms:.1f}",
             )
             return ProcessingResult(
                 message=message,
@@ -317,19 +318,18 @@ class NewsProcessor:
                 analysis=None,
                 is_duplicate=False,
                 duplicate_of=None,
-                processing_time_ms=elapsed_ms,
+                stage1_ms=stage1_ms,
             )
 
         # 6. Early exit if Stage 2 is disabled by config (high/critical only from here)
         stage2_disabled = not get_settings().stage2_enabled
 
         if stage2_disabled:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
             log.info(
                 "Skipping Stage 2",
                 skip_reason="disabled by config",
                 urgency=extraction.urgency.value,
-                processing_time_ms=f"{elapsed_ms:.1f}",
+                stage1_ms=f"{stage1_ms:.1f}",
             )
             return ProcessingResult(
                 message=message,
@@ -339,7 +339,7 @@ class NewsProcessor:
                 analysis=None,
                 is_duplicate=False,
                 duplicate_of=None,
-                processing_time_ms=elapsed_ms,
+                stage1_ms=stage1_ms,
             )
 
         # 7. Stage 2: Smart analysis (entities, sentiment, ETF impact, Polymarket)
@@ -379,19 +379,18 @@ class NewsProcessor:
                     recommended_side=best.recommended_side,
                 )
 
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-
         result = ProcessingResult(
             message=message,
             skipped=False,
             extraction=extraction,
             analysis=analysis,
-            processing_time_ms=elapsed_ms,
+            stage1_ms=stage1_ms,
         )
 
         log.info(
             "Message processing complete",
-            processing_time_ms=f"{elapsed_ms:.1f}",
+            stage1_ms=f"{stage1_ms:.1f}",
+            total_ms=f"{(time.perf_counter() - start_time) * 1000:.1f}",
             has_edge=result.has_edge,
         )
 

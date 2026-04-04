@@ -401,7 +401,7 @@ class TestEmitSignal:
         ):
             await emit_signal(result, mock_redis)
 
-        mock_db.assert_called_once_with(message, extraction, None)
+        mock_db.assert_called_once_with(message, extraction, None, 0.0)
         mock_stage1.assert_not_called()
         mock_stage2.assert_not_called()
 
@@ -445,5 +445,5 @@ class TestEmitSignal:
             await emit_signal(result, mock_redis)
 
         mock_stage1.assert_not_called()  # Stage 1 TG now sent via callback, not emit_signal
-        mock_db.assert_called_once_with(message, extraction, None)
+        mock_db.assert_called_once_with(message, extraction, None, 0.0)
         mock_stage2.assert_not_called()

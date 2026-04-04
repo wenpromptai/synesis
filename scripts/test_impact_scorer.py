@@ -369,7 +369,7 @@ _PCT_MOVE_RE = re.compile(
 )
 
 
-def _parse_dollar(match: re.Match) -> float:
+def _parse_dollar(match: re.Match[str]) -> float:
     raw_str = match.group(1)
     if not raw_str:
         return 0.0

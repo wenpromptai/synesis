@@ -12,7 +12,6 @@ References:
 """
 
 import hashlib
-import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -43,7 +42,6 @@ class DeduplicationResult:
     is_duplicate: bool
     duplicate_of: str | None = None  # external_id of original message
     similarity: float | None = None
-    processing_time_ms: float = 0.0
 
 
 @dataclass
@@ -141,8 +139,6 @@ class MessageDeduplicator:
         Returns:
             DeduplicationResult with duplicate status and details
         """
-        start_time = time.perf_counter()
-
         # Get all recent embeddings from Redis
         pattern = f"{REDIS_KEY_PREFIX}*"
         best_match: tuple[str | None, float] = (None, 0.0)
@@ -215,13 +211,7 @@ class MessageDeduplicator:
                 error=str(e),
                 embeddings_checked=embeddings_checked,
             )
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            return DeduplicationResult(
-                is_duplicate=False,
-                processing_time_ms=elapsed_ms,
-            )
-
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
+            return DeduplicationResult(is_duplicate=False)
 
         # Check if it's a duplicate
         is_duplicate = best_match[1] >= self.similarity_threshold
@@ -247,7 +237,6 @@ class MessageDeduplicator:
             is_duplicate=is_duplicate,
             duplicate_of=best_match[0] if is_duplicate else None,
             similarity=best_match[1] if best_match[1] > 0 else None,
-            processing_time_ms=elapsed_ms,
         )
 
     async def check_duplicate(self, message: UnifiedMessage) -> DeduplicationResult:
@@ -329,8 +318,6 @@ class MessageDeduplicator:
         Returns:
             DeduplicationResult with duplicate status
         """
-        start_time = time.perf_counter()
-
         # Generate embedding ONCE (used for both store and check)
         try:
             embedding = self._get_embedding(message.text)
@@ -340,11 +327,7 @@ class MessageDeduplicator:
                 message_id=message.external_id,
                 error=str(e),
             )
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            return DeduplicationResult(
-                is_duplicate=False,
-                processing_time_ms=elapsed_ms,
-            )
+            return DeduplicationResult(is_duplicate=False)
 
         # 1. Store embedding FIRST (atomic claim)
         stored = await self._store_embedding(message, embedding)

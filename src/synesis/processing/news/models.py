@@ -327,7 +327,7 @@ class NewsSignal(BaseModel):
         description="Stage 2 LLM analysis (None if Stage 2 was skipped)",
     )
 
-    processing_time_ms: float = 0.0
+    stage1_ms: float = 0.0
 
     @property
     def matched_tickers(self) -> list[str]:

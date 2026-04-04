@@ -9,8 +9,8 @@ You are reviewing code for Synesis. Follow CLAUDE.md (in the project root) for d
 
 ## Architecture Context
 This is a Python-based financial intelligence system built with FastAPI and PydanticAI:
-- **Processing**: Two-stage news pipeline — Stage 1 entity extraction (fast) + Stage 2 smart analysis (LLM with research context)
-- **Providers**: SEC EDGAR, NASDAQ, Finnhub for market data
+- **Processing**: Two-stage news pipeline — Stage 1 impact scoring + ticker matching (fast, no LLM) + Stage 2 smart analysis (LLM with research context)
+- **Providers**: SEC EDGAR, NASDAQ, Finnhub, yfinance, FRED, Massive.com for market data
 - **Markets**: Polymarket Gamma API for market discovery and evaluation
 - **Agent**: PydanticAI agent with APScheduler for periodic jobs
 - **Storage**: PostgreSQL (TimescaleDB) + Redis
@@ -47,7 +47,7 @@ Use git commands or file reading to understand the changes in the repository.
 
 ### 1. Architecture & Patterns
 - Dataclass-based clients (e.g., `PolymarketClient`) with `_get_client()` returning httpx.AsyncClient
-- Two-stage pipeline: Stage 1 entity extraction → Stage 2 smart analysis → NewsSignal model
+- Two-stage pipeline: Stage 1 impact scoring + ticker matching → Stage 2 smart analysis → NewsSignal model
 - pydantic-settings `BaseSettings` with `Field(default=...)` for configuration
 - asyncpg via `Database` wrapper in `storage/database.py`
 - PydanticAI agents with structured output models for LLM analysis
