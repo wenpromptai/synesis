@@ -116,7 +116,7 @@ services:
     logging: *default-logging
 
   crawl4ai:
-    image: unclecode/crawl4ai:latest
+    image: unclecode/crawl4ai:0.8.0
     container_name: synesis-crawl4ai
     restart: unless-stopped
     init: true
@@ -124,6 +124,8 @@ services:
       - synesis
     ports:
       - "11235:11235"
+    volumes:
+      - /dev/shm:/dev/shm
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:11235/health || exit 1"]
       interval: 30s
@@ -133,7 +135,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 5G
         reservations:
           memory: 512M
     logging: *default-logging

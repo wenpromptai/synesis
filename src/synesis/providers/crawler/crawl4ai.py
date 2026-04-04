@@ -19,6 +19,22 @@ from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+_BASIC_BROWSER_CFG: dict[str, Any] = {"headless": True, "type": "chromium"}
+_BASIC_CRAWLER_CFG: dict[str, Any] = {"output_formats": ["markdown"]}
+
+_STEALTH_BROWSER_CFG: dict[str, Any] = {
+    "headless": True,
+    "type": "chromium",
+    "enable_stealth": True,
+    "user_agent_mode": "random",
+    "extra_args": ["--disable-blink-features=AutomationControlled"],
+}
+_STEALTH_CRAWLER_CFG: dict[str, Any] = {
+    "output_formats": ["markdown"],
+    "magic": True,
+    "page_timeout": 60000,
+}
+
 
 @dataclass
 class CrawlResult:
@@ -104,6 +120,7 @@ class Crawl4AICrawlerProvider:
         self,
         url: str,
         *,
+        stealth: bool = True,
         wait_for: str | None = None,
         js_code: str | None = None,
         css_selector: str | None = None,
@@ -113,6 +130,7 @@ class Crawl4AICrawlerProvider:
 
         Args:
             url: URL to crawl
+            stealth: Use stealth browser config for anti-bot bypass (default True)
             wait_for: CSS selector to wait for before extracting (for JS-heavy pages)
             js_code: JavaScript code to execute before extraction
             css_selector: CSS selector to focus extraction on
@@ -123,6 +141,7 @@ class Crawl4AICrawlerProvider:
         """
         results = await self.crawl_many(
             [url],
+            stealth=stealth,
             wait_for=wait_for,
             js_code=js_code,
             css_selector=css_selector,
@@ -145,6 +164,7 @@ class Crawl4AICrawlerProvider:
         self,
         urls: list[str],
         *,
+        stealth: bool = True,
         wait_for: str | None = None,
         js_code: str | None = None,
         css_selector: str | None = None,
@@ -154,6 +174,7 @@ class Crawl4AICrawlerProvider:
 
         Args:
             urls: List of URLs to crawl
+            stealth: Use stealth browser config for anti-bot bypass (default True)
             wait_for: CSS selector to wait for before extracting
             js_code: JavaScript code to execute before extraction
             css_selector: CSS selector to focus extraction on
@@ -164,31 +185,28 @@ class Crawl4AICrawlerProvider:
         """
         client = self._get_http_client()
 
-        # Build request payload with anti-bot bypass enabled by default.
-        # magic=True activates Crawl4AI's stealth features: random user agents,
-        # navigator override, and common bot-detection pattern handling.
-        # This helps bypass 403s from Cloudflare, DataDome, etc.
+        if stealth:
+            browser_cfg = _STEALTH_BROWSER_CFG
+            crawler_cfg = _STEALTH_CRAWLER_CFG
+        else:
+            browser_cfg = _BASIC_BROWSER_CFG
+            crawler_cfg = _BASIC_CRAWLER_CFG
+
+        crawler_cfg_local = dict(crawler_cfg)
+        if wait_for:
+            crawler_cfg_local["wait_for"] = wait_for
+        if js_code:
+            crawler_cfg_local["js_code"] = js_code
+        if css_selector:
+            crawler_cfg_local["css_selector"] = css_selector
+        if screenshot:
+            crawler_cfg_local["screenshot"] = True
+
         payload: dict[str, Any] = {
             "urls": urls,
-            "magic": True,
-            "simulate_user": True,
-            "override_navigator": True,
-            "headers": {
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "DNT": "1",
-            },
+            "browser_config": browser_cfg,
+            "crawler_config": crawler_cfg_local,
         }
-
-        if wait_for:
-            payload["wait_for"] = wait_for
-        if js_code:
-            payload["js_code"] = js_code
-        if css_selector:
-            payload["css_selector"] = css_selector
-        if screenshot:
-            payload["screenshot"] = True
 
         try:
             response = await client.post(
@@ -260,19 +278,8 @@ class Crawl4AICrawlerProvider:
             ]
 
     async def crawl_sec_filing(self, url: str) -> CrawlResult:
-        """Crawl an SEC filing URL with optimized settings.
-
-        SEC filings often have specific structure. This method applies
-        appropriate settings for extracting filing content.
-
-        Args:
-            url: SEC EDGAR filing URL
-
-        Returns:
-            CrawlResult with extracted filing content
-        """
-        # SEC filings are typically static HTML/XML, no JS needed
-        return await self.crawl(url)
+        """Crawl an SEC filing URL with basic config (no stealth needed)."""
+        return await self.crawl(url, stealth=False)
 
     async def close(self) -> None:
         """Clean up resources."""

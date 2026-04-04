@@ -246,7 +246,7 @@ class FilingsMixin:
                 if result.success and result.markdown:
                     content = result.markdown
             except Exception as e:
-                logger.debug(
+                logger.warning(
                     "Crawl4AI failed for filing, falling back to HTML", url=filing_url, error=str(e)
                 )
 
