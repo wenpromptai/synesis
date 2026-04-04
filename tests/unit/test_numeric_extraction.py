@@ -210,10 +210,43 @@ class TestImpactScoring:
         r = compute_impact_score("COMPANY INVESTS $10B IN NEW PROJECT", "FirstSquawk")
         assert r.components["magnitude"] >= 12
 
-    def test_dollar_no_suffix_ignored(self) -> None:
-        """Dollar amounts without magnitude suffix are ignored (avoids $141/BBL)."""
+    def test_dollar_no_suffix_ignored_for_small_amounts(self) -> None:
+        """Small dollar amounts without suffix are ignored (avoids $141/BBL)."""
         r = compute_impact_score("OIL REACHES $141.37 PER BARREL", "FirstSquawk")
         assert r.components["magnitude"] == 0
+
+    def test_dollar_raw_large_amount_detected(self) -> None:
+        """Raw dollar amounts >= $1M without suffix are detected."""
+        r = compute_impact_score("SECURES $71,000,000 ORDER", "GlobeNewswire")
+        assert r.components["magnitude"] >= 6
+
+    def test_dollar_raw_billion_detected(self) -> None:
+        """Raw dollar amounts in billions without suffix are detected."""
+        r = compute_impact_score("RAISES $122,000,000,000 AT VALUATION", "GlobeNewswire")
+        assert r.components["magnitude"] >= 16
+
+    def test_dollar_raw_no_commas_detected(self) -> None:
+        """Raw dollar amounts without commas are detected."""
+        r = compute_impact_score("SECURES $71000000 ORDER", "GlobeNewswire")
+        assert r.components["magnitude"] >= 6
+
+    # --- Scoring: Content type - order/contract ---
+
+    def test_order_contract_scored(self) -> None:
+        """Order/contract keywords detected in content type scoring."""
+        r = compute_impact_score("SECURES $71M ORDER FOR TRANSCEIVERS", "Investing.com")
+        assert r.components["content_type"] >= 12
+
+    def test_order_contract_fast_track_high(self) -> None:
+        """Order/contract with $50M+ fast-tracks to HIGH urgency."""
+        r = compute_impact_score("Applied Optoelectronics secures $71M order", "Investing.com")
+        assert r.urgency == UrgencyLevel.high
+        assert any("fast_track:order" in reason for reason in r.reasons)
+
+    def test_order_contract_below_50m_no_fast_track(self) -> None:
+        """Order/contract below $50M does NOT fast-track."""
+        r = compute_impact_score("Company wins $10M contract for services", "MSN")
+        assert not any("fast_track:order" in reason for reason in r.reasons)
 
     # --- Scoring: Content type ---
 

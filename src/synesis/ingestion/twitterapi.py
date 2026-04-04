@@ -386,12 +386,15 @@ class TwitterStreamClient:
                     delay = self.reconnect_delay  # Reset delay on successful connect
                     logger.debug("twitter_ws_connected")
 
-                    async for message in ws:
+                    async for raw_msg in ws:
                         if not self._running:
                             break
-                        if isinstance(message, bytes):
-                            message = message.decode("utf-8")
-                        await self._handle_message(message)
+                        text = (
+                            bytes(raw_msg).decode("utf-8")
+                            if not isinstance(raw_msg, str)
+                            else raw_msg
+                        )
+                        await self._handle_message(text)
 
             except websockets.ConnectionClosed as e:
                 logger.warning("ws_connection_closed", code=e.code, reason=e.reason)

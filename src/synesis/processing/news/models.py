@@ -22,7 +22,7 @@ class SourcePlatform(str, Enum):
     """Platform where the message originated."""
 
     telegram = "telegram"
-    twitter = "twitter"
+    google_rss = "google_rss"
 
 
 # =============================================================================
@@ -31,7 +31,7 @@ class SourcePlatform(str, Enum):
 
 
 class UnifiedMessage(BaseModel):
-    """Normalized message from any source (Telegram/Twitter)."""
+    """Normalized message from any source (Telegram, Google RSS, etc.)."""
 
     external_id: str
     source_platform: SourcePlatform

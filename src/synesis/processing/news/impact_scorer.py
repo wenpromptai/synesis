@@ -1,7 +1,8 @@
 """Impact scoring for news messages.
 
-Hybrid system: fast-track rules for known-important patterns (econ data releases,
-BREAKING from wire sources, large M&A) + additive scoring for everything else.
+Hybrid system: fast-track rules for known-important patterns (large M&A, large
+orders/contracts, econ releases + BREAKING from known sources) + additive scoring
+for everything else.
 
 Backtested 2026-04 against 918k messages from marketfeed.jsonl:
   critical: 0.47% | high: 0.92% | normal: 27% | low: 72% | Stage 2: 1.39%
@@ -42,20 +43,23 @@ SOURCE_RELIABILITY: dict[str, tuple[str, int]] = {
     "TreeNewsFeed": ("newswire", 10),
     "dbnewsdelayed": ("newswire", 10),
     "thekobeissiletter": ("commentary", 0),
+    # RSS sources (Google News <source> element display names)
+    "Bloomberg.com": ("wire_relay", 12),
+    "Reuters": ("wire_relay", 12),
+    "Associated Press": ("newswire", 10),
+    "CNBC": ("curated", 8),
+    "The Wall Street Journal": ("curated", 8),
+    "Financial Times": ("curated", 8),
+    "Barron's": ("curated", 5),
+    "MarketWatch": ("curated", 5),
+    "Yahoo Finance": ("curated", 5),
+    "Investing.com": ("curated", 7),
+    "GlobeNewswire": ("newswire", 10),
+    "PR Newswire": ("newswire", 10),
+    "Business Wire": ("newswire", 10),
+    "The Motley Fool": ("sensational", 0),
+    "GuruFocus": ("sensational", 0),
 }
-
-# Sources trusted enough for fast-track BREAKING rules
-WIRE_RELAY_SOURCES = frozenset(
-    {
-        "FirstSquawk",
-        "DeItaone",
-        "diegobloomberg",
-        "LiveSquawk",
-        "Newsquawk",
-        "financialjuice",
-        "tradfi",
-    }
-)
 
 # Score → UrgencyLevel thresholds
 CRITICAL_THRESHOLD = 55
@@ -146,6 +150,10 @@ _DOLLAR_RE = re.compile(
     r"[$]\s*([\d,]+(?:\.\d+)?)\s*(TRILLION|BILLION|BLN|MILLION|MLN|THOUSAND|B|M|K)\b",
     re.IGNORECASE,
 )
+
+# Raw dollar amounts without suffix: "$71,000,000", "$122,000,000,000"
+# Only counted if ≥ $1M in _max_dollar_amount (filters out stock prices like "$141.37")
+_DOLLAR_RAW_RE = re.compile(r"[$]\s*([\d,]+(?:\.\d+)?)\b")
 
 # =============================================================================
 # A. Text Pattern Signals
@@ -285,6 +293,13 @@ _FDA_RE = re.compile(r"\bFDA\s+(?:APPROV|REJECT|BLOCK|HALT|BAN)\b", re.IGNORECAS
 # "ORACLE CUTS 18% OF ITS WORKFORCE, STOCK RISES 6% DUE TO AI-RELATED LAYOFFS"
 _LAYOFFS_RE = re.compile(r"\b(?:LAYOFF[S]?|CUT[S]?\s+\d+.*JOBS|RESTRUCTUR)\b", re.IGNORECASE)
 
+# "AOI RECEIVES NEW UPSIZED ORDER", "SECURES $71M ORDER", "WINS $2B CONTRACT"
+_ORDER_CONTRACT_RE = re.compile(
+    r"\b(?:SECURES?|WINS?|RECEIVES?|AWARDED|LANDS?|SIGNS?)\b.*\b(?:ORDER|CONTRACT|DEAL)\b"
+    r"|\b(?:ORDER|CONTRACT|DEAL)\b.*\b(?:SECURED|WON|RECEIVED|AWARDED|LANDED|SIGNED)\b",
+    re.IGNORECASE,
+)
+
 
 _CONTENT_SIGNALS: list[tuple[re.Pattern[str], int, str]] = [
     (_MNA_RE, 15, "mna"),
@@ -296,6 +311,7 @@ _CONTENT_SIGNALS: list[tuple[re.Pattern[str], int, str]] = [
     (_BANKRUPTCY_RE, 10, "bankruptcy"),
     (_FDA_RE, 10, "fda"),
     (_LAYOFFS_RE, 6, "layoffs"),
+    (_ORDER_CONTRACT_RE, 12, "order_contract"),
 ]
 
 # Tiered econ data: (pattern, base_points, label_prefix) — checked in priority order
@@ -351,11 +367,22 @@ def _parse_dollar(match: re.Match[str]) -> float:
 
 
 def _max_dollar_amount(text: str) -> float:
-    """Extract the largest dollar amount with magnitude suffix from text."""
+    """Extract the largest dollar amount from text.
+
+    Checks suffix-based amounts first ($71M, $5 BILLION), then raw amounts
+    ($71,000,000). Raw amounts only counted if >= $1M to filter stock prices.
+    """
     result = 0.0
     for m in _DOLLAR_RE.finditer(text):
         try:
             result = max(result, _parse_dollar(m))
+        except (ValueError, AttributeError):
+            continue
+    for m in _DOLLAR_RAW_RE.finditer(text):
+        try:
+            raw = float(m.group(1).replace(",", ""))
+            if raw >= 1_000_000:
+                result = max(result, raw)
         except (ValueError, AttributeError):
             continue
     return result
@@ -373,6 +400,7 @@ def _magnitude_score(text: str) -> tuple[int, list[str]]:
         (10e9, 16, lambda d: f"${d / 1e9:.0f}B"),
         (1e9, 12, lambda d: f"${d / 1e9:.1f}B"),
         (100e6, 8, lambda d: f"${d / 1e6:.0f}M"),
+        (50e6, 6, lambda d: f"${d / 1e6:.0f}M"),
         (10e6, 4, lambda d: f"${d / 1e6:.0f}M"),
     ]
     for threshold, points, fmt in dollar_tiers:
@@ -466,7 +494,8 @@ def _fast_track(text: str, source: str) -> tuple[UrgencyLevel, str] | None:
     """Check fast-track rules that bypass scoring.
 
     Returns (level, reason) or None. Only upgrades, never downgrades.
-    Econ fast-tracks require a known source to avoid promoting Telegram digests.
+    M&A and order/contract fast-tracks are source-agnostic (dollar amount is signal).
+    Econ releases and BREAKING require a known source to avoid promoting digests.
     """
     is_known = source in SOURCE_RELIABILITY
     has_release = bool(_RELEASE_FORMAT_RE.search(text))
@@ -483,6 +512,11 @@ def _fast_track(text: str, source: str) -> tuple[UrgencyLevel, str] | None:
     amt = _max_dollar_amount(text)
     if _MNA_RE.search(text) and amt >= 1e9:
         return (UrgencyLevel.critical, f"fast_track:mna_${amt / 1e9:.0f}B")
+
+    # Order/contract with $50M+ → HIGH (e.g. "secures $71M order for 800G transceivers")
+    if _ORDER_CONTRACT_RE.search(text) and amt >= 50e6:
+        label = f"${amt / 1e6:.0f}M" if amt < 1e9 else f"${amt / 1e9:.1f}B"
+        return (UrgencyLevel.high, f"fast_track:order_{label}")
 
     # BREAKING/JUST IN from known source → HIGH
     if is_known and _BREAKING_RE.search(text):

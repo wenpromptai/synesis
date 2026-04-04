@@ -1,12 +1,15 @@
 """Application configuration via pydantic-settings."""
 
+import ipaddress
 import json
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from synesis.config_cache import CacheTTLSettings
 from synesis.core.constants import (
     DEFAULT_FINNHUB_API_URL,
     DEFAULT_FINNHUB_WS_URL,
@@ -14,7 +17,7 @@ from synesis.core.constants import (
 )
 
 
-class Settings(BaseSettings):
+class Settings(CacheTTLSettings, BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
@@ -99,6 +102,39 @@ class Settings(BaseSettings):
                 v = [c.strip() for c in v.split(",") if c.strip()]
         return [c.lstrip("@") for c in v]
 
+    # RSS ingestion (Google News)
+    rss_enabled: bool = Field(
+        default=False,
+        description="Enable Google News RSS feed polling",
+    )
+    rss_poll_interval_minutes: int = Field(
+        default=1,
+        description="Minutes between RSS poll cycles",
+    )
+    rss_feeds: list[str] = Field(
+        default_factory=lambda: [
+            # AI mega-deals: M&A, investments, big orders ($M/$B)
+            'https://news.google.com/rss/search?q="AI"+OR+"artificial+intelligence"+"billion"+OR+"million"+acquisition+OR+order+OR+investment+OR+deal+when:24h&hl=en-US&gl=US&ceid=US:en',
+            # AI infrastructure supply chain: data centers, semis, GPUs, optics
+            'https://news.google.com/rss/search?q="data+center"+OR+semiconductor+OR+GPU+OR+transceiver+OR+"optical"+order+OR+deal+OR+contract+OR+investment+when:24h&hl=en-US&gl=US&ceid=US:en',
+        ],
+        description="Google News RSS feed URLs to poll (topic or search feeds)",
+    )
+
+    @field_validator("rss_feeds", mode="before")
+    @classmethod
+    def parse_rss_feeds(cls, v: str | list[str] | None) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                parsed: list[str] = json.loads(v)
+                v = parsed
+            else:
+                v = [u.strip() for u in v.split(",") if u.strip()]
+        return list(v)
+
     # Twitter (twitterapi.io) — ingestion client credentials (not active in Flow 1)
     twitterapi_api_key: SecretStr | None = Field(default=None)
     twitter_api_base_url: str = Field(default="https://api.twitterapi.io")
@@ -180,26 +216,6 @@ class Settings(BaseSettings):
         default=None,
         description="FRED API key (free, register at https://fredaccount.stlouisfed.org)",
     )
-    fred_cache_ttl_search: int = Field(
-        default=3600,
-        description="Cache TTL for FRED series search results (seconds)",
-    )
-    fred_cache_ttl_series: int = Field(
-        default=43200,
-        description="Cache TTL for FRED series metadata (seconds)",
-    )
-    fred_cache_ttl_observations: int = Field(
-        default=21600,
-        description="Cache TTL for FRED observations (seconds)",
-    )
-    fred_cache_ttl_releases: int = Field(
-        default=43200,
-        description="Cache TTL for FRED releases (seconds)",
-    )
-    fred_cache_ttl_release_dates: int = Field(
-        default=21600,
-        description="Cache TTL for FRED release dates (seconds)",
-    )
 
     # Massive (market data — free tier: 5 calls/min)
     massive_api_key: SecretStr | None = Field(
@@ -210,95 +226,10 @@ class Settings(BaseSettings):
         default="https://api.massive.com",
         description="Massive.com REST API base URL",
     )
-    massive_cache_ttl_bars: int = Field(
-        default=300,
-        description="Cache TTL for Massive bars/aggregates (seconds)",
-    )
-    massive_cache_ttl_reference: int = Field(
-        default=21600,
-        description="Cache TTL for Massive ticker/reference data (seconds, 6h)",
-    )
-    massive_cache_ttl_static: int = Field(
-        default=86400,
-        description="Cache TTL for Massive static data — exchanges, types, holidays (seconds, 24h)",
-    )
-    massive_cache_ttl_fundamentals: int = Field(
-        default=21600,
-        description="Cache TTL for Massive financials/dividends/shorts (seconds, 6h)",
-    )
-    massive_cache_ttl_news: int = Field(
-        default=900,
-        description="Cache TTL for Massive news articles (seconds, 15min)",
-    )
-    massive_cache_ttl_indicators: int = Field(
-        default=300,
-        description="Cache TTL for Massive technical indicators (seconds, 5min)",
-    )
-    massive_cache_ttl_market_status: int = Field(
-        default=60,
-        description="Cache TTL for Massive market status (seconds)",
-    )
-    massive_cache_ttl_options: int = Field(
-        default=3600,
-        description="Cache TTL for Massive options contract reference (seconds, 1h)",
-    )
-
     # SEC EDGAR (free, no key required)
     sec_edgar_user_agent: str = Field(
         default="Synesis synesis@example.com",
         description="User-Agent header for SEC EDGAR API (required by SEC)",
-    )
-    sec_edgar_cache_ttl_submissions: int = Field(
-        default=3600,
-        description="Cache TTL for SEC EDGAR submissions (seconds)",
-    )
-    sec_edgar_cache_ttl_cik_map: int = Field(
-        default=86400,
-        description="Cache TTL for SEC ticker→CIK mapping (seconds)",
-    )
-    sec_edgar_cache_ttl_company_facts: int = Field(
-        default=21600,
-        description="Cache TTL for SEC XBRL company facts (seconds, 6h)",
-    )
-    sec_edgar_cache_ttl_xbrl_frames: int = Field(
-        default=86400,
-        description="Cache TTL for SEC XBRL frames (seconds, 24h)",
-    )
-    sec_edgar_cache_ttl_filing_content: int = Field(
-        default=604800,
-        description="Cache TTL for SEC filing content (seconds, 7d — filings don't change)",
-    )
-
-    # NASDAQ (free, no key required)
-    nasdaq_cache_ttl_earnings: int = Field(
-        default=21600,
-        description="Cache TTL for NASDAQ earnings calendar per date (seconds)",
-    )
-    nasdaq_earnings_lookahead_days: int = Field(
-        default=14,
-        description="Number of days to look ahead for upcoming earnings",
-    )
-
-    # yfinance (free, no key required)
-    yfinance_cache_ttl_quote: int = Field(
-        default=60,
-        description="Cache TTL for yfinance quote snapshots (seconds)",
-    )
-    yfinance_cache_ttl_history: int = Field(
-        default=300,
-        description="Cache TTL for yfinance OHLCV history (seconds)",
-    )
-    yfinance_cache_ttl_options: int = Field(
-        default=120,
-        description="Cache TTL for yfinance options data (seconds)",
-    )
-    yfinance_cache_ttl_fx: int = Field(
-        default=30,
-        description="Cache TTL for yfinance FX rates (seconds)",
-    )
-    yfinance_cache_ttl_movers: int = Field(
-        default=300,
-        description="Cache TTL for yfinance market movers screener (seconds)",
     )
 
     # Crawl4AI (web crawling)
@@ -313,43 +244,18 @@ class Settings(BaseSettings):
         """Validate SearXNG URL to prevent SSRF in production."""
         if v is None:
             return v
-        # Get env from the values being validated
         env = info.data.get("env", "development")
         if env == "production":
-            # Block private IPs in production
-            private_patterns = [
-                # IPv4
-                "localhost",
-                "127.0.0.1",
-                "0.0.0.0",
-                "192.168.",
-                "10.",
-                "172.16.",
-                "172.17.",
-                "172.18.",
-                "172.19.",
-                "172.20.",
-                "172.21.",
-                "172.22.",
-                "172.23.",
-                "172.24.",
-                "172.25.",
-                "172.26.",
-                "172.27.",
-                "172.28.",
-                "172.29.",
-                "172.30.",
-                "172.31.",
-                # IPv6
-                "::1",
-                "[::1]",
-                "fc00:",
-                "[fc00:",
-                "fe80:",
-                "[fe80:",
-            ]
-            if any(pattern in v.lower() for pattern in private_patterns):
+            host = urlparse(v).hostname or ""
+            if host in ("localhost", "0.0.0.0"):
                 raise ValueError("SearXNG URL cannot point to internal network in production")
+            try:
+                addr = ipaddress.ip_address(host)
+                if addr.is_private or addr.is_loopback:
+                    raise ValueError("SearXNG URL cannot point to internal network in production")
+            except ValueError as e:
+                if "internal network" in str(e):
+                    raise
         return v
 
     # Trading

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram, Twitter) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
+Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram, Google News RSS) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
 
 ## Tech Stack
 
@@ -64,7 +64,7 @@ docker compose logs -f synesis
 ```
 src/synesis/
 ├── core/              # Logging, constants, dependencies
-├── ingestion/         # Telegram, Twitter listeners
+├── ingestion/         # Telegram listener, Google News RSS poller
 ├── processing/        # All analysis pipelines
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)

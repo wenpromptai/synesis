@@ -64,6 +64,7 @@ CURATED_NAMES: dict[str, str] = {
     "FACEBOOK": "META",
     "TESLA": "TSLA",
     "NETFLIX": "NFLX",
+    "AOI": "AAOI",
     "BROADCOM": "AVGO",
     "QUALCOMM": "QCOM",
     "MICRON": "MU",

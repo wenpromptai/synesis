@@ -20,7 +20,7 @@ class TestSourceEnums:
 
     def test_source_platform_values(self) -> None:
         assert SourcePlatform.telegram.value == "telegram"
-        assert SourcePlatform.twitter.value == "twitter"
+        assert SourcePlatform.google_rss.value == "google_rss"
 
 
 class TestUnifiedMessage:

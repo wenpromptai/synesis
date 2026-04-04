@@ -1,11 +1,12 @@
 """Agent lifecycle module used by the FastAPI server.
 
 Provides `agent_lifespan()` — an async context manager that starts and stops
-the full ingestion + processing pipeline (Telegram, PydanticAI agent workers).
-The FastAPI app calls this from its own lifespan.
+the full ingestion + processing pipeline (Telegram, Google RSS, PydanticAI agent
+workers). The FastAPI app calls this from its own lifespan.
 
 Configuration (set in .env):
     - TELEGRAM_API_ID, TELEGRAM_API_HASH: For Telegram
+    - RSS_ENABLED, RSS_FEEDS: For Google News RSS polling
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from synesis.agent.scheduler import (
 )
 from synesis.config import Settings
 from synesis.core.logging import get_logger
+from synesis.ingestion.google_rss import GoogleRSSPoller
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import SourcePlatform, UnifiedMessage
@@ -110,6 +112,24 @@ def create_telegram_to_queue_callback(
     return callback
 
 
+def create_rss_to_queue_callback(
+    redis: Redis,
+) -> Callable[[UnifiedMessage], Coroutine[Any, Any, None]]:
+    """Create callback that pushes RSS messages to Redis queue."""
+
+    async def callback(message: UnifiedMessage) -> None:
+        success = await push_to_queue(redis, message)
+        if success:
+            logger.debug(
+                "RSS item received and queued",
+                external_id=message.external_id,
+                source=message.source_account,
+                text_preview=message.text[:80] if message.text else "",
+            )
+
+    return callback
+
+
 @asynccontextmanager
 async def agent_lifespan(
     settings: Settings,
@@ -126,6 +146,7 @@ async def agent_lifespan(
     db_initialized = False
     price_service: FinnhubPriceProvider | None = None
     telegram_listener: TelegramListener | None = None
+    rss_poller: GoogleRSSPoller | None = None
     agent_task: asyncio.Task[None] | None = None
     scheduler: AsyncIOScheduler | None = None
 
@@ -180,6 +201,18 @@ async def agent_lifespan(
         else:
             logger.warning("Telegram credentials not set, Telegram listener disabled")
 
+        # 3b. Start RSS poller (if configured)
+        if settings.rss_enabled and settings.rss_feeds:
+            rss_poller = GoogleRSSPoller(
+                feeds=settings.rss_feeds,
+                poll_interval=settings.rss_poll_interval_minutes,
+                redis=redis,
+            )
+            rss_poller.on_message(create_rss_to_queue_callback(redis))
+            await rss_poller.start()
+        else:
+            logger.info("RSS polling disabled or no feeds configured")
+
         # Warn if notification config is incomplete for the chosen channel
         if settings.notification_channel == "discord":
             if not settings.discord_webhook_url:
@@ -199,9 +232,10 @@ async def agent_lifespan(
                 logger.info("Notifications configured for Telegram")
 
         # Check we have at least one source
-        if telegram_listener is None:
+        if telegram_listener is None and rss_poller is None:
             logger.error(
-                "No data sources configured! Set TELEGRAM_API_ID/TELEGRAM_API_HASH in .env"
+                "No data sources configured! "
+                "Set TELEGRAM_API_ID/TELEGRAM_API_HASH or RSS_ENABLED=true in .env"
             )
             sys.exit(1)
 
@@ -417,6 +451,13 @@ async def agent_lifespan(
                 pass
             except Exception:
                 logger.error("Agent task raised during shutdown", exc_info=True)
+
+        if rss_poller:
+            try:
+                await rss_poller.stop()
+                logger.debug("RSS poller stopped")
+            except Exception:
+                logger.error("Error stopping RSS poller", exc_info=True)
 
         if telegram_listener:
             try:

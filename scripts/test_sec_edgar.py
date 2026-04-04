@@ -1,7 +1,7 @@
 """Smoke test for SEC EDGAR provider — hits real SEC API.
 
 Rate-limited to 10 req/sec (SEC limit). Uses AAPL as test ticker.
-Run: uv run python scripts/smoke_test_sec_edgar.py
+Run: uv run python scripts/test_sec_edgar.py
 """
 
 from __future__ import annotations

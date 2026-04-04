@@ -3,7 +3,7 @@
 This module provides semantic deduplication of incoming messages:
 - Uses Model2Vec for fast embedding generation (~5ms per message)
 - Stores embeddings in Redis with 60-min TTL
-- Uses cosine similarity with 0.75 threshold
+- Uses cosine similarity with 0.85 threshold
 - Store-first pattern to prevent race conditions
 
 References:
@@ -11,7 +11,6 @@ References:
 - Model2Vec: https://github.com/MinishLab/model2vec
 """
 
-import hashlib
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -32,7 +31,7 @@ logger = get_logger(__name__)
 DEFAULT_MODEL = "minishlab/potion-base-8M"
 SIMILARITY_THRESHOLD = DEFAULT_SIMILARITY_THRESHOLD
 REDIS_TTL_SECONDS = DEDUP_CACHE_TTL_SECONDS
-REDIS_KEY_PREFIX = "dedup:emb:"
+REDIS_KEY_PREFIX = "synesis:news:dedup:emb:"
 
 
 @dataclass
@@ -123,10 +122,6 @@ class MessageDeduplicator:
         """Create Redis key for storing embedding."""
         return f"{REDIS_KEY_PREFIX}{platform}:{external_id}"
 
-    def _make_hash_key(self, text: str) -> str:
-        """Create a short hash of text for exact match check."""
-        return hashlib.sha256(text.encode()).hexdigest()[:16]
-
     async def _check_duplicate_with_embedding(
         self, message: UnifiedMessage, embedding: np.ndarray
     ) -> DeduplicationResult:
@@ -189,9 +184,9 @@ class MessageDeduplicator:
 
                     if similarity > best_match[1]:
                         # Extract external_id from key
-                        # Key format: dedup:emb:{platform}:{external_id}
+                        # Key format: synesis:news:dedup:emb:{platform}:{external_id}
                         parts = key_str.split(":")
-                        if len(parts) >= 4:
+                        if len(parts) >= 6:
                             original_id = parts[-1]
                             best_match = (original_id, similarity)
 
@@ -372,7 +367,7 @@ async def create_deduplicator(
 
     Args:
         redis: Redis client
-        similarity_threshold: Cosine similarity threshold for duplicates (0.75 default)
+        similarity_threshold: Cosine similarity threshold for duplicates (0.85 default)
         ttl_seconds: TTL for stored embeddings (60 min default)
 
     Returns:

@@ -162,6 +162,15 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
         "https://discord.com/api/webhooks/012/jkl",
         "https://discord.com/api/webhooks/012/jkl",
     ),  # SecretStr
+    # --- RSS ---
+    ("rss_enabled", "RSS_ENABLED", "true", True),
+    ("rss_poll_interval_minutes", "RSS_POLL_INTERVAL_MINUTES", "10", 10),
+    (
+        "rss_feeds",
+        "RSS_FEEDS",
+        '["https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"]',
+        ["https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"],
+    ),
     # --- Twitter ---
     ("twitterapi_api_key", "TWITTERAPI_API_KEY", "twkey", "twkey"),  # SecretStr
     (

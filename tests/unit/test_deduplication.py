@@ -123,7 +123,7 @@ class TestMessageDeduplicator:
         # Check that set was called (with nx=True for race condition safety)
         mock_redis.set.assert_called_once()
         call_args = mock_redis.set.call_args
-        assert "dedup:emb:telegram:msg_123" in call_args[0][0]
+        assert "synesis:news:dedup:emb:telegram:msg_123" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_process_message_stores_unique(self, mock_redis: AsyncMock) -> None:
