@@ -108,11 +108,11 @@ SELECT add_compression_policy('synesis.predictions', INTERVAL '7 days', if_not_e
 
 -- -----------------------------------------------------------------------------
 -- Raw Messages
--- Ingested messages from Telegram (and Twitter if enabled)
+-- Ingested messages from Telegram and Google News RSS
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS synesis.raw_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_platform TEXT NOT NULL,      -- 'telegram', 'twitter'
+    id BIGSERIAL PRIMARY KEY,
+    source_platform TEXT NOT NULL,      -- 'telegram', 'google_rss'
     source_account TEXT NOT NULL,       -- '@DeItaone', 'marketfeed'
     external_id TEXT NOT NULL,          -- Platform-specific ID
     raw_text TEXT NOT NULL,
@@ -129,12 +129,12 @@ CREATE INDEX IF NOT EXISTS idx_raw_messages_source_time
 -- -----------------------------------------------------------------------------
 -- Watchlist
 -- Tickers added by Flow 1 (news analysis) for tracking
--- added_by: source platform ('telegram', 'twitter', 'manual')
+-- added_by: source platform ('telegram', 'google_rss', 'manual')
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS synesis.watchlist (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id BIGSERIAL PRIMARY KEY,
     ticker TEXT NOT NULL UNIQUE,
-    added_by TEXT NOT NULL,             -- 'telegram', 'twitter', 'manual'
+    added_by TEXT NOT NULL,             -- 'telegram', 'google_rss', 'manual'
     added_reason TEXT,
     added_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,             -- TTL for auto-removal

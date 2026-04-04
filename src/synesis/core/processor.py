@@ -106,11 +106,10 @@ class NewsProcessor:
     This class encapsulates the full news processing pipeline:
     1. Deduplication - skip already-seen messages
     2. Stage 1: Impact scoring + ticker matching (fast, no LLM)
-    3. Early exit if low urgency (skip everything)
-    4. Fire on_stage1_complete callback (normal/high/critical → Discord)
-    5. Early exit if normal urgency (notified, but skip Stage 2)
-    6. Early exit if Stage 2 disabled by config
-    7. Stage 2: Smart analysis (all informed judgments)
+    3. Early exit if low/normal urgency (skip everything)
+    4. Fire on_stage1_complete callback (high/critical → Discord)
+    5. Early exit if Stage 2 disabled by config
+    6. Stage 2: Smart analysis (all informed judgments)
 
     Usage:
         processor = NewsProcessor(redis)
@@ -221,17 +220,15 @@ class NewsProcessor:
         Flow:
         1. Check for duplicates
         2. Stage 1: Impact scoring + ticker matching (fast, no LLM)
-        3. Early exit if low urgency (skip everything)
-        4. Fire on_stage1_complete callback (normal/high/critical → Discord)
-        5. Early exit if normal urgency (notified, but skip Stage 2)
-        6. Early exit if Stage 2 disabled by config
-        7. Stage 2: Smart analysis (all informed judgments with context)
+        3. Early exit if low/normal urgency (skip everything)
+        4. Fire on_stage1_complete callback (high/critical → Discord)
+        5. Early exit if Stage 2 disabled by config
+        6. Stage 2: Smart analysis (all informed judgments with context)
 
         Args:
             message: The unified message to process
             on_stage1_complete: Optional async callback invoked after Stage 1
-                extraction for normal/high/critical urgency. Skipped only for
-                low urgency.
+                extraction for high/critical urgency.
 
         Returns:
             ProcessingResult with extraction and analysis
@@ -269,8 +266,8 @@ class NewsProcessor:
         # Capture Stage 1 processing time (dedup + classification)
         stage1_ms = (time.perf_counter() - start_time) * 1000
 
-        # 3. Early exit for low urgency (skip everything)
-        if extraction.urgency == UrgencyLevel.low:
+        # 3. Early exit for low/normal urgency (skip everything)
+        if extraction.urgency in (UrgencyLevel.low, UrgencyLevel.normal):
             log.info(
                 "Skipping Stage 2",
                 skip_reason="filtered by impact",
@@ -289,7 +286,7 @@ class NewsProcessor:
                 stage1_ms=stage1_ms,
             )
 
-        # 4. Fire Stage 1 callback (sends Discord notification for normal/high/critical)
+        # 4. Fire Stage 1 callback (sends Discord notification for high/critical)
         if on_stage1_complete:
             try:
                 await on_stage1_complete(message, extraction)
@@ -301,27 +298,7 @@ class NewsProcessor:
         else:
             log.warning("No Stage 1 callback provided")
 
-        # 5. Early exit for normal urgency (Discord sent above, but skip Stage 2)
-        if extraction.urgency == UrgencyLevel.normal:
-            log.info(
-                "Skipping Stage 2",
-                skip_reason="normal urgency (Stage 1 notified)",
-                impact_score=extraction.impact_score,
-                urgency=extraction.urgency.value,
-                stage1_ms=f"{stage1_ms:.1f}",
-            )
-            return ProcessingResult(
-                message=message,
-                skipped=False,
-                skip_reason=None,
-                extraction=extraction,
-                analysis=None,
-                is_duplicate=False,
-                duplicate_of=None,
-                stage1_ms=stage1_ms,
-            )
-
-        # 6. Early exit if Stage 2 is disabled by config (high/critical only from here)
+        # 5. Early exit if Stage 2 is disabled by config (high/critical only from here)
         stage2_disabled = not get_settings().stage2_enabled
 
         if stage2_disabled:

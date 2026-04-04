@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
 
 import asyncpg
 import orjson
@@ -150,14 +149,14 @@ class Database:
     async def insert_raw_message(
         self,
         message: "UnifiedMessage",
-    ) -> UUID:
+    ) -> int:
         """Insert a raw message into the raw_messages table.
 
         Args:
             message: The unified message to insert
 
         Returns:
-            UUID of the inserted message
+            ID of the inserted message
         """
         query = """
             INSERT INTO raw_messages (
@@ -179,7 +178,7 @@ class Database:
 
         if result is None:
             # Message already exists, fetch existing ID
-            existing: UUID | None = await self.fetchval(
+            existing: int | None = await self.fetchval(
                 "SELECT id FROM raw_messages WHERE source_platform = $1 AND external_id = $2",
                 message.source_platform.value,
                 message.external_id,
@@ -196,7 +195,7 @@ class Database:
             )
             return existing
 
-        message_id = cast(UUID, result)
+        message_id = cast(int, result)
         logger.debug(
             "Raw message inserted",
             id=str(message_id),

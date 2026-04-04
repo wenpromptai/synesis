@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
@@ -208,7 +207,7 @@ class TestDatabaseSignalOperations:
 
         db = Database(dsn="postgresql://localhost/db")
 
-        expected_id = uuid4()
+        expected_id = 42
         mock_conn = AsyncMock()
         mock_conn.fetchval = AsyncMock(return_value=expected_id)
 
@@ -242,7 +241,7 @@ class TestDatabaseSignalOperations:
 
         db = Database(dsn="postgresql://localhost/db")
 
-        existing_id = uuid4()
+        existing_id = 7
         mock_conn = AsyncMock()
         # First call returns None (conflict), second returns existing ID
         mock_conn.fetchval = AsyncMock(side_effect=[None, existing_id])

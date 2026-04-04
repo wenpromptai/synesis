@@ -482,17 +482,17 @@ class TestStage1Callback:
         callback.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_callback_invoked_for_normal_urgency_but_stage2_skipped(
+    async def test_callback_not_invoked_for_normal_urgency(
         self, processor: NewsProcessor
     ) -> None:
-        """Callback fires for normal urgency (Discord Stage 1), but Stage 2 is skipped."""
+        """Callback does NOT fire for normal urgency (skipped like low)."""
         extraction = create_test_extraction(urgency=UrgencyLevel.normal)
         processor._classifier.classify = AsyncMock(return_value=extraction)
         callback = AsyncMock()
 
         result = await processor.process_message(create_test_message(), on_stage1_complete=callback)
 
-        callback.assert_called_once()
+        callback.assert_not_called()
         assert result.extraction == extraction
         assert result.analysis is None
 

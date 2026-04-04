@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import httpx
@@ -16,7 +16,38 @@ from synesis.ingestion.google_rss import (
     _parse_pub_date,
     parse_feed_xml,
 )
+from synesis.processing.news.deduplication import DeduplicationResult
 from synesis.processing.news.models import SourcePlatform
+
+
+def _mock_deduplicator(*, is_duplicate: bool = False) -> AsyncMock:
+    """Create a mock MessageDeduplicator that returns the given duplicate status."""
+    dedup = AsyncMock()
+    dedup.process_message.return_value = DeduplicationResult(is_duplicate=is_duplicate)
+    return dedup
+
+
+def _make_fresh_xml(pub_date: datetime | None = None) -> bytes:
+    """Build RSS XML with a configurable pubDate for freshness testing."""
+    if pub_date is None:
+        pub_date = datetime.now(UTC)
+    # Format as RFC 2822
+    date_str = pub_date.strftime("%a, %d %b %Y %H:%M:%S GMT")
+    return f"""\
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Fresh Headline - Reuters</title>
+      <link>https://news.google.com/rss/articles/abc</link>
+      <guid isPermaLink="false">guid-fresh</guid>
+      <pubDate>{date_str}</pubDate>
+      <source url="https://www.reuters.com">Reuters</source>
+    </item>
+  </channel>
+</rss>
+""".encode()
+
 
 # ─────────────────────────────────────────────────────────────
 # Fixture: Google News RSS XML
@@ -164,44 +195,6 @@ class TestToUnified:
 
 
 # ─────────────────────────────────────────────────────────────
-# GUID dedup (requires Redis mock)
-# ─────────────────────────────────────────────────────────────
-
-
-class TestGuidDedup:
-    @pytest.mark.asyncio
-    async def test_unseen_guid(self) -> None:
-        """Unseen GUIDs should not be marked as seen."""
-        redis = AsyncMock()
-        redis.exists.return_value = 0
-        redis.set = AsyncMock()
-
-        poller = GoogleRSSPoller(feeds=[], poll_interval=5, redis=redis)
-        assert await poller._is_seen("new-guid") is False
-
-    @pytest.mark.asyncio
-    async def test_seen_guid(self) -> None:
-        """Seen GUIDs should be detected."""
-        redis = AsyncMock()
-        redis.exists.return_value = 1
-
-        poller = GoogleRSSPoller(feeds=[], poll_interval=5, redis=redis)
-        assert await poller._is_seen("old-guid") is True
-
-    @pytest.mark.asyncio
-    async def test_mark_seen_calls_redis(self) -> None:
-        redis = AsyncMock()
-        redis.set = AsyncMock()
-
-        poller = GoogleRSSPoller(feeds=[], poll_interval=5, redis=redis)
-        await poller._mark_seen("guid-abc")
-
-        redis.set.assert_called_once()
-        args = redis.set.call_args
-        assert "synesis:google_rss:seen:guid-abc" in args[0]
-
-
-# ─────────────────────────────────────────────────────────────
 # Pub date parsing
 # ─────────────────────────────────────────────────────────────
 
@@ -214,118 +207,151 @@ class TestParsePubDate:
         assert dt.day == 3
         assert dt.tzinfo is not None
 
-    def test_invalid_date_returns_now(self) -> None:
+    def test_invalid_date_returns_epoch(self) -> None:
         dt = _parse_pub_date("not a date")
-        # Should return a datetime close to now, not crash
-        assert dt.year >= 2026
+        # Should return epoch (stale) so freshness filter rejects it
+        assert dt == datetime.min.replace(tzinfo=UTC)
         assert dt.tzinfo is not None
 
+    def test_timezone_aware_utc(self) -> None:
+        """Parsed dates must be UTC-aware for freshness comparison."""
+        dt = _parse_pub_date("Fri, 03 Apr 2026 16:55:44 GMT")
+        assert dt.tzinfo is not None
+        assert dt.utcoffset() == timedelta(0)
 
-# ─────────────────────────────────────────────────────────────
-# Seed behavior (first poll caches, doesn't process)
-# ─────────────────────────────────────────────────────────────
-
-
-class TestSeedBehavior:
-    @pytest.mark.asyncio
-    async def test_seed_marks_seen_without_callback(self) -> None:
-        """First poll should mark all GUIDs as seen but NOT invoke callback."""
-        redis = AsyncMock()
-        redis.exists.return_value = 0
-        redis.set = AsyncMock()
-
-        poller = GoogleRSSPoller(feeds=["https://example.com/rss"], poll_interval=1, redis=redis)
-        poller._client = AsyncMock()
-
-        callback = AsyncMock()
-        poller.on_message(callback)
-
-        # Mock HTTP response with our test XML
-        mock_resp = AsyncMock()
-        mock_resp.content = GOOGLE_NEWS_XML
-        mock_resp.raise_for_status = lambda: None
-        poller._client.get.return_value = mock_resp
-
-        # Run seed
-        result = await poller._seed_seen_cache()
-
-        # GUIDs should be marked as seen (3 items in fixture)
-        assert redis.set.call_count == 3
-
-        # Callback should NOT have been called
-        callback.assert_not_called()
-
-        # Should return True (at least one feed succeeded)
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_seed_returns_false_when_all_feeds_fail(self) -> None:
-        """Seed should return False when no feeds are reachable."""
-        redis = AsyncMock()
-
-        poller = GoogleRSSPoller(feeds=["https://example.com/rss"], poll_interval=1, redis=redis)
-        poller._client = AsyncMock()
-        poller._client.get.side_effect = httpx.HTTPError("connection failed")
-
-        result = await poller._seed_seen_cache()
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_seeded_flag_set_after_seed(self) -> None:
-        """_seeded flag should be False initially and True after seeding."""
-        redis = AsyncMock()
-        redis.exists.return_value = 0
-        redis.set = AsyncMock()
-
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
-        assert poller._seeded is False
-
-        poller._client = AsyncMock()
-        await poller._seed_seen_cache()
-        # Note: _seeded is set by _poll_loop, not _seed_seen_cache directly
-        # But we can verify the method runs without error
+    def test_non_gmt_timezone_converted(self) -> None:
+        """Non-GMT timezones should be converted to UTC."""
+        dt = _parse_pub_date("Fri, 03 Apr 2026 12:55:44 -0400")
+        assert dt.tzinfo is not None
+        # -0400 means 12:55 local = 16:55 UTC
+        assert dt.hour == 16
+        assert dt.minute == 55
 
 
 # ─────────────────────────────────────────────────────────────
-# _poll_feed end-to-end (with mocked HTTP + Redis)
+# _poll_feed: freshness filter + semantic dedup
 # ─────────────────────────────────────────────────────────────
 
 
 class TestPollFeed:
     @pytest.mark.asyncio
-    async def test_new_items_invoke_callback(self) -> None:
-        """New items (unseen GUIDs) should be pushed through the callback."""
-        redis = AsyncMock()
-        redis.exists.return_value = 0  # all GUIDs unseen
-        redis.set = AsyncMock()
+    async def test_fresh_items_invoke_callback(self) -> None:
+        """Fresh items that pass semantic dedup should be pushed through the callback."""
+        dedup = _mock_deduplicator()
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
+        poller._client = AsyncMock()
+        poller._resolve_url = AsyncMock(side_effect=lambda url: url)
 
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
+        callback = AsyncMock()
+        poller.on_message(callback)
+
+        # Use fresh XML (pubDate = now)
+        mock_resp = AsyncMock()
+        mock_resp.content = _make_fresh_xml()
+        mock_resp.raise_for_status = lambda: None
+        poller._client.get.return_value = mock_resp
+
+        count = await poller._poll_feed("https://example.com/rss")
+
+        assert count == 1
+        assert callback.call_count == 1
+        assert dedup.process_message.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stale_items_skipped(self) -> None:
+        """Articles older than 15 minutes should be skipped entirely."""
+        dedup = _mock_deduplicator()
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
         poller._client = AsyncMock()
 
-        # Mock resolve_url to return the original URL
+        callback = AsyncMock()
+        poller.on_message(callback)
+
+        # Use stale XML (pubDate = 30 min ago)
+        stale_time = datetime.now(UTC) - timedelta(minutes=30)
+        mock_resp = AsyncMock()
+        mock_resp.content = _make_fresh_xml(stale_time)
+        mock_resp.raise_for_status = lambda: None
+        poller._client.get.return_value = mock_resp
+
+        count = await poller._poll_feed("https://example.com/rss")
+
+        assert count == 0
+        callback.assert_not_called()
+        # Dedup should NOT be called for stale items
+        dedup.process_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_semantic_dedup_drops_duplicate(self) -> None:
+        """Fresh items flagged as duplicate by semantic dedup should be dropped."""
+        dedup = _mock_deduplicator(is_duplicate=True)
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
+        poller._client = AsyncMock()
         poller._resolve_url = AsyncMock(side_effect=lambda url: url)
 
         callback = AsyncMock()
         poller.on_message(callback)
 
         mock_resp = AsyncMock()
-        mock_resp.content = GOOGLE_NEWS_XML
+        mock_resp.content = _make_fresh_xml()
         mock_resp.raise_for_status = lambda: None
         poller._client.get.return_value = mock_resp
 
         count = await poller._poll_feed("https://example.com/rss")
 
-        assert count == 3
-        assert callback.call_count == 3
+        assert count == 0
+        callback.assert_not_called()
+        assert dedup.process_message.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_seen_items_skipped(self) -> None:
-        """Already-seen GUIDs should NOT invoke callback."""
-        redis = AsyncMock()
-        redis.exists.return_value = 1  # all GUIDs seen
-        redis.set = AsyncMock()
+    async def test_item_at_14min_passes_freshness(self) -> None:
+        """Article published 14 min ago (inside 15-min window) should pass."""
+        dedup = _mock_deduplicator()
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
+        poller._client = AsyncMock()
+        poller._resolve_url = AsyncMock(side_effect=lambda url: url)
 
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
+        callback = AsyncMock()
+        poller.on_message(callback)
+
+        pub_time = datetime.now(UTC) - timedelta(minutes=14)
+        mock_resp = AsyncMock()
+        mock_resp.content = _make_fresh_xml(pub_time)
+        mock_resp.raise_for_status = lambda: None
+        poller._client.get.return_value = mock_resp
+
+        count = await poller._poll_feed("https://example.com/rss")
+
+        assert count == 1
+        assert callback.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_item_at_16min_skipped(self) -> None:
+        """Article published 16 min ago (outside 15-min window) should be skipped."""
+        dedup = _mock_deduplicator()
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
+        poller._client = AsyncMock()
+
+        callback = AsyncMock()
+        poller.on_message(callback)
+
+        pub_time = datetime.now(UTC) - timedelta(minutes=16)
+        mock_resp = AsyncMock()
+        mock_resp.content = _make_fresh_xml(pub_time)
+        mock_resp.raise_for_status = lambda: None
+        poller._client.get.return_value = mock_resp
+
+        count = await poller._poll_feed("https://example.com/rss")
+
+        assert count == 0
+        callback.assert_not_called()
+        dedup.process_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_all_fixture_items_skipped_when_stale(self) -> None:
+        """The GOOGLE_NEWS_XML fixture has old dates — all items should be skipped."""
+        dedup = _mock_deduplicator()
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
         poller._client = AsyncMock()
 
         callback = AsyncMock()
@@ -344,8 +370,8 @@ class TestPollFeed:
     @pytest.mark.asyncio
     async def test_http_error_returns_zero(self) -> None:
         """HTTP errors should log warning and return 0, not crash."""
-        redis = AsyncMock()
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
+        dedup = _mock_deduplicator()
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=dedup)
         poller._client = AsyncMock()
         poller._client.get.side_effect = httpx.HTTPError("connection failed")
 
@@ -361,8 +387,7 @@ class TestPollFeed:
 class TestResolveUrl:
     @pytest.mark.asyncio
     async def test_returns_resolved_url(self) -> None:
-        redis = AsyncMock()
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=_mock_deduplicator())
         poller._client = AsyncMock()
 
         mock_resp = AsyncMock()
@@ -374,8 +399,7 @@ class TestResolveUrl:
 
     @pytest.mark.asyncio
     async def test_returns_original_on_error(self) -> None:
-        redis = AsyncMock()
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=_mock_deduplicator())
         poller._client = AsyncMock()
         poller._client.head.side_effect = httpx.HTTPError("429")
 
@@ -384,8 +408,7 @@ class TestResolveUrl:
 
     @pytest.mark.asyncio
     async def test_empty_url_returns_empty(self) -> None:
-        redis = AsyncMock()
-        poller = GoogleRSSPoller(feeds=[], poll_interval=1, redis=redis)
+        poller = GoogleRSSPoller(feeds=[], poll_interval=1, deduplicator=_mock_deduplicator())
         poller._client = AsyncMock()
 
         result = await poller._resolve_url("")

@@ -2,16 +2,19 @@
 
 Ingests news from Google News RSS feeds (topic feeds and search feeds) on a
 configurable interval. Each new article is converted to a UnifiedMessage and
-pushed through a callback into the same processing queue as Telegram messages.
+pushed through the same processing queue as Telegram messages.
 
-Deduplication is two-layered:
-  1. GUID dedup (this module) — each RSS item has a unique GUID. On every poll
-     cycle the feed returns ~100 items, most already seen. We store seen GUIDs
-     as Redis keys with a 48h TTL so repeated items are skipped before they
-     ever hit the processing queue.
-  2. Semantic dedup (downstream) — the existing MessageDeduplicator uses
-     Model2Vec cosine similarity (threshold 0.85) to catch cross-source
-     duplicates, e.g. the same story arriving via both Telegram and RSS.
+Deduplication:
+  1. Freshness filter (this module) — articles older than 15 minutes are
+     skipped. Google News RSS returns up to 24h of articles, but we only
+     care about fresh ones. This eliminates stale articles on every poll
+     and on startup (no seed mechanism needed).
+  2. Semantic dedup (shared with processor) — the MessageDeduplicator uses
+     Model2Vec cosine similarity (threshold 0.85) to catch duplicates.
+     Google News rotates GUIDs for some articles between polls, so GUID-
+     based dedup is unreliable. Semantic dedup catches these rotating-GUID
+     duplicates as well as cross-source duplicates (e.g. same story from
+     both Telegram and RSS).
 
 Google News RSS specifics:
   - <link> values are Google redirect URLs, not real article URLs. We resolve
@@ -27,28 +30,23 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import defusedxml.ElementTree as ET
 import httpx
 from defusedxml import DefusedXmlException
-from redis.asyncio import Redis
-from redis.exceptions import RedisError
 
 from synesis.core.logging import get_logger
+from synesis.processing.news.deduplication import MessageDeduplicator
 from synesis.processing.news.models import SourcePlatform, UnifiedMessage
 
 logger = get_logger(__name__)
 
-# Each seen GUID stored as a Redis key with this prefix and 48h TTL.
-# After expiry the GUID could be re-ingested, but by then the article
-# is stale and the semantic dedup would catch it anyway.
-# NOTE: This is separate from the semantic dedup in deduplication.py
-# (synesis:news:dedup:emb:*) which catches cross-source duplicates.
-_SEEN_PREFIX = "synesis:google_rss:seen:"
-_SEEN_TTL_SECONDS = 48 * 3600
+# Articles older than this are skipped. Keeps the 60-min dedup TTL
+# sufficient to catch rotating GUIDs for fresh articles.
+_FRESHNESS_MINUTES = 15
 
 # Max concurrent HTTP HEAD requests for resolving Google redirect URLs.
 _RESOLVE_SEMAPHORE_LIMIT = 2
@@ -83,11 +81,16 @@ def _clean_title(title: str, source_name: str) -> str:
 
 
 def _parse_pub_date(text: str) -> datetime:
-    """Parse RFC 2822 date string (e.g. 'Fri, 03 Apr 2026 16:55:44 GMT')."""
+    """Parse RFC 2822 date string (e.g. 'Fri, 03 Apr 2026 16:55:44 GMT').
+
+    Falls back to epoch on parse failure so the article is treated as stale
+    by the freshness filter (safe default — never accidentally process junk).
+    """
     try:
         return parsedate_to_datetime(text).astimezone(UTC)
     except Exception:
-        return datetime.now(UTC)
+        logger.warning("Failed to parse pubDate, treating as stale", raw_date=text[:80])
+        return datetime.min.replace(tzinfo=UTC)
 
 
 def parse_feed_xml(xml_bytes: bytes) -> list[RSSItem]:
@@ -127,7 +130,7 @@ def parse_feed_xml(xml_bytes: bytes) -> list[RSSItem]:
                 link=link_el.text if link_el is not None and link_el.text else "",
                 pub_date=_parse_pub_date(pub_date_el.text)
                 if pub_date_el is not None and pub_date_el.text
-                else datetime.now(UTC),
+                else datetime.min.replace(tzinfo=UTC),
                 source_name=source_name,
                 source_url=source_url,
                 description=desc_el.text if desc_el is not None and desc_el.text else "",
@@ -143,32 +146,31 @@ class GoogleRSSPoller:
     Same interface as TelegramListener: register a callback via on_message(),
     then start()/stop() to control the polling loop.
 
-    Each poll cycle fetches all configured feeds, parses the XML, checks each
-    item's GUID against Redis to skip already-seen articles, resolves the
-    Google redirect URL, and invokes the callback with a UnifiedMessage.
+    Each poll cycle fetches all configured feeds, parses the XML, filters
+    out stale articles, runs semantic dedup, and invokes the callback with
+    a UnifiedMessage for each unique fresh article.
     """
 
     def __init__(
         self,
         feeds: list[str],
         poll_interval: int,
-        redis: Redis,
+        deduplicator: MessageDeduplicator,
     ) -> None:
         """Initialize the poller.
 
         Args:
             feeds: Google News RSS feed URLs to poll.
             poll_interval: Minutes between poll cycles.
-            redis: Redis client for GUID dedup storage.
+            deduplicator: Semantic deduplicator shared with the processor.
         """
         self._feeds = feeds
         self._poll_interval = poll_interval * 60  # minutes → seconds
-        self._redis = redis
+        self._deduplicator = deduplicator
         self._message_callback: Any = None
         self._task: asyncio.Task[None] | None = None
         self._client: httpx.AsyncClient | None = None
         self._resolve_semaphore = asyncio.Semaphore(_RESOLVE_SEMAPHORE_LIMIT)
-        self._seeded = False  # first poll seeds the GUID cache without processing
 
     async def start(self) -> None:
         """Start the polling loop as a background asyncio task."""
@@ -203,28 +205,20 @@ class GoogleRSSPoller:
         self._message_callback = callback
 
     async def _poll_loop(self) -> None:
-        """Infinite loop: fetch all feeds, process new items, sleep.
-
-        First poll is a seed run — marks all current GUIDs as seen without
-        processing. This prevents a flood of old articles on startup. Only
-        subsequent polls push genuinely new items through the callback.
-        """
+        """Infinite loop: fetch all feeds, process new items, sleep."""
         # Small delay so other services (Redis, DB) finish initializing
         await asyncio.sleep(5)
 
         while True:
             try:
-                if not self._seeded:
-                    self._seeded = await self._seed_seen_cache()
-                else:
-                    total_new = 0
-                    for feed_url in self._feeds:
-                        total_new += await self._poll_feed(feed_url)
+                total_new = 0
+                for feed_url in self._feeds:
+                    total_new += await self._poll_feed(feed_url)
 
-                    if total_new > 0:
-                        logger.info("RSS poll complete", new_items=total_new)
-                    else:
-                        logger.debug("RSS poll complete", new_items=0)
+                if total_new > 0:
+                    logger.info("RSS poll complete", new_items=total_new)
+                else:
+                    logger.debug("RSS poll complete", new_items=0)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -232,52 +226,8 @@ class GoogleRSSPoller:
 
             await asyncio.sleep(self._poll_interval)
 
-    async def _seed_seen_cache(self) -> bool:
-        """First-run seed: fetch all feeds and mark every GUID as seen.
-
-        This ensures that when the app starts up, existing articles are cached
-        for dedup but NOT processed or sent to Discord. Only articles that
-        appear in subsequent polls (i.e. genuinely new) will be processed.
-
-        Returns True if at least one feed was successfully fetched.
-        """
-        if not self._client:
-            return False
-
-        total_seeded = 0
-        feeds_ok = 0
-        for url in self._feeds:
-            try:
-                resp = await self._client.get(url)
-                resp.raise_for_status()
-            except httpx.HTTPError as e:
-                logger.warning("RSS seed fetch failed", url=url[:80], error=str(e))
-                continue
-
-            feeds_ok += 1
-            items = parse_feed_xml(resp.content)
-            for item in items:
-                if not await self._is_seen(item.guid):
-                    await self._mark_seen(item.guid)
-                    total_seeded += 1
-
-        if feeds_ok == 0:
-            logger.warning(
-                "RSS seed failed — no feeds reachable, will retry next cycle",
-                feeds=len(self._feeds),
-            )
-            return False
-
-        logger.info(
-            "RSS seed complete — cached existing articles, will only process new ones",
-            seeded=total_seeded,
-            feeds_ok=feeds_ok,
-            feeds_total=len(self._feeds),
-        )
-        return True
-
     async def _poll_feed(self, url: str) -> int:
-        """Fetch one feed, deduplicate by GUID, push new items to callback."""
+        """Fetch one feed, filter stale articles, dedup, push new items."""
         if not self._client:
             return 0
 
@@ -289,17 +239,30 @@ class GoogleRSSPoller:
             return 0
 
         items = parse_feed_xml(resp.content)
+        cutoff = datetime.now(UTC) - timedelta(minutes=_FRESHNESS_MINUTES)
         new_count = 0
 
         for item in items:
-            # Layer 1 dedup: skip if this GUID was already processed
-            if await self._is_seen(item.guid):
+            # Skip stale articles — only process fresh ones
+            if item.pub_date < cutoff:
                 continue
 
-            await self._mark_seen(item.guid)
+            # Semantic dedup first (uses headline text only, no URL needed)
+            message = self._to_unified(item, item.link)
+            dedup_result = await self._deduplicator.process_message(message)
+            if dedup_result.is_duplicate:
+                logger.debug(
+                    "RSS item dropped by semantic dedup",
+                    title=item.title[:80],
+                    similarity=f"{dedup_result.similarity:.3f}"
+                    if dedup_result.similarity
+                    else None,
+                )
+                continue
 
+            # Resolve Google redirect URL only for unique articles
             resolved_url = await self._resolve_url(item.link)
-            message = self._to_unified(item, resolved_url)
+            message.raw["resolved_url"] = resolved_url
 
             if self._message_callback:
                 try:
@@ -313,21 +276,6 @@ class GoogleRSSPoller:
                     )
 
         return new_count
-
-    async def _is_seen(self, guid: str) -> bool:
-        """Check Redis for an existing GUID key (layer 1 dedup)."""
-        try:
-            return bool(await self._redis.exists(f"{_SEEN_PREFIX}{guid}"))
-        except RedisError:
-            logger.warning("Redis error in GUID dedup check, treating as unseen", guid=guid)
-            return False
-
-    async def _mark_seen(self, guid: str) -> None:
-        """Store GUID in Redis with 48h TTL so it's skipped on future polls."""
-        try:
-            await self._redis.set(f"{_SEEN_PREFIX}{guid}", "1", ex=_SEEN_TTL_SECONDS)
-        except RedisError:
-            logger.warning("Redis error storing seen GUID", guid=guid)
 
     async def _resolve_url(self, google_url: str) -> str:
         """Follow Google redirect to get the real article URL.

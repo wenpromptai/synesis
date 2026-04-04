@@ -155,7 +155,7 @@ async def emit_stage1_notification(
 ) -> None:
     """Send Stage 1 first-pass notification via configured channel.
 
-    Sent immediately after Stage 1 for normal/high/critical urgency signals.
+    Sent immediately after Stage 1 for high/critical urgency signals.
 
     Args:
         message: Original message

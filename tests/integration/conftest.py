@@ -204,14 +204,14 @@ def mock_db() -> Any:
     db._test_watchlist = _test_watchlist
     db._test_diary_entries = _test_diary_entries
 
-    async def mock_insert_raw_message(message: Any) -> str:
+    async def mock_insert_raw_message(message: Any) -> int:
         _test_raw_messages.append(
             {
                 "message": message,
                 "inserted_at": datetime.now(timezone.utc),
             }
         )
-        return f"test-uuid-{len(_test_raw_messages)}"
+        return len(_test_raw_messages)
 
     async def mock_insert_signal(signal: Any) -> None:
         _test_signals.append(

@@ -41,6 +41,7 @@ from synesis.ingestion.google_rss import GoogleRSSPoller
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import SourcePlatform, UnifiedMessage
+from synesis.processing.news.deduplication import create_deduplicator
 from synesis.providers.finnhub.prices import close_price_service, init_price_service
 from synesis.storage.database import Database, close_database, init_database
 from synesis.storage.redis import close_redis, init_redis
@@ -203,10 +204,11 @@ async def agent_lifespan(
 
         # 3b. Start RSS poller (if configured)
         if settings.rss_enabled and settings.rss_feeds:
+            rss_deduplicator = await create_deduplicator(redis)
             rss_poller = GoogleRSSPoller(
                 feeds=settings.rss_feeds,
                 poll_interval=settings.rss_poll_interval_minutes,
-                redis=redis,
+                deduplicator=rss_deduplicator,
             )
             rss_poller.on_message(create_rss_to_queue_callback(redis))
             await rss_poller.start()
