@@ -82,10 +82,7 @@ class ProcessingResult:
             external_id=self.message.external_id,
             extraction=self.extraction,
             analysis=self.analysis,
-            is_duplicate=self.is_duplicate,
-            duplicate_of=self.duplicate_of,
             processing_time_ms=self.processing_time_ms,
-            skipped_evaluation=self.analysis is None,
         )
 
     @property

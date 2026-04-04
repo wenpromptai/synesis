@@ -89,7 +89,7 @@ _LEVEL_RANK: dict[str, int] = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 # "🔴US CPI ACTUAL: 2.5%", "🚨 BREAKING: ..."
 _BREAKING_RE = re.compile(
     r"\*+\s*BREAKING|^BREAKING[:\s]|⚠\s*BREAKING|JUST\s+IN[:\s-]"
-    r"|(?:FLASH|ALERT|URGENT)[:\s]|[🔴🚨]",
+    r"|(?:FLASH|ALERT|URGENT)[:\s]|^[🔴🚨]",
     re.IGNORECASE,
 )
 

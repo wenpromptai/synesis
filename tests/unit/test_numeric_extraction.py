@@ -163,6 +163,11 @@ class TestImpactScoring:
         r = compute_impact_score("🚨 BREAKING: IRAN LAUNCHES STRIKES", "FirstSquawk")
         assert r.urgency in (UrgencyLevel.high, UrgencyLevel.critical)
 
+    def test_mid_text_emoji_not_fast_tracked(self) -> None:
+        """🔴 in middle of text should NOT trigger breaking fast-track."""
+        r = compute_impact_score("Oil steady at $80 🔴 prices holding", "financialjuice")
+        assert r.urgency not in (UrgencyLevel.high, UrgencyLevel.critical)
+
     # --- Scoring: Source reliability ---
 
     def test_wire_source_boosts_score(self) -> None:

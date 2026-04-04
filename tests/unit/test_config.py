@@ -215,6 +215,17 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("fred_cache_ttl_observations", "FRED_CACHE_TTL_OBSERVATIONS", "10800", 10800),
     ("fred_cache_ttl_releases", "FRED_CACHE_TTL_RELEASES", "21600", 21600),
     ("fred_cache_ttl_release_dates", "FRED_CACHE_TTL_RELEASE_DATES", "10800", 10800),
+    # --- Massive ---
+    ("massive_api_key", "MASSIVE_API_KEY", "masskey", "masskey"),  # SecretStr
+    ("massive_api_url", "MASSIVE_API_URL", "https://api.massive.test", "https://api.massive.test"),
+    ("massive_cache_ttl_bars", "MASSIVE_CACHE_TTL_BARS", "600", 600),
+    ("massive_cache_ttl_reference", "MASSIVE_CACHE_TTL_REFERENCE", "10800", 10800),
+    ("massive_cache_ttl_static", "MASSIVE_CACHE_TTL_STATIC", "43200", 43200),
+    ("massive_cache_ttl_fundamentals", "MASSIVE_CACHE_TTL_FUNDAMENTALS", "10800", 10800),
+    ("massive_cache_ttl_news", "MASSIVE_CACHE_TTL_NEWS", "1800", 1800),
+    ("massive_cache_ttl_indicators", "MASSIVE_CACHE_TTL_INDICATORS", "600", 600),
+    ("massive_cache_ttl_market_status", "MASSIVE_CACHE_TTL_MARKET_STATUS", "120", 120),
+    ("massive_cache_ttl_options", "MASSIVE_CACHE_TTL_OPTIONS", "7200", 7200),
     # --- SEC EDGAR ---
     ("sec_edgar_user_agent", "SEC_EDGAR_USER_AGENT", "Test test@test.com", "Test test@test.com"),
     ("sec_edgar_cache_ttl_submissions", "SEC_EDGAR_CACHE_TTL_SUBMISSIONS", "7200", 7200),
@@ -275,6 +286,7 @@ _SECRET_FIELDS = {
     "brave_api_key",
     "finnhub_api_key",
     "fred_api_key",
+    "massive_api_key",
 }
 
 

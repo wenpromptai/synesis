@@ -93,7 +93,8 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             v = v.strip()
             if v.startswith("["):
-                v = json.loads(v)
+                parsed: list[str] = json.loads(v)
+                v = parsed
             else:
                 v = [c.strip() for c in v.split(",") if c.strip()]
         return [c.lstrip("@") for c in v]
@@ -111,7 +112,8 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             v = v.strip()
             if v.startswith("["):
-                v = json.loads(v)
+                parsed: list[str] = json.loads(v)
+                v = parsed
             else:
                 v = [a.strip() for a in v.split(",") if a.strip()]
         return [a.lstrip("@") for a in v]
@@ -197,6 +199,48 @@ class Settings(BaseSettings):
     fred_cache_ttl_release_dates: int = Field(
         default=21600,
         description="Cache TTL for FRED release dates (seconds)",
+    )
+
+    # Massive (market data — free tier: 5 calls/min)
+    massive_api_key: SecretStr | None = Field(
+        default=None,
+        description="Massive.com API key (free at https://massive.com)",
+    )
+    massive_api_url: str = Field(
+        default="https://api.massive.com",
+        description="Massive.com REST API base URL",
+    )
+    massive_cache_ttl_bars: int = Field(
+        default=300,
+        description="Cache TTL for Massive bars/aggregates (seconds)",
+    )
+    massive_cache_ttl_reference: int = Field(
+        default=21600,
+        description="Cache TTL for Massive ticker/reference data (seconds, 6h)",
+    )
+    massive_cache_ttl_static: int = Field(
+        default=86400,
+        description="Cache TTL for Massive static data — exchanges, types, holidays (seconds, 24h)",
+    )
+    massive_cache_ttl_fundamentals: int = Field(
+        default=21600,
+        description="Cache TTL for Massive financials/dividends/shorts (seconds, 6h)",
+    )
+    massive_cache_ttl_news: int = Field(
+        default=900,
+        description="Cache TTL for Massive news articles (seconds, 15min)",
+    )
+    massive_cache_ttl_indicators: int = Field(
+        default=300,
+        description="Cache TTL for Massive technical indicators (seconds, 5min)",
+    )
+    massive_cache_ttl_market_status: int = Field(
+        default=60,
+        description="Cache TTL for Massive market status (seconds)",
+    )
+    massive_cache_ttl_options: int = Field(
+        default=3600,
+        description="Cache TTL for Massive options contract reference (seconds, 1h)",
     )
 
     # SEC EDGAR (free, no key required)

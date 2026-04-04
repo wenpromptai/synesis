@@ -327,10 +327,7 @@ class NewsSignal(BaseModel):
         description="Stage 2 LLM analysis (None if Stage 2 was skipped)",
     )
 
-    is_duplicate: bool = False
-    duplicate_of: str | None = None
-    processing_time_ms: float | None = None
-    skipped_evaluation: bool = Field(default=False)
+    processing_time_ms: float = 0.0
 
     @property
     def matched_tickers(self) -> list[str]:
