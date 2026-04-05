@@ -23,7 +23,7 @@ from synesis.processing.news.models import SourcePlatform
 def _mock_deduplicator(*, is_duplicate: bool = False) -> AsyncMock:
     """Create a mock MessageDeduplicator that returns the given duplicate status."""
     dedup = AsyncMock()
-    dedup.process_message.return_value = DeduplicationResult(is_duplicate=is_duplicate)
+    dedup.check_duplicate.return_value = DeduplicationResult(is_duplicate=is_duplicate)
     return dedup
 
 
@@ -255,7 +255,7 @@ class TestPollFeed:
 
         assert count == 1
         assert callback.call_count == 1
-        assert dedup.process_message.call_count == 1
+        assert dedup.check_duplicate.call_count == 1
 
     @pytest.mark.asyncio
     async def test_stale_items_skipped(self) -> None:
@@ -279,7 +279,7 @@ class TestPollFeed:
         assert count == 0
         callback.assert_not_called()
         # Dedup should NOT be called for stale items
-        dedup.process_message.assert_not_called()
+        dedup.check_duplicate.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_semantic_dedup_drops_duplicate(self) -> None:
@@ -301,7 +301,7 @@ class TestPollFeed:
 
         assert count == 0
         callback.assert_not_called()
-        assert dedup.process_message.call_count == 1
+        assert dedup.check_duplicate.call_count == 1
 
     @pytest.mark.asyncio
     async def test_item_at_14min_passes_freshness(self) -> None:
@@ -345,7 +345,7 @@ class TestPollFeed:
 
         assert count == 0
         callback.assert_not_called()
-        dedup.process_message.assert_not_called()
+        dedup.check_duplicate.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_all_fixture_items_skipped_when_stale(self) -> None:

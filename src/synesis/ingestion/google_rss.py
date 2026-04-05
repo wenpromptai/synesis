@@ -247,9 +247,9 @@ class GoogleRSSPoller:
             if item.pub_date < cutoff:
                 continue
 
-            # Semantic dedup first (uses headline text only, no URL needed)
+            # Semantic dedup first (check only — processor stores after processing)
             message = self._to_unified(item, item.link)
-            dedup_result = await self._deduplicator.process_message(message)
+            dedup_result = await self._deduplicator.check_duplicate(message)
             if dedup_result.is_duplicate:
                 logger.debug(
                     "RSS item dropped by semantic dedup",

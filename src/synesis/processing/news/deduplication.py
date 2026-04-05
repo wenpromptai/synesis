@@ -4,7 +4,7 @@ This module provides semantic deduplication of incoming messages:
 - Uses Model2Vec for fast embedding generation (~5ms per message)
 - Stores embeddings in Redis with 60-min TTL
 - Uses cosine similarity with 0.85 threshold
-- Store-first pattern to prevent race conditions
+- Check-first pattern: scan before store to avoid self-comparison
 
 References:
 - SemHash: https://minishlab.github.io/semhash-blogpost/
@@ -48,8 +48,8 @@ class MessageDeduplicator:
     """Semantic deduplication using Model2Vec embeddings stored in Redis.
 
     Uses cosine similarity to detect near-duplicate messages within
-    a sliding 60-minute window. Uses store-first pattern to prevent
-    race conditions when similar messages arrive simultaneously.
+    a sliding 60-minute window. Check-first pattern: scan existing
+    embeddings before storing, so the message never matches itself.
     """
 
     redis: Redis
@@ -143,10 +143,7 @@ class MessageDeduplicator:
 
         try:
             async for key in self.redis.scan_iter(match=pattern, count=100):
-                # Skip if it's the same message
                 key_str = key.decode() if isinstance(key, bytes) else key
-                if message.external_id in key_str:
-                    continue
 
                 try:
                     # Get stored embedding
@@ -247,42 +244,29 @@ class MessageDeduplicator:
         return await self._check_duplicate_with_embedding(message, embedding)
 
     async def _store_embedding(self, message: UnifiedMessage, embedding: np.ndarray) -> bool:
-        """Store pre-computed embedding in Redis atomically.
-
-        Uses SET with NX (only set if not exists) for atomic claim to prevent
-        race conditions when similar messages arrive simultaneously.
+        """Store pre-computed embedding in Redis.
 
         Args:
             message: The message being stored
             embedding: Pre-computed embedding
 
         Returns:
-            True if stored successfully (we claimed the key), False otherwise
+            True if stored successfully, False on error.
         """
         key = self._make_redis_key(message.external_id, message.source_platform.value)
 
         try:
-            # Use SET with NX for atomic "claim" - prevents race conditions
-            was_set = await self.redis.set(
+            await self.redis.set(
                 key,
                 embedding.tobytes(),
-                nx=True,  # Only set if key doesn't exist
                 ex=self.ttl_seconds,
             )
-            if was_set:
-                logger.debug(
-                    "Stored embedding",
-                    key=key,
-                    ttl_seconds=self.ttl_seconds,
-                )
-                return True
-            else:
-                logger.debug(
-                    "Embedding already exists - likely duplicate",
-                    key=key,
-                    message_id=message.external_id,
-                )
-                return False
+            logger.debug(
+                "Stored embedding",
+                key=key,
+                ttl_seconds=self.ttl_seconds,
+            )
+            return True
         except RedisError as e:
             logger.error(
                 "Failed to store embedding - duplicates may not be detected",
@@ -292,20 +276,11 @@ class MessageDeduplicator:
             )
             return False
 
-    async def store_message(self, message: UnifiedMessage) -> None:
-        """Store message embedding in Redis for future duplicate checks.
-
-        Args:
-            message: The message to store
-        """
-        embedding = self._get_embedding(message.text)
-        await self._store_embedding(message, embedding)
-
     async def process_message(self, message: UnifiedMessage) -> DeduplicationResult:
-        """Store embedding first, then check for duplicates.
+        """Check for duplicates, then store if unique.
 
-        Store-first pattern prevents race conditions when similar messages
-        arrive simultaneously. Whoever stores first wins.
+        Check-first: the message's own embedding is not in Redis during the
+        scan, so every stored embedding is a genuine candidate for comparison.
 
         Args:
             message: The message to process
@@ -313,7 +288,6 @@ class MessageDeduplicator:
         Returns:
             DeduplicationResult with duplicate status
         """
-        # Generate embedding ONCE (used for both store and check)
         try:
             embedding = self._get_embedding(message.text)
         except RuntimeError as e:
@@ -324,15 +298,7 @@ class MessageDeduplicator:
             )
             return DeduplicationResult(is_duplicate=False)
 
-        # 1. Store embedding FIRST (atomic claim)
-        stored = await self._store_embedding(message, embedding)
-        if not stored:
-            logger.warning(
-                "Failed to store embedding - continuing with duplicate check",
-                message_id=message.external_id,
-            )
-
-        # 2. Then check for duplicates (excluding self)
+        # 1. Check for duplicates FIRST (own embedding not in Redis yet)
         result = await self._check_duplicate_with_embedding(message, embedding)
 
         if result.is_duplicate:
@@ -342,14 +308,17 @@ class MessageDeduplicator:
                 duplicate_of=result.duplicate_of,
                 similarity=f"{result.similarity:.3f}" if result.similarity else None,
             )
-        else:
-            # Log best match even when not duplicate (diagnostic)
-            logger.debug(
-                "Unique message",
-                message_id=message.external_id,
-                best_similarity=f"{result.similarity:.3f}" if result.similarity else "none",
-                threshold=self.similarity_threshold,
-            )
+            return result
+
+        # 2. Store only if unique
+        await self._store_embedding(message, embedding)
+
+        logger.debug(
+            "Unique message",
+            message_id=message.external_id,
+            best_similarity=f"{result.similarity:.3f}" if result.similarity else "none",
+            threshold=self.similarity_threshold,
+        )
 
         return result
 

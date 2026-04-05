@@ -107,25 +107,6 @@ class TestMessageDeduplicator:
         assert result.duplicate_of is None
 
     @pytest.mark.asyncio
-    async def test_store_message(self, mock_redis: AsyncMock) -> None:
-        """Test storing a message embedding."""
-        deduplicator = MessageDeduplicator(redis=mock_redis)
-
-        # Mock the model
-        deduplicator._model = MagicMock()
-        deduplicator._model.encode = MagicMock(
-            return_value=np.random.rand(1, 256).astype(np.float32)
-        )
-
-        message = create_test_message("Test message", external_id="msg_123")
-        await deduplicator.store_message(message)
-
-        # Check that set was called (with nx=True for race condition safety)
-        mock_redis.set.assert_called_once()
-        call_args = mock_redis.set.call_args
-        assert "synesis:news:dedup:emb:telegram:msg_123" in call_args[0][0]
-
-    @pytest.mark.asyncio
     async def test_process_message_stores_unique(self, mock_redis: AsyncMock) -> None:
         """Test that unique messages are stored."""
         deduplicator = MessageDeduplicator(redis=mock_redis)
@@ -141,6 +122,40 @@ class TestMessageDeduplicator:
 
         assert not result.is_duplicate
         mock_redis.set.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_message_same_guid_detected_as_duplicate(
+        self, mock_redis: AsyncMock
+    ) -> None:
+        """Test that the same GUID arriving again is detected as duplicate.
+
+        Reproduces the bug where same-GUID articles bypassed dedup because
+        the old store-first pattern skipped self-comparison.
+        """
+        deduplicator = MessageDeduplicator(redis=mock_redis)
+
+        embedding = np.random.rand(1, 256).astype(np.float32)
+        deduplicator._model = MagicMock()
+        deduplicator._model.encode = MagicMock(return_value=embedding)
+        deduplicator._embedding_dim = 256
+
+        # Simulate: the GUID's embedding already exists in Redis from a prior poll
+        stored_key = b"synesis:news:dedup:emb:google_rss:rss_guid_123"
+        mock_redis.scan_iter = MagicMock(return_value=AsyncIteratorMock([stored_key]))
+        mock_redis.get = AsyncMock(return_value=embedding[0].tobytes())
+
+        message = create_test_message(
+            "Same headline again",
+            external_id="rss_guid_123",
+            platform=SourcePlatform.google_rss,
+        )
+        result = await deduplicator.process_message(message)
+
+        assert result.is_duplicate is True
+        assert result.similarity is not None
+        assert result.similarity >= SIMILARITY_THRESHOLD
+        # Should NOT store (duplicate detected before store)
+        mock_redis.set.assert_not_called()
 
     def test_cosine_similarity(self, mock_redis: AsyncMock) -> None:
         """Test cosine similarity calculation."""
