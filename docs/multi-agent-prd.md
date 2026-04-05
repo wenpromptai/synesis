@@ -28,22 +28,27 @@ Upgrade Synesis from 4 independent pipelines into a LangGraph-orchestrated multi
 
 ---
 
-### Phase 2: New Specialist Agents
-**Goal**: Build 2 new data-gathering agents that wire up underused providers.
+### Phase 2: USCompanyAnalyst + YFinance Extension
+**Goal**: Build a comprehensive US company analysis agent combining SEC EDGAR + yfinance data, using a deterministic-scoring-then-LLM-synthesis pattern proven by top implementations (virattt/ai-hedge-fund, MarketSenseAI 2.0).
 
-**InsiderFlowAnalyst** (Haiku):
-- Scans watchlist tickers via SEC EDGAR: Form 4 insider transactions, insider sentiment (MSPR), Form 144 sale intentions, XBRL EPS/revenue, real-time filing feed
-- Identifies: cluster selling/buying, unusual transaction sizes, pre-earnings insider activity
-- Output: `InsiderFlowAnalysis` (list of `InsiderSignal`)
+**YFinance Client Extension**:
+- New `get_fundamentals(ticker)` method on `YFinanceClient` → `CompanyFundamentals` model
+- Exposes pre-computed ratios from yfinance `.info`: current_ratio, quick_ratio, debt_to_equity, roe, roa, gross_margin, operating_margin, profit_margin, revenue_growth, free_cash_flow, ebitda, total_cash, total_debt, beta, short_interest, price_to_book, ev_to_ebitda, forward_eps, analyst_targets, sector, industry, business_summary, employees
+- Redis-cached with configurable TTL
 
-**TechnicalAnalyst** (Haiku):
-- Scans top 5 watchlist tickers via Massive.com + yfinance: RSI, MACD, Bollinger, short interest, volume profile, ATM IV
-- Identifies: breakouts, breakdowns, oversold bounces, IV squeezes
-- Output: `TechnicalScanResult` (list of `TechnicalSetup`)
-- Rate limit: Massive is 5 calls/min, batch carefully
+**USCompanyAnalyst** (OpenAI 5.2, 400k context):
+- Three-phase pipeline per ticker:
+  1. **Data Gathering** (no LLM): yfinance fundamentals + SEC EDGAR XBRL (8 quarters), insider transactions (Form 4, MSPR, Form 144), latest 10-K/10-Q filing prose via Crawl4AI
+  2. **Deterministic Scoring** (no LLM): Piotroski F-Score (0-9), Beneish M-Score (earnings manipulation), insider cluster detection, red flag detection
+  3. **LLM Synthesis**: Interprets scores in context, extracts qualitative insights from filing prose (risks, customers, suppliers, geographic exposure, MD&A), cross-references insider activity vs financial trends, assesses disclosure consistency
+- Newer filings weighted more heavily than older filings in analysis
+- Output: `CompanyAnalysis` per ticker (financial_health, insider_signal, red_flags, qualitative sections, cross-referenced insights, overall signal + confidence + thesis)
+- US companies only (SEC EDGAR coverage)
 
-**New files**: `processing/intelligence/models.py`, `specialists/insider_flow.py`, `specialists/technical.py`
-**New dependency**: `langgraph` (v1.1+)
+**TechnicalAnalyst**: Deferred to after Phase 4 — Massive.com rate limits (5/min) create bottleneck, and yfinance + XBRL cover most needs. Revisit once core pipeline is running.
+
+**New files**: `processing/intelligence/models.py`, `processing/intelligence/specialists/us_company.py`, `processing/intelligence/specialists/scoring.py`
+**Extended**: `providers/yfinance/client.py`, `providers/yfinance/models.py`, `config_cache.py`
 
 ---
 
@@ -53,7 +58,7 @@ Upgrade Synesis from 4 independent pipelines into a LangGraph-orchestrated multi
 **LangGraph State Machine**:
 ```
 Layer 1 (parallel fan-out):
-  SocialSentimentAnalyst | EventCalendarAnalyst | InsiderFlowAnalyst | TechnicalAnalyst
+  SocialSentimentAnalyst | EventCalendarAnalyst | USCompanyAnalyst
 
 Layer 2 (fan-in, sequential):
   MacroStrategist → EquityStrategist
@@ -110,8 +115,7 @@ Lands in Discord each morning (~10:30am ET):
 |---|---|---|
 | SocialSentimentAnalyst | Sonnet (vsmart) | ~$0.15 |
 | EventCalendarAnalyst | Sonnet x3 + vsmart | ~$0.15 |
-| InsiderFlowAnalyst | Haiku | ~$0.01 |
-| TechnicalAnalyst | Haiku | ~$0.01 |
+| USCompanyAnalyst | OpenAI 5.2 | ~$0.10-0.30 |
 | MacroStrategist | Sonnet | ~$0.08 |
 | EquityStrategist | Sonnet | ~$0.12 |
 | Debate (avg 1.5 ideas/day, 2 rounds) | Haiku x4 + Sonnet | ~$0.20 |

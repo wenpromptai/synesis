@@ -24,6 +24,7 @@ from synesis.core.constants import (
     OPTIONS_SNAPSHOT_TRADING_DAYS,
 )
 from synesis.providers.yfinance.models import (
+    CompanyFundamentals,
     EquityQuote,
     FXRate,
     MarketMover,
@@ -161,6 +162,34 @@ class YFinanceClient:
             ex=settings.yfinance_cache_ttl_quote,
         )
         return quote
+
+    async def get_fundamentals(self, ticker: str) -> CompanyFundamentals:
+        """Get fundamental ratios and metrics for a company.
+
+        Pulls from the same yfinance .info dict as get_quote but extracts
+        a richer set of fields: ratios, margins, valuation, short interest,
+        analyst targets, ownership percentages.
+        """
+        settings = get_settings()
+        ticker_up = ticker.upper()
+        cache_key = f"{CACHE_PREFIX}:fundamentals:{ticker_up}"
+
+        cached = await self._redis.get(cache_key)
+        if cached:
+            try:
+                return CompanyFundamentals.model_validate(orjson.loads(cached))
+            except Exception as e:
+                logger.warning("Cache deserialization failed", key=cache_key, error=str(e))
+
+        info = await asyncio.to_thread(_fetch_quote_info, ticker)
+        fundamentals = CompanyFundamentals.from_yfinance_info(ticker_up, info)
+
+        await self._redis.set(
+            cache_key,
+            orjson.dumps(fundamentals.model_dump(mode="json")),
+            ex=settings.yfinance_cache_ttl_fundamentals,
+        )
+        return fundamentals
 
     async def get_history(
         self,
