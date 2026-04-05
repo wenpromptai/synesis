@@ -197,6 +197,27 @@ CREATE TABLE IF NOT EXISTS synesis.diary (
 CREATE INDEX IF NOT EXISTS idx_diary_source ON synesis.diary (source, entry_date DESC);
 
 
+-- -----------------------------------------------------------------------------
+-- Raw Tweets
+-- Twitter/X tweets fetched daily from curated accounts, persisted before LLM analysis.
+-- Used by the Twitter agent job and future intelligence pipeline.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.raw_tweets (
+    tweet_id TEXT NOT NULL,
+    account_username TEXT NOT NULL,
+    tweet_text TEXT NOT NULL,
+    tweet_timestamp TIMESTAMPTZ NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    tweet_url TEXT,
+    PRIMARY KEY (account_username, tweet_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_raw_tweets_fetched
+    ON synesis.raw_tweets (fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_raw_tweets_account
+    ON synesis.raw_tweets (account_username, tweet_timestamp DESC);
+
+
 -- =============================================================================
 -- GRANTS (for application user)
 -- =============================================================================

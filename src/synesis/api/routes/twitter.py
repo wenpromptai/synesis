@@ -21,7 +21,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 @router.post("/analyze")
 @limiter.limit("5/minute")
 async def trigger_twitter_agent(request: Request, state: AgentStateDep) -> dict[str, str]:
-    """Manually trigger the daily Twitter agent digest."""
+    """Manually trigger the daily Twitter data collection job."""
     trigger = state.trigger_fns.get("twitter_agent")
     if trigger is None:
         raise HTTPException(
@@ -40,4 +40,4 @@ async def trigger_twitter_agent(request: Request, state: AgentStateDep) -> dict[
             )
 
     create_tracked_task(trigger(), _background_tasks, _on_done)
-    return {"status": "triggered", "message": "Twitter agent digest job started in background"}
+    return {"status": "triggered", "message": "Twitter data collection job started in background"}

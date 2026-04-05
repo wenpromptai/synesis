@@ -473,6 +473,69 @@ class Database:
             return 0
 
     # -------------------------------------------------------------------------
+    # Raw Tweets: Twitter/X tweet storage
+    # -------------------------------------------------------------------------
+
+    async def store_raw_tweets(self, tweets: list[dict[str, Any]]) -> int:
+        """Bulk insert raw tweets, deduplicating on primary key (account_username, tweet_id).
+
+        Args:
+            tweets: List of dicts with keys: tweet_id, account_username, tweet_text,
+                    tweet_timestamp, tweet_url (optional)
+
+        Returns:
+            Number of new tweets inserted (excludes duplicates).
+        """
+        if not tweets:
+            return 0
+
+        query = """
+            INSERT INTO raw_tweets (tweet_id, account_username, tweet_text, tweet_timestamp, tweet_url)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (account_username, tweet_id) DO NOTHING
+        """
+        inserted = 0
+        async with self.acquire() as conn:
+            async with conn.transaction():
+                for tw in tweets:
+                    try:
+                        result = await conn.execute(
+                            query,
+                            tw["tweet_id"],
+                            tw["account_username"],
+                            tw["tweet_text"],
+                            tw["tweet_timestamp"],
+                            tw.get("tweet_url"),
+                        )
+                        if result and "INSERT 0 1" in result:
+                            inserted += 1
+                    except KeyError as exc:
+                        logger.error(
+                            "Malformed tweet dict, skipping",
+                            missing_key=str(exc),
+                        )
+
+        logger.debug("Raw tweets stored", total=len(tweets), inserted=inserted)
+        return inserted
+
+    async def get_raw_tweets(self, since_hours: int = 24) -> list["asyncpg.Record"]:
+        """Fetch recent raw tweets.
+
+        Args:
+            since_hours: Look back this many hours from now.
+
+        Returns:
+            List of raw tweet records ordered by tweet_timestamp DESC.
+        """
+        query = """
+            SELECT tweet_id, account_username, tweet_text, tweet_timestamp, tweet_url, fetched_at
+            FROM raw_tweets
+            WHERE fetched_at >= NOW() - make_interval(hours => $1)
+            ORDER BY tweet_timestamp DESC
+        """
+        return await self.fetch(query, since_hours)
+
+    # -------------------------------------------------------------------------
     # Diary: Persisted Pipeline Outputs
     # -------------------------------------------------------------------------
 

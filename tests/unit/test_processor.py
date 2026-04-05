@@ -482,9 +482,7 @@ class TestStage1Callback:
         callback.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_callback_not_invoked_for_normal_urgency(
-        self, processor: NewsProcessor
-    ) -> None:
+    async def test_callback_not_invoked_for_normal_urgency(self, processor: NewsProcessor) -> None:
         """Callback does NOT fire for normal urgency (skipped like low)."""
         extraction = create_test_extraction(urgency=UrgencyLevel.normal)
         processor._classifier.classify = AsyncMock(return_value=extraction)

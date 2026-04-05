@@ -39,7 +39,6 @@ from synesis.config import Settings
 from synesis.core.logging import get_logger
 from synesis.ingestion.google_rss import GoogleRSSPoller
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
-from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.news import SourcePlatform, UnifiedMessage
 from synesis.processing.news.deduplication import create_deduplicator
 from synesis.providers.finnhub.prices import close_price_service, init_price_service
@@ -182,9 +181,6 @@ async def agent_lifespan(
         else:
             logger.info("No FINNHUB_API_KEY configured, price tracking disabled")
 
-        # 2c. Initialize shared WatchlistManager (DB-only)
-        watchlist = WatchlistManager(db) if db else None
-
         # 3. Start Telegram listener (if configured)
         if settings.telegram_api_id and settings.telegram_api_hash:
             telegram_listener = TelegramListener(
@@ -255,18 +251,13 @@ async def agent_lifespan(
             )
 
         # Twitter agent daily digest
-        yf_client = None
         if settings.twitterapi_api_key and settings.twitter_accounts:
             from synesis.processing.twitter.job import twitter_agent_job
-            from synesis.providers.yfinance.client import YFinanceClient
-
-            # Create YFinanceClient for live market data in twitter analyzer
-            yf_client = YFinanceClient(redis=redis)
 
             scheduler.add_job(
                 twitter_agent_job,
                 CronTrigger(hour=10, minute=0, timezone="America/New_York"),
-                args=[watchlist, yf_client, db],
+                args=[db],
                 id="twitter_agent",
                 max_instances=1,
             )
@@ -385,7 +376,7 @@ async def agent_lifespan(
             from synesis.processing.twitter.job import twitter_agent_job
 
             async def _trigger_twitter_agent() -> None:
-                await twitter_agent_job(watchlist, yf_client, db)
+                await twitter_agent_job(db)
 
             trigger_fns["twitter_agent"] = _trigger_twitter_agent
 
