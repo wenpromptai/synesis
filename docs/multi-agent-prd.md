@@ -110,23 +110,15 @@ START → Tier 1 (parallel, signal discovery):
 
 **SearXNG removed from ticker verification** [DONE]: Replaced with yfinance Search API fallback. Dead code (`search_ticker_analysis`, `_search_searxng`) removed from `web_search.py`.
 
-#### Remaining:
+**LangGraph infrastructure** [DONE]:
+- `intelligence/state.py` — `IntelligenceState` TypedDict with `Annotated[list, add]` reducer for parallel company analyses
+- `intelligence/graph.py` — `build_intelligence_graph(db, sec_edgar, yfinance, crawler)` closure factory. Topology: START → [social | news] (parallel) → extract_tickers → Send per ticker to CompanyAnalyst → compiler (defer=True) → END
+- `intelligence/compiler.py` — deterministic brief assembly (no LLM). Filters errored analyses, merges macro themes from social + news.
+- `langgraph>=1.1.6` dependency added
+- Uses `Send` API for dynamic per-ticker fan-out, `defer=True` on compiler to wait for all parallel workers
+- Unit tests: graph compilation, compiler logic, ticker extraction (9 tests)
 
-**extract_tickers node** (deterministic, no LLM):
-- Collects all tickers mentioned in Social + News outputs
-- Deduplicates, produces `target_tickers: list[str]`
-
-**CompanyAnalyst LangGraph node wrapper**:
-- Wraps existing `analyze_company()` as a LangGraph node
-- Runs only for `target_tickers` (not full watchlist)
-
-**LangGraph infrastructure**:
-- `intelligence/state.py` — `IntelligenceState` TypedDict with `Annotated` reducers
-- `intelligence/graph.py` — `build_intelligence_graph()` closure factory, all nodes + edges
-- `intelligence/compiler.py` — basic assembly of all outputs (no LLM). Expanded in Phase 3C.
-- Add `langgraph>=1.1` dependency to `pyproject.toml`
-
-**New model**: `NewsAnalysis`
+#### Phase 3A Complete.
 
 ---
 
