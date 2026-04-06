@@ -177,7 +177,7 @@ class TestEmitRawMessageToDb:
         with patch("synesis.agent.pydantic_runner.get_database", return_value=mock_db):
             await emit_raw_message_to_db(message)
 
-        mock_db.insert_raw_message.assert_called_once_with(message)
+        mock_db.insert_raw_message.assert_called_once_with(message, 0, None)
 
     @pytest.mark.anyio
     async def test_handles_database_not_initialized(self) -> None:

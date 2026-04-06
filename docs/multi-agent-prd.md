@@ -28,61 +28,133 @@ Upgrade Synesis from 4 independent pipelines into a LangGraph-orchestrated multi
 
 ---
 
-### Phase 2: USCompanyAnalyst + YFinance Extension
+### Phase 2: CompanyAnalyst + YFinance Extension [DONE]
 **Goal**: Build a comprehensive US company analysis agent combining SEC EDGAR + yfinance data, using a deterministic-scoring-then-LLM-synthesis pattern proven by top implementations (virattt/ai-hedge-fund, MarketSenseAI 2.0).
 
 **YFinance Client Extension**:
-- New `get_fundamentals(ticker)` method on `YFinanceClient` → `CompanyFundamentals` model
-- Exposes pre-computed ratios from yfinance `.info`: current_ratio, quick_ratio, debt_to_equity, roe, roa, gross_margin, operating_margin, profit_margin, revenue_growth, free_cash_flow, ebitda, total_cash, total_debt, beta, short_interest, price_to_book, ev_to_ebitda, forward_eps, analyst_targets, sector, industry, business_summary, employees
+- `get_fundamentals(ticker)` → `CompanyFundamentals` model — pre-computed ratios from yfinance `.info`
+- `get_quarterly_financials(ticker)` → `QuarterlyFinancials` model — 5 quarters of income, balance sheet, cash flow from yfinance (replaces XBRL for structured financial data — updates same-day vs XBRL which lags until 10-K/10-Q filing)
 - Redis-cached with configurable TTL
 
-**USCompanyAnalyst** (OpenAI 5.2, 400k context):
+**CompanyAnalyst** (OpenAI 5.2, 400k context):
 - Three-phase pipeline per ticker:
-  1. **Data Gathering** (no LLM): yfinance fundamentals + SEC EDGAR XBRL (8 quarters), insider transactions (Form 4, MSPR, Form 144), latest 10-K/10-Q filing prose via Crawl4AI
-  2. **Deterministic Scoring** (no LLM): Piotroski F-Score (0-9), Beneish M-Score (earnings manipulation), insider cluster detection, red flag detection
+  1. **Data Gathering** (no LLM): yfinance fundamentals + quarterly financials (replaces XBRL), SEC EDGAR insider transactions (Form 4, MSPR, Form 144), latest 10-K/10-Q filing prose via Crawl4AI
+  2. **Deterministic Scoring** (no LLM): Piotroski F-Score (0-9) from yfinance quarterly data, insider cluster detection, red flag detection
   3. **LLM Synthesis**: Interprets scores in context, extracts qualitative insights from filing prose (risks, customers, suppliers, geographic exposure, MD&A), cross-references insider activity vs financial trends, assesses disclosure consistency
 - Newer filings weighted more heavily than older filings in analysis
 - Output: `CompanyAnalysis` per ticker (financial_health, insider_signal, red_flags, qualitative sections, cross-referenced insights, overall signal + confidence + thesis)
 - US companies only (SEC EDGAR coverage)
 
-**TechnicalAnalyst**: Deferred to after Phase 4 — Massive.com rate limits (5/min) create bottleneck, and yfinance + XBRL cover most needs. Revisit once core pipeline is running.
+**TechnicalAnalyst**: Deferred to after Phase 4 — Massive.com rate limits (5/min) create bottleneck, and yfinance covers most needs. Revisit once core pipeline is running.
 
-**New files**: `processing/intelligence/models.py`, `processing/intelligence/specialists/us_company.py`, `processing/intelligence/specialists/scoring.py`
+**New files**: `processing/intelligence/models.py`, `processing/intelligence/specialists/us_company/`
 **Extended**: `providers/yfinance/client.py`, `providers/yfinance/models.py`, `config_cache.py`
 
 ---
 
-### Phase 3: LangGraph Pipeline
-**Goal**: Wire all agents into a LangGraph StateGraph with multi-round debate.
+### Phase 3A: LangGraph Core + Two-Tier Layer 1
+**Goal**: Build the LangGraph graph skeleton with two-tier Layer 1: signal discovery (Social + News) → ticker extraction → targeted deep analysis (CompanyAnalyst). Basic compiler assembles output.
 
-**LangGraph State Machine**:
+**Reference implementations**: rgoerwit/ai-investment-agent (tiered sync, parallel fan-out), virattt/ai-hedge-fund (merge_dicts reducer), TauricResearch/TradingAgents (debate patterns). See `.claude/skills/langgraph-developing/` for project-specific patterns.
+
+**LangGraph State Machine (Phase 3A scope)**:
 ```
-Layer 1 (parallel fan-out):
-  SocialSentimentAnalyst | EventCalendarAnalyst | USCompanyAnalyst
+START → Tier 1 (parallel, signal discovery):
+  SocialSentimentAnalyst | NewsAnalyst
+    → fan-in → extract_tickers (deterministic)
+      → Tier 2 (targeted, deep analysis):
+        CompanyAnalyst (only for extracted tickers)
+          → Brief Compiler → END
+```
 
-Layer 2 (fan-in, sequential):
-  MacroStrategist → EquityStrategist
+**Key insight**: CompanyAnalyst costs ~$0.10-0.30 per ticker and takes ~40s. Running it on the full watchlist (15-20 tickers) is wasteful. Tier 1 agents discover which tickers are relevant today, then Tier 2 does deep dives only on those. EventCalendarAnalyst removed — earnings/FOMC context is captured by News + Social; actual financial data flows through yfinance (real-time) and SEC EDGAR (filings).
 
-Gate: conviction >= 0.7 AND 2+ source convergence
+**New agent — SocialSentimentAnalyst** (OpenAI, vsmart):
+- Reads from `raw_tweets` table (last 24h) via `db.get_raw_tweets()`
+- Formats tweets by account with bias/credibility from `accounts.py`
+- Tools: `verify_ticker`, `web_search` (5 calls max), `web_read`
+- Cross-confirmation priority: themes from multiple accounts weighted higher
+- Output: `SocialSentimentAnalysis` (themes, ticker mentions with sentiment)
 
-Layer 2.5 (debate loop, 2 rounds):
-  BullAdvocate ↔ BearAdvocate → Adjudicator
+**New agent — NewsAnalyst** (OpenAI, vsmart):
+- Reads enriched `raw_messages` (last 24h, impact_score >= 20) via `db.get_raw_messages()`
+- `raw_messages` table enriched with `impact_score` + `tickers` from Flow 1 Stage 1 (rule-based, no LLM)
+- Tools: `web_search` (5 calls max), `web_read` for context verification
+- Synthesizes themes across messages, classifies event types, detects contrarian signals
+- Output: `NewsAnalysis` (themes, ticker mentions with relevance, event classifications)
 
-Layer 3 (deterministic):
-  Brief Compiler → DailyIntelligenceBrief
+**extract_tickers node** (deterministic, no LLM):
+- Collects all tickers mentioned in Social + News outputs
+- Deduplicates, produces `target_tickers: list[str]`
+
+**CompanyAnalyst node** — wraps Phase 2 agent:
+- Runs `analyze_company()` only for `target_tickers` (not full watchlist)
+- Refactored: uses yfinance quarterly financials instead of XBRL for structured data
+- Output: `list[CompanyAnalysis]`
+
+**State**: `IntelligenceState` TypedDict with `Annotated` reducers. Deps via closure factory.
+
+**Brief Compiler** (no LLM): Basic assembly of all outputs. Expanded in Phase 3C.
+
+**New files**: `intelligence/state.py`, `intelligence/graph.py`, `intelligence/compiler.py`, `intelligence/specialists/social_sentiment/`, `intelligence/specialists/news_analyst.py`
+**New dependency**: `langgraph` (v1.1+)
+**Refactored**: CompanyAnalyst — replace XBRL with yfinance quarterly financials
+
+---
+
+### Phase 3B: Strategists (Layer 2)
+**Goal**: Add MacroStrategist + EquityStrategist as Layer 2 nodes that synthesize Layer 1 outputs. Add conviction gate for debate routing.
+
+**LangGraph additions**:
+```
+Layer 1 fan-in → MacroStrategist → EquityStrategist → Gate
+  Gate: conviction >= 0.7 AND 2+ source convergence
+    → debate (Phase 3C) OR compiler
 ```
 
 **New agents**:
-- **MacroStrategist** (Sonnet): Regime assessment (risk-on/off), sector tilts, macro trade ideas. Tools: FRED observations, web search
-- **EquityStrategist** (Sonnet): Cross-signal convergence synthesis. Pre-computed convergence map shows which tickers appear in 2+ Layer 1 reports. Tools: quotes, options snapshots, web search
-- **BullAdvocate** (Haiku): Argues strongest case for each gated trade idea. No tools, pure argumentation
-- **BearAdvocate** (Haiku): Attacks the thesis, finds contradictions. No tools
-- **Adjudicator** (Sonnet): Weighs both sides, adjusts conviction, produces final recommendation. 1 web search max
-- **Brief Compiler** (no LLM): Ranks ideas by conviction, assembles `DailyIntelligenceBrief`
+- **MacroStrategist** (OpenAI, smart): Regime assessment (risk-on/off), sector tilts, macro trade ideas. Tools: FRED observations, web search (2 calls max). Input: social macro themes + news signals + FRED data.
+- **EquityStrategist** (OpenAI, smart): Cross-signal convergence synthesis. Pre-computes convergence map: `{ticker: [sources]}` showing which tickers appear in 2+ Layer 1 reports. Tools: quotes, options snapshots (3 calls max), web search (2 calls max). Output: `TradeIdea` list ranked by conviction.
 
-**State**: `IntelligenceState` TypedDict with `Annotated` reducers for safe concurrent writes. Deps passed via closure factory.
+**Gate logic**: Deterministic routing function. Ideas with conviction >= 0.7, 2+ source convergence, and direction in (long, short) route to debate. Others go directly to compiler.
 
-**New files**: `intelligence/state.py`, `intelligence/graph.py`, `strategists/macro.py`, `strategists/equity.py`, `debate/bull.py`, `debate/bear.py`, `debate/adjudicator.py`, `intelligence/compiler.py`
+**New files**: `intelligence/strategists/macro.py`, `intelligence/strategists/equity.py`
+**Models**: `MacroView`, `SectorTilt`, `TradeIdea`, `EquityIdeas`
+
+---
+
+### Phase 3C: Debate Loop (Layer 2.5)
+**Goal**: Add bull/bear debate with adjudicator for high-conviction trade ideas. Uses per-field state for parallel safety (from ai-investment-agent pattern).
+
+**LangGraph additions**:
+```
+Gate → parallel per round:
+  BullAdvocate R1 | BearAdvocate R1 → Debate Sync R1
+    → BullAdvocate R2 | BearAdvocate R2 → Debate Sync R2
+      → Adjudicator → Compiler
+```
+
+**New agents**:
+- **BullAdvocate** (OpenAI, fast): Argues strongest case for each gated trade idea. No tools, pure argumentation. Sees full debate history via state reducer.
+- **BearAdvocate** (OpenAI, fast): Attacks the thesis, finds contradictions. No tools. Increments debate round counter.
+- **Adjudicator** (OpenAI, smart): Weighs both sides, adjusts conviction, produces final recommendation. 1 web search max for fact-checking.
+
+**Debate state**: Per-field ownership pattern (not shared key) for parallel safety:
+```python
+class DebateState(TypedDict):
+    bull_r1: str      # Bull owns
+    bear_r1: str      # Bear owns
+    bull_r2: str      # Bull owns
+    bear_r2: str      # Bear owns
+    round: int
+```
+
+**Output**: `AdjudicatedIdea` (revised conviction, verdict, bull/bear summaries, stop-loss trigger)
+
+**Compiler expanded**: Ranks ideas by final conviction (adjudicated if debated, raw otherwise). Assembles full `DailyIntelligenceBrief`.
+
+**New files**: `intelligence/debate/bull.py`, `intelligence/debate/bear.py`, `intelligence/debate/adjudicator.py`
+**Models**: `AdjudicatedIdea`, `DailyIntelligenceBrief`
 
 ---
 
@@ -113,9 +185,9 @@ Lands in Discord each morning (~10:30am ET):
 
 | Component | Model | Est. Cost/Day |
 |---|---|---|
-| SocialSentimentAnalyst | Sonnet (vsmart) | ~$0.15 |
-| EventCalendarAnalyst | Sonnet x3 + vsmart | ~$0.15 |
-| USCompanyAnalyst | OpenAI 5.2 | ~$0.10-0.30 |
+| SocialSentimentAnalyst | OpenAI vsmart | ~$0.15 |
+| NewsAnalyst | No LLM (reader) | ~$0.00 |
+| CompanyAnalyst (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.30-1.00 |
 | MacroStrategist | Sonnet | ~$0.08 |
 | EquityStrategist | Sonnet | ~$0.12 |
 | Debate (avg 1.5 ideas/day, 2 rounds) | Haiku x4 + Sonnet | ~$0.20 |

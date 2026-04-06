@@ -200,23 +200,34 @@ async def emit_stage2_notification(
         )
 
 
-async def emit_raw_message_to_db(message: UnifiedMessage) -> None:
-    """Store raw message to raw_messages table.
+async def emit_raw_message_to_db(
+    message: UnifiedMessage,
+    impact_score: int = 0,
+    tickers: list[str] | None = None,
+) -> int | None:
+    """Store raw message to raw_messages table with Stage 1 scores.
 
     Args:
         message: The raw message to store
+        impact_score: Stage 1 impact score (0-100)
+        tickers: Stage 1 extracted tickers
+
+    Returns:
+        The message ID, or None if storage failed.
     """
     try:
         db = get_database()
     except RuntimeError:
         logger.debug("Database not initialized, skipping raw message storage")
-        return
+        return None
 
     try:
-        await db.insert_raw_message(message)
+        message_id = await db.insert_raw_message(message, impact_score, tickers)
         logger.debug("Raw message stored to DB", message_id=message.external_id)
+        return message_id
     except Exception:
         logger.exception("Failed to store raw message", message_id=message.external_id)
+        return None
 
 
 async def emit_signal(
@@ -237,8 +248,10 @@ async def emit_signal(
         result: The processing result to emit
         redis: Redis client
     """
-    # 0. Store raw message to DB (always, even for skipped)
-    await emit_raw_message_to_db(result.message)
+    # 0. Store raw message to DB with Stage 1 scores (always, even for skipped)
+    impact_score = result.extraction.impact_score if result.extraction else 0
+    tickers = result.extraction.matched_tickers if result.extraction else None
+    await emit_raw_message_to_db(result.message, impact_score, tickers)
 
     signal = result.to_signal()
     if signal is None:

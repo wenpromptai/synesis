@@ -118,12 +118,18 @@ CREATE TABLE IF NOT EXISTS synesis.raw_messages (
     raw_text TEXT NOT NULL,
     source_timestamp TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ DEFAULT NOW(),
+    impact_score SMALLINT DEFAULT 0,    -- Stage 1 impact score (0-100)
+    tickers TEXT[] DEFAULT '{}',        -- Stage 1 extracted tickers
     UNIQUE (source_platform, external_id)
 );
 
 -- Index for finding recent messages by source
 CREATE INDEX IF NOT EXISTS idx_raw_messages_source_time
     ON synesis.raw_messages (source_platform, source_account, source_timestamp DESC);
+
+-- Index for NewsAnalyst queries (recent messages by impact)
+CREATE INDEX IF NOT EXISTS idx_raw_messages_impact
+    ON synesis.raw_messages (source_timestamp DESC, impact_score DESC);
 
 
 -- -----------------------------------------------------------------------------

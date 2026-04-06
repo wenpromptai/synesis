@@ -1,8 +1,8 @@
-"""USCompanyAnalyst — comprehensive US company analysis via SEC EDGAR + yfinance.
+"""CompanyAnalyst — comprehensive company analysis via SEC EDGAR + yfinance.
 
 Three-phase pipeline per ticker:
-1. Data gathering (no LLM): yfinance fundamentals + EDGAR XBRL/insiders/filings
-2. Deterministic scoring (no LLM): Piotroski, Beneish, insider clusters, red flags
+1. Data gathering (no LLM): yfinance fundamentals + quarterly financials, EDGAR insiders/filings
+2. Deterministic scoring (no LLM): Piotroski, insider clusters, red flags
 3. LLM synthesis: PydanticAI agent interprets scores + filing prose → CompanyAnalysis
 """
 
@@ -25,7 +25,7 @@ from synesis.processing.intelligence.models import (
     RedFlag,
     SignalDirection,
 )
-from synesis.processing.intelligence.specialists.us_company.scoring import (
+from synesis.processing.intelligence.specialists.company.scoring import (
     compute_piotroski_f,
     detect_insider_cluster,
     detect_red_flags,
@@ -35,13 +35,14 @@ if TYPE_CHECKING:
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
     from synesis.providers.sec_edgar.client import SECEdgarClient
     from synesis.providers.yfinance.client import YFinanceClient
+    from synesis.providers.yfinance.models import QuarterlyFinancials
 
 logger = get_logger(__name__)
 
 
 @dataclass
-class USCompanyDeps:
-    """Dependencies for USCompanyAnalyst."""
+class CompanyDeps:
+    """Dependencies for CompanyAnalyst."""
 
     sec_edgar: SECEdgarClient
     yfinance: YFinanceClient
@@ -53,33 +54,11 @@ class USCompanyDeps:
 
 
 async def _gather_yfinance(yf: YFinanceClient, ticker: str) -> dict[str, Any]:
-    """Fetch yfinance fundamentals + quote."""
+    """Fetch yfinance fundamentals, quote, and quarterly financials."""
     fundamentals = await yf.get_fundamentals(ticker)
     quote = await yf.get_quote(ticker)
-    return {"fundamentals": fundamentals, "quote": quote}
-
-
-async def _gather_edgar_xbrl(edgar: SECEdgarClient, ticker: str) -> dict[str, Any]:
-    """Fetch XBRL multi-quarter data."""
-    eps = await edgar.get_historical_eps(ticker, limit=8)
-    revenue = await edgar.get_historical_revenue(ticker, limit=8)
-    facts = await edgar.get_company_facts(
-        ticker,
-        concepts=[
-            "Assets",
-            "Liabilities",
-            "StockholdersEquity",
-            "NetIncomeLoss",
-            "OperatingIncomeLoss",
-            "GrossProfit",
-            "CostOfRevenue",
-            "NetCashProvidedByUsedInOperatingActivities",
-            "CommonStockSharesOutstanding",
-            "LongTermDebt",
-        ],
-        limit=4,
-    )
-    return {"eps_history": eps, "revenue_history": revenue, "facts": facts}
+    quarterly = await yf.get_quarterly_financials(ticker)
+    return {"fundamentals": fundamentals, "quote": quote, "quarterly": quarterly}
 
 
 async def _gather_edgar_insiders(edgar: SECEdgarClient, ticker: str) -> dict[str, Any]:
@@ -129,47 +108,67 @@ async def _gather_edgar_filings(
 # ── Phase 2: Deterministic Scoring ──────────────────────────────
 
 
-def _xbrl_val(facts: Any, concept: str, index: int = 0) -> float | None:
-    """Extract a value from XBRL facts by concept name and position."""
-    if not facts:
+def _safe_div(a: float | None, b: float | None) -> float | None:
+    """Safe division returning None if either operand is None or divisor is zero."""
+    if a is None or b is None or b == 0:
         return None
-    matches = [f for f in facts.facts if f.concept == concept]
-    if len(matches) > index:
-        return float(matches[index].value)
-    return None
+    return a / b
 
 
-def _build_financial_health(
-    yf_data: dict[str, Any],
-    xbrl_data: dict[str, Any],
-) -> FinancialHealthScore:
-    """Build FinancialHealthScore from yfinance + XBRL data."""
+def _build_financial_health(yf_data: dict[str, Any]) -> FinancialHealthScore:
+    """Build FinancialHealthScore from yfinance fundamentals + quarterly data."""
     fundamentals = yf_data["fundamentals"]
-    facts = xbrl_data.get("facts")
+    quarterly: QuarterlyFinancials = yf_data["quarterly"]
+
+    # Extract current and previous quarter for Piotroski scoring
+    inc = quarterly.income
+    bs = quarterly.balance_sheet
+    cf = quarterly.cash_flow
+
+    cur_inc = inc[0] if inc else None
+    prev_inc = inc[1] if len(inc) > 1 else None
+    cur_bs = bs[0] if bs else None
+    prev_bs = bs[1] if len(bs) > 1 else None
+    cur_cf = cf[0] if cf else None
+
+    # Compute Piotroski from quarterly data
+    cur_assets = cur_bs.total_assets if cur_bs else None
+    prev_assets = prev_bs.total_assets if prev_bs else None
+    cur_revenue = cur_inc.total_revenue if cur_inc else None
+    prev_revenue = prev_inc.total_revenue if prev_inc else None
 
     piotroski = compute_piotroski_f(
-        net_income_current=_xbrl_val(facts, "NetIncomeLoss", 0),
-        operating_cf_current=_xbrl_val(facts, "NetCashProvidedByUsedInOperatingActivities", 0),
-        roa_current=fundamentals.roa,
-        roa_previous=None,
-        long_term_debt_current=_xbrl_val(facts, "LongTermDebt", 0),
-        long_term_debt_previous=_xbrl_val(facts, "LongTermDebt", 1),
-        current_ratio_current=fundamentals.current_ratio,
-        current_ratio_previous=None,
-        shares_outstanding_current=_xbrl_val(facts, "CommonStockSharesOutstanding", 0),
-        shares_outstanding_previous=_xbrl_val(facts, "CommonStockSharesOutstanding", 1),
-        gross_margin_current=fundamentals.gross_margin,
-        gross_margin_previous=None,
-        asset_turnover_current=None,
-        asset_turnover_previous=None,
+        net_income_current=cur_inc.net_income if cur_inc else None,
+        operating_cf_current=cur_cf.operating_cash_flow if cur_cf else None,
+        roa_current=_safe_div(cur_inc.net_income if cur_inc else None, cur_assets),
+        roa_previous=_safe_div(prev_inc.net_income if prev_inc else None, prev_assets),
+        long_term_debt_current=cur_bs.long_term_debt if cur_bs else None,
+        long_term_debt_previous=prev_bs.long_term_debt if prev_bs else None,
+        current_ratio_current=(
+            _safe_div(cur_bs.current_assets, cur_bs.current_liabilities) if cur_bs else None
+        ),
+        current_ratio_previous=(
+            _safe_div(prev_bs.current_assets, prev_bs.current_liabilities) if prev_bs else None
+        ),
+        shares_outstanding_current=cur_bs.ordinary_shares_number if cur_bs else None,
+        shares_outstanding_previous=prev_bs.ordinary_shares_number if prev_bs else None,
+        gross_margin_current=_safe_div(cur_inc.gross_profit if cur_inc else None, cur_revenue),
+        gross_margin_previous=_safe_div(prev_inc.gross_profit if prev_inc else None, prev_revenue),
+        asset_turnover_current=_safe_div(cur_revenue, cur_assets),
+        asset_turnover_previous=_safe_div(prev_revenue, prev_assets),
     )
 
-    eps_history = xbrl_data.get("eps_history", [])
-    revenue_history = xbrl_data.get("revenue_history", [])
+    # Build quarterly trends for LLM context
+    eps_trend = [
+        {"period": str(q.period), "actual": q.basic_eps, "revenue": q.total_revenue}
+        for q in inc
+        if q.basic_eps is not None
+    ]
+    revenue_trend = [
+        {"period": str(q.period), "actual": q.total_revenue} for q in inc if q.total_revenue
+    ]
 
-    latest_period = ""
-    if eps_history:
-        latest_period = eps_history[0].get("frame", "") or eps_history[0].get("period", "")
+    latest_period = str(inc[0].period) if inc else ""
 
     return FinancialHealthScore(
         market_cap=fundamentals.market_cap,
@@ -193,8 +192,8 @@ def _build_financial_health(
         forward_eps=fundamentals.forward_eps,
         piotroski_f=piotroski,
         beneish_m=None,  # Needs 2yr comparative data — future enhancement
-        quarterly_eps_trend=eps_history,
-        quarterly_revenue_trend=revenue_history,
+        quarterly_eps_trend=eps_trend,
+        quarterly_revenue_trend=revenue_trend,
         latest_filing_period=latest_period,
     )
 
@@ -358,6 +357,7 @@ def _build_user_prompt(
     """Build the user prompt with all gathered data."""
     fundamentals = yf_data["fundamentals"]
     quote = yf_data["quote"]
+    quarterly: QuarterlyFinancials = yf_data["quarterly"]
 
     sections: list[str] = []
 
@@ -373,6 +373,10 @@ def _build_user_prompt(
 
     sections.append("\n## Pre-Computed Financial Health")
     sections.append(financial_health.model_dump_json(indent=2))
+
+    # Include full quarterly financials for LLM to analyze trends
+    sections.append("\n## Quarterly Financial Statements")
+    sections.append(quarterly.model_dump_json(indent=2))
 
     sections.append("\n## Insider Activity")
     sections.append(insider_signal.model_dump_json(indent=2))
@@ -415,8 +419,8 @@ def _build_user_prompt(
         "risk_assessment, geographic_exposure, key_customers_suppliers, "
         "insider_vs_financials, disclosure_consistency) plus the synthesis "
         "fields (overall_signal, confidence, primary_thesis, key_risks, "
-        "monitoring_triggers). Use the filing prose for qualitative insights "
-        "and cross-reference against the quantitative data."
+        "monitoring_triggers). Use the filing prose and quarterly financials "
+        "for qualitative insights and cross-reference against the quantitative data."
     )
 
     return "\n".join(sections)
@@ -427,17 +431,16 @@ def _build_user_prompt(
 
 async def analyze_company(
     ticker: str,
-    deps: USCompanyDeps,
+    deps: CompanyDeps,
 ) -> CompanyAnalysis:
     """Run the full three-phase analysis pipeline for a single ticker."""
     ticker = ticker.upper()
-    logger.info("Starting USCompanyAnalyst", ticker=ticker)
+    logger.info("Starting CompanyAnalyst", ticker=ticker)
 
     # Phase 1: Gather data concurrently (return_exceptions so one failure
     # doesn't discard successful results from the other providers)
     results = await asyncio.gather(
         _gather_yfinance(deps.yfinance, ticker),
-        _gather_edgar_xbrl(deps.sec_edgar, ticker),
         _gather_edgar_insiders(deps.sec_edgar, ticker),
         _gather_edgar_filings(deps.sec_edgar, ticker, deps.crawler),
         return_exceptions=True,
@@ -450,7 +453,6 @@ async def analyze_company(
     yf_data = results[0]
 
     # EDGAR sources degrade gracefully
-    _empty_xbrl: dict[str, Any] = {"eps_history": [], "revenue_history": [], "facts": None}
     _empty_insider: dict[str, Any] = {
         "transactions": [],
         "sentiment": None,
@@ -466,38 +468,28 @@ async def analyze_company(
 
     if isinstance(results[1], BaseException):
         logger.warning(
-            "EDGAR XBRL fetch failed — proceeding without XBRL",
+            "EDGAR insider fetch failed — proceeding without insider data",
             ticker=ticker,
             error=str(results[1]),
         )
-        xbrl_data = _empty_xbrl
+        insider_data = _empty_insider
     else:
-        xbrl_data = results[1]
+        insider_data = results[1]
 
     if isinstance(results[2], BaseException):
         logger.warning(
-            "EDGAR insider fetch failed — proceeding without insider data",
+            "EDGAR filing fetch failed — proceeding without filing prose",
             ticker=ticker,
             error=str(results[2]),
         )
-        insider_data = _empty_insider
-    else:
-        insider_data = results[2]
-
-    if isinstance(results[3], BaseException):
-        logger.warning(
-            "EDGAR filing fetch failed — proceeding without filing prose",
-            ticker=ticker,
-            error=str(results[3]),
-        )
         filing_data = _empty_filing
     else:
-        filing_data = results[3]
+        filing_data = results[2]
 
     logger.info("Phase 1 complete: data gathered", ticker=ticker)
 
     # Phase 2: Deterministic scoring
-    financial_health = _build_financial_health(yf_data, xbrl_data)
+    financial_health = _build_financial_health(yf_data)
     insider_signal = _build_insider_signal(insider_data)
 
     # Only flag late filings from the last 2 years as red flags
@@ -515,15 +507,17 @@ async def analyze_company(
         }
         for t in insider_data.get("transactions", [])
     ]
+
+    # Red flag: cash flow divergence from quarterly data
     financial_dict: dict[str, Any] = {}
-    facts = xbrl_data.get("facts")
-    if facts:
-        ni = _xbrl_val(facts, "NetIncomeLoss", 0)
-        cf = _xbrl_val(facts, "NetCashProvidedByUsedInOperatingActivities", 0)
+    quarterly = yf_data["quarterly"]
+    if quarterly.income and quarterly.cash_flow:
+        ni = quarterly.income[0].net_income
+        opcf = quarterly.cash_flow[0].operating_cash_flow
         if ni is not None:
             financial_dict["net_income"] = ni
-        if cf is not None:
-            financial_dict["operating_cf"] = cf
+        if opcf is not None:
+            financial_dict["operating_cf"] = opcf
 
     red_flags = detect_red_flags(late_filing_dicts, txn_dicts, financial_dict)
 

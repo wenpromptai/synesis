@@ -149,11 +149,15 @@ class Database:
     async def insert_raw_message(
         self,
         message: "UnifiedMessage",
+        impact_score: int = 0,
+        tickers: list[str] | None = None,
     ) -> int:
         """Insert a raw message into the raw_messages table.
 
         Args:
             message: The unified message to insert
+            impact_score: Stage 1 impact score (0-100)
+            tickers: Stage 1 extracted tickers
 
         Returns:
             ID of the inserted message
@@ -161,9 +165,9 @@ class Database:
         query = """
             INSERT INTO raw_messages (
                 source_platform, source_account, external_id,
-                raw_text, source_timestamp
+                raw_text, source_timestamp, impact_score, tickers
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (source_platform, external_id) DO NOTHING
             RETURNING id
         """
@@ -174,6 +178,8 @@ class Database:
             message.external_id,
             message.text,
             message.timestamp,
+            impact_score,
+            tickers or [],
         )
 
         if result is None:
@@ -203,6 +209,27 @@ class Database:
             platform=message.source_platform.value,
         )
         return message_id
+
+    async def get_raw_messages(
+        self,
+        since_hours: int = 24,
+        min_impact_score: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fetch recent raw messages with impact scores for NewsAnalyst.
+
+        Returns messages with impact_score >= min_impact_score from the
+        last since_hours, ordered by impact score descending.
+        """
+        query = """
+            SELECT id, source_platform, source_account, raw_text,
+                   source_timestamp, impact_score, tickers
+            FROM raw_messages
+            WHERE source_timestamp > NOW() - $1 * INTERVAL '1 hour'
+            AND impact_score >= $2
+            ORDER BY impact_score DESC, source_timestamp DESC
+        """
+        rows = await self.fetch(query, since_hours, min_impact_score)
+        return [dict(r) for r in rows]
 
     # -------------------------------------------------------------------------
     async def upsert_watchlist_ticker(

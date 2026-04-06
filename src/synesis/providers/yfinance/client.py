@@ -34,6 +34,7 @@ from synesis.providers.yfinance.models import (
     OptionsContract,
     OptionsGreeks,
     OptionsSnapshot,
+    QuarterlyFinancials,
 )
 
 if TYPE_CHECKING:
@@ -190,6 +191,37 @@ class YFinanceClient:
             ex=settings.yfinance_cache_ttl_fundamentals,
         )
         return fundamentals
+
+    async def get_quarterly_financials(self, ticker: str) -> QuarterlyFinancials:
+        """Get quarterly income, balance sheet, and cash flow statements.
+
+        Returns up to 5 quarters of data. Updates same-day when earnings
+        are released (faster than SEC EDGAR XBRL which lags until filing).
+        """
+        settings = get_settings()
+        ticker_up = ticker.upper()
+        cache_key = f"{CACHE_PREFIX}:quarterly:{ticker_up}"
+
+        cached = await self._redis.get(cache_key)
+        if cached:
+            try:
+                return QuarterlyFinancials.model_validate(orjson.loads(cached))
+            except Exception as e:
+                logger.warning("Cache deserialization failed", key=cache_key, error=str(e))
+
+        financials, balance_sheet, cashflow = await asyncio.to_thread(
+            _fetch_quarterly_financials, ticker
+        )
+        quarterly = QuarterlyFinancials.from_yfinance(
+            ticker_up, financials, balance_sheet, cashflow
+        )
+
+        await self._redis.set(
+            cache_key,
+            orjson.dumps(quarterly.model_dump(mode="json")),
+            ex=settings.yfinance_cache_ttl_fundamentals,
+        )
+        return quarterly
 
     async def get_history(
         self,
@@ -413,6 +445,19 @@ class YFinanceClient:
 # ---------------------------------------------------------------------------
 # Synchronous helpers (run inside asyncio.to_thread)
 # ---------------------------------------------------------------------------
+
+
+def _fetch_quarterly_financials(ticker: str) -> tuple[Any, Any, Any]:
+    """Fetch quarterly financial statements (synchronous).
+
+    Returns (financials_df, balance_sheet_df, cashflow_df).
+    """
+    try:
+        t = yf.Ticker(ticker)
+        return t.quarterly_financials, t.quarterly_balance_sheet, t.quarterly_cashflow
+    except Exception as e:
+        logger.warning("yfinance quarterly financials fetch failed", ticker=ticker, error=str(e))
+        return None, None, None
 
 
 def _fetch_quote_info(ticker: str) -> dict[str, Any]:

@@ -6,7 +6,7 @@ import math
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def _clean_float(value: Any) -> float | None:
@@ -240,4 +240,216 @@ class CompanyFundamentals(BaseModel):
             analyst_count=_clean_int(info.get("numberOfAnalystOpinions")),
             held_percent_insiders=_clean_float(info.get("heldPercentInsiders")),
             held_percent_institutions=_clean_float(info.get("heldPercentInstitutions")),
+        )
+
+
+class QuarterlyIncomeStatement(BaseModel):
+    """Quarterly income statement from yfinance."""
+
+    period: date
+    total_revenue: float | None = None
+    cost_of_revenue: float | None = None
+    gross_profit: float | None = None
+    operating_expense: float | None = None
+    operating_income: float | None = None
+    net_income: float | None = None
+    ebitda: float | None = None
+    ebit: float | None = None
+    basic_eps: float | None = None
+    diluted_eps: float | None = None
+    research_and_development: float | None = None
+    selling_general_and_administration: float | None = None
+    interest_expense: float | None = None
+    interest_income: float | None = None
+    tax_provision: float | None = None
+    pretax_income: float | None = None
+    reconciled_depreciation: float | None = None
+    basic_average_shares: float | None = None
+    diluted_average_shares: float | None = None
+
+
+class QuarterlyBalanceSheet(BaseModel):
+    """Quarterly balance sheet from yfinance."""
+
+    period: date
+    total_assets: float | None = None
+    current_assets: float | None = None
+    cash_and_cash_equivalents: float | None = None
+    receivables: float | None = None
+    inventory: float | None = None
+    prepaid_assets: float | None = None
+    net_ppe: float | None = None
+    goodwill_and_intangibles: float | None = None
+    total_liabilities: float | None = None
+    current_liabilities: float | None = None
+    accounts_payable: float | None = None
+    current_debt: float | None = None
+    long_term_debt: float | None = None
+    total_debt: float | None = None
+    stockholders_equity: float | None = None
+    retained_earnings: float | None = None
+    common_stock_equity: float | None = None
+    ordinary_shares_number: float | None = None
+    working_capital: float | None = None
+    net_tangible_assets: float | None = None
+    invested_capital: float | None = None
+    net_debt: float | None = None
+    capital_lease_obligations: float | None = None
+
+
+class QuarterlyCashFlow(BaseModel):
+    """Quarterly cash flow statement from yfinance."""
+
+    period: date
+    operating_cash_flow: float | None = None
+    capital_expenditure: float | None = None
+    free_cash_flow: float | None = None
+    depreciation_and_amortization: float | None = None
+    stock_based_compensation: float | None = None
+    change_in_working_capital: float | None = None
+    change_in_inventory: float | None = None
+    change_in_receivables: float | None = None
+    change_in_payables: float | None = None
+    investing_cash_flow: float | None = None
+    financing_cash_flow: float | None = None
+    net_common_stock_issuance: float | None = None
+    net_long_term_debt_issuance: float | None = None
+    issuance_of_capital_stock: float | None = None
+    repayment_of_debt: float | None = None
+    interest_paid: float | None = None
+
+
+class QuarterlyFinancials(BaseModel):
+    """Complete quarterly financial statements from yfinance.
+
+    Contains up to 5 quarters of income, balance sheet, and cash flow data.
+    Updates same-day when earnings are released (vs XBRL which lags until 10-K/10-Q filing).
+    """
+
+    ticker: str
+    income: list[QuarterlyIncomeStatement] = Field(default_factory=list)
+    balance_sheet: list[QuarterlyBalanceSheet] = Field(default_factory=list)
+    cash_flow: list[QuarterlyCashFlow] = Field(default_factory=list)
+
+    @classmethod
+    def from_yfinance(
+        cls,
+        ticker: str,
+        financials: Any,
+        balance_sheet: Any,
+        cashflow: Any,
+    ) -> QuarterlyFinancials:
+        """Build from yfinance Ticker quarterly dataframes."""
+
+        def _val(df: Any, row: str, col: Any) -> float | None:
+            if df is None or df.empty or row not in df.index:
+                return None
+            return _clean_float(df.loc[row].get(col))
+
+        income_stmts: list[QuarterlyIncomeStatement] = []
+        if financials is not None and not financials.empty:
+            for col in financials.columns:
+                income_stmts.append(
+                    QuarterlyIncomeStatement(
+                        period=col.date() if hasattr(col, "date") else col,
+                        total_revenue=_val(financials, "Total Revenue", col),
+                        cost_of_revenue=_val(financials, "Cost Of Revenue", col),
+                        gross_profit=_val(financials, "Gross Profit", col),
+                        operating_expense=_val(financials, "Operating Expense", col),
+                        operating_income=_val(financials, "Operating Income", col),
+                        net_income=_val(financials, "Net Income", col),
+                        ebitda=_val(financials, "EBITDA", col),
+                        ebit=_val(financials, "EBIT", col),
+                        basic_eps=_val(financials, "Basic EPS", col),
+                        diluted_eps=_val(financials, "Diluted EPS", col),
+                        research_and_development=_val(financials, "Research And Development", col),
+                        selling_general_and_administration=_val(
+                            financials, "Selling General And Administration", col
+                        ),
+                        interest_expense=_val(financials, "Interest Expense", col),
+                        interest_income=_val(financials, "Interest Income", col),
+                        tax_provision=_val(financials, "Tax Provision", col),
+                        pretax_income=_val(financials, "Pretax Income", col),
+                        reconciled_depreciation=_val(financials, "Reconciled Depreciation", col),
+                        basic_average_shares=_val(financials, "Basic Average Shares", col),
+                        diluted_average_shares=_val(financials, "Diluted Average Shares", col),
+                    )
+                )
+
+        bs_stmts: list[QuarterlyBalanceSheet] = []
+        if balance_sheet is not None and not balance_sheet.empty:
+            for col in balance_sheet.columns:
+                bs_stmts.append(
+                    QuarterlyBalanceSheet(
+                        period=col.date() if hasattr(col, "date") else col,
+                        total_assets=_val(balance_sheet, "Total Assets", col),
+                        current_assets=_val(balance_sheet, "Current Assets", col),
+                        cash_and_cash_equivalents=_val(
+                            balance_sheet, "Cash And Cash Equivalents", col
+                        ),
+                        receivables=_val(balance_sheet, "Receivables", col),
+                        inventory=_val(balance_sheet, "Inventory", col),
+                        prepaid_assets=_val(balance_sheet, "Prepaid Assets", col),
+                        net_ppe=_val(balance_sheet, "Net PPE", col),
+                        goodwill_and_intangibles=_val(
+                            balance_sheet, "Goodwill And Other Intangible Assets", col
+                        ),
+                        total_liabilities=_val(
+                            balance_sheet, "Total Liabilities Net Minority Interest", col
+                        ),
+                        current_liabilities=_val(balance_sheet, "Current Liabilities", col),
+                        accounts_payable=_val(balance_sheet, "Accounts Payable", col),
+                        current_debt=_val(balance_sheet, "Current Debt", col),
+                        long_term_debt=_val(balance_sheet, "Long Term Debt", col),
+                        total_debt=_val(balance_sheet, "Total Debt", col),
+                        stockholders_equity=_val(balance_sheet, "Stockholders Equity", col),
+                        retained_earnings=_val(balance_sheet, "Retained Earnings", col),
+                        common_stock_equity=_val(balance_sheet, "Common Stock Equity", col),
+                        ordinary_shares_number=_val(balance_sheet, "Ordinary Shares Number", col),
+                        working_capital=_val(balance_sheet, "Working Capital", col),
+                        net_tangible_assets=_val(balance_sheet, "Net Tangible Assets", col),
+                        invested_capital=_val(balance_sheet, "Invested Capital", col),
+                        net_debt=_val(balance_sheet, "Net Debt", col),
+                        capital_lease_obligations=_val(
+                            balance_sheet, "Capital Lease Obligations", col
+                        ),
+                    )
+                )
+
+        cf_stmts: list[QuarterlyCashFlow] = []
+        if cashflow is not None and not cashflow.empty:
+            for col in cashflow.columns:
+                cf_stmts.append(
+                    QuarterlyCashFlow(
+                        period=col.date() if hasattr(col, "date") else col,
+                        operating_cash_flow=_val(cashflow, "Operating Cash Flow", col),
+                        capital_expenditure=_val(cashflow, "Capital Expenditure", col),
+                        free_cash_flow=_val(cashflow, "Free Cash Flow", col),
+                        depreciation_and_amortization=_val(
+                            cashflow, "Depreciation And Amortization", col
+                        ),
+                        stock_based_compensation=_val(cashflow, "Stock Based Compensation", col),
+                        change_in_working_capital=_val(cashflow, "Change In Working Capital", col),
+                        change_in_inventory=_val(cashflow, "Change In Inventory", col),
+                        change_in_receivables=_val(cashflow, "Change In Receivables", col),
+                        change_in_payables=_val(
+                            cashflow, "Change In Payables And Accrued Expense", col
+                        ),
+                        investing_cash_flow=_val(cashflow, "Investing Cash Flow", col),
+                        financing_cash_flow=_val(cashflow, "Financing Cash Flow", col),
+                        net_common_stock_issuance=_val(cashflow, "Net Common Stock Issuance", col),
+                        net_long_term_debt_issuance=_val(
+                            cashflow, "Net Long Term Debt Issuance", col
+                        ),
+                        issuance_of_capital_stock=_val(cashflow, "Issuance Of Capital Stock", col),
+                        repayment_of_debt=_val(cashflow, "Repayment Of Debt", col),
+                        interest_paid=_val(cashflow, "Interest Paid Supplemental Data", col),
+                    )
+                )
+
+        return cls(
+            ticker=ticker.upper(),
+            income=income_stmts,
+            balance_sheet=bs_stmts,
+            cash_flow=cf_stmts,
         )
