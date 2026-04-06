@@ -23,7 +23,6 @@ from synesis.processing.intelligence.models import (
     FinancialHealthScore,
     InsiderSignal,
     RedFlag,
-    SignalDirection,
 )
 from synesis.processing.intelligence.specialists.company.scoring import (
     compute_piotroski_f,
@@ -249,21 +248,9 @@ def _build_insider_signal(insider_data: dict[str, Any]) -> InsiderSignal:
             f"{int(t.shares):,} shares{price_str} on {t.transaction_date}"
         )
 
-    # Signal from MSPR
+    # Insider sentiment score: MSPR is already -1 to +1
     mspr = sentiment.get("mspr")
-    if mspr is not None:
-        if mspr >= 0.5:
-            signal: SignalDirection = "strong_buy"
-        elif mspr >= 0.1:
-            signal = "buy"
-        elif mspr <= -0.5:
-            signal = "strong_sell"
-        elif mspr <= -0.1:
-            signal = "sell"
-        else:
-            signal = "neutral"
-    else:
-        signal = "neutral"
+    insider_score = mspr if mspr is not None else 0.0
 
     return InsiderSignal(
         mspr=mspr,
@@ -275,7 +262,7 @@ def _build_insider_signal(insider_data: dict[str, Any]) -> InsiderSignal:
         csuite_activity=csuite_summary,
         form144_count=len(form144),
         notable_transactions=notable,
-        signal=signal,
+        sentiment_score=insider_score,
     )
 
 
@@ -321,11 +308,11 @@ Today's date: {current_date}
 - Always cite which filing period (Q1 2025, FY 2024) data comes from
 - Cross-reference at least 2 data points before making claims
 - If insider activity contradicts financial trends, flag this prominently
-- Confidence calibration:
-  90-100%: Overwhelming evidence, multiple confirming signals
-  70-89%: Strong evidence with minor uncertainties
-  50-69%: Mixed signals, reasonable arguments both ways
-  <50%: Insufficient data or highly conflicting signals
+- Sentiment score calibration (-1.0 to 1.0):
+  ±0.8 to ±1.0: Overwhelming evidence, high conviction
+  ±0.5 to ±0.7: Strong evidence with minor uncertainties
+  ±0.2 to ±0.4: Mixed signals, moderate conviction
+  ±0.0 to ±0.1: Insufficient data or highly conflicting signals
 """
 
 
@@ -339,8 +326,7 @@ class _LLMAnalysisOutput(BaseModel):
     key_customers_suppliers: str
     insider_vs_financials: str
     disclosure_consistency: str
-    overall_signal: SignalDirection
-    confidence: float = Field(ge=0.0, le=1.0)
+    sentiment_score: float = Field(ge=-1.0, le=1.0)
     primary_thesis: str
     key_risks: list[str]
     monitoring_triggers: list[str]
@@ -418,7 +404,7 @@ def _build_user_prompt(
         "Fill in ALL qualitative fields (business_summary, earnings_quality, "
         "risk_assessment, geographic_exposure, key_customers_suppliers, "
         "insider_vs_financials, disclosure_consistency) plus the synthesis "
-        "fields (overall_signal, confidence, primary_thesis, key_risks, "
+        "fields (sentiment_score, primary_thesis, key_risks, "
         "monitoring_triggers). Use the filing prose and quarterly financials "
         "for qualitative insights and cross-reference against the quantitative data."
     )
@@ -525,7 +511,7 @@ async def analyze_company(
         "Phase 2 complete: scoring done",
         ticker=ticker,
         piotroski=financial_health.piotroski_f,
-        insider_signal=insider_signal.signal,
+        insider_sentiment=insider_signal.sentiment_score,
         red_flags=len(red_flags),
     )
 
@@ -588,8 +574,7 @@ async def analyze_company(
         key_customers_suppliers=llm_output.key_customers_suppliers,
         insider_vs_financials=llm_output.insider_vs_financials,
         disclosure_consistency=llm_output.disclosure_consistency,
-        overall_signal=llm_output.overall_signal,
-        confidence=llm_output.confidence,
+        sentiment_score=llm_output.sentiment_score,
         primary_thesis=llm_output.primary_thesis,
         key_risks=llm_output.key_risks,
         monitoring_triggers=llm_output.monitoring_triggers,

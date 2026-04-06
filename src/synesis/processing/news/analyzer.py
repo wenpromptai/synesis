@@ -16,6 +16,7 @@ from pydantic_ai.output import PromptedOutput
 
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
+from synesis.processing.common.ticker_tools import verify_ticker
 from synesis.processing.common.web_search import (
     Recency,
     format_search_results,
@@ -59,14 +60,19 @@ SMART_ANALYZER_SYSTEM_PROMPT = """You are an expert financial analyst. Your job 
   Recency: "day" (last 24h), "week" (7d), "month" (30d), "year" (12mo), "all" (no filter).
 - `web_read(url)` — Read a web page in full (~4000 chars of article content). Unlimited calls.
 - `search_polymarket(query)` — Search Polymarket for active prediction markets.
+- `verify_ticker(ticker)` — Verify a ticker symbol or find a company's ticker. Checks US tickers first, falls back to yfinance for non-US (e.g. D05.SI, 0700.HK).
 
 ## Workflow (follow this order)
 
-### Step 1: Identify entities
+### Step 1: Identify entities and verify tickers
 
 Extract `all_entities` — every company, person, institution, or country directly involved.
 - INCLUDE: named companies (NVIDIA, Marvell), people (Trump, Powell), institutions (Fed, ECB, OPEC), countries
 - EXCLUDE: news sources (@DeItaone, Bloomberg), generic references ("analysts", "investors", "markets")
+
+After extracting entities, use `verify_ticker` on any ticker symbols you're unsure about.
+If Stage 1 matched tickers look incorrect, verify them. If you identify companies that should
+have tickers but Stage 1 missed them, use `verify_ticker` to find the correct symbol.
 
 ### Step 2: Research context
 
@@ -292,6 +298,22 @@ Impact Score: {ext.impact_score}/100"""
 
             logger.debug("Polymarket search complete", query=query, markets_found=len(active))
             return "\n".join(lines)
+
+        # Tool: Verify ticker symbol or find a company's ticker
+        @agent.tool
+        async def tool_verify_ticker(
+            ctx: RunContext[AnalyzerDeps],
+            ticker: str,
+        ) -> str:
+            """Verify a ticker symbol or search for a company's ticker.
+
+            Checks against US ticker database first, falls back to yfinance
+            Search for non-US tickers (e.g. D05.SI, 0700.HK).
+
+            Args:
+                ticker: Ticker symbol or company name to verify
+            """
+            return await verify_ticker(ticker)
 
         return agent
 

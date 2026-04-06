@@ -1,8 +1,8 @@
-"""Twitter account profiles for LLM context.
+"""Twitter/X account profiles for LLM context.
 
-Each account has a category and description so the analyzer can
-weight credibility, flag conflicts of interest, and cross-confirm
-themes across different expertise areas.
+Each account has a category and description so the SocialSentimentAnalyst
+can weight credibility, flag conflicts of interest, and identify themes
+across different expertise areas.
 
 To add a new account:
 1. Add the handle to TWITTER_ACCOUNTS in .env

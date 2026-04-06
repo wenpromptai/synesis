@@ -12,7 +12,6 @@ from synesis.processing.common.web_search import (
     _get_date_range,
     format_search_results,
     search_market_impact,
-    search_ticker_analysis,
 )
 
 
@@ -256,120 +255,6 @@ class TestSearchMarketImpact:
                 results = await search_market_impact("test query")
 
         assert results[0]["title"] == "Exa Result"
-
-
-class TestSearchTickerAnalysis:
-    """Tests for search_ticker_analysis function."""
-
-    @pytest.mark.anyio
-    async def test_returns_results(self) -> None:
-        """Test successful ticker analysis search via SearXNG."""
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "AAPL upgrade",
-                    "content": "Analyst upgrades Apple",
-                    "url": "https://ex.com",
-                }
-            ]
-        }
-
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.searxng_url = "http://localhost:8080"
-
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.get = AsyncMock(return_value=mock_response)
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                mock_client_cls.return_value = mock_client
-
-                results = await search_ticker_analysis("AAPL", company_name="Apple Inc.")
-
-        assert len(results) == 1
-        assert results[0]["title"] == "AAPL upgrade"
-        mock_client.get.assert_called_once()
-        call_kwargs = mock_client.get.call_args
-        params = call_kwargs[1]["params"] if "params" in call_kwargs[1] else call_kwargs[0][1]
-        assert "AAPL" in params["q"]
-        assert "Apple Inc." in params["q"]
-        assert "analyst" in params["q"]
-
-    @pytest.mark.anyio
-    async def test_without_company_name(self) -> None:
-        """Test ticker analysis search without company name."""
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {"results": []}
-
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.searxng_url = "http://localhost:8080"
-
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.get = AsyncMock(return_value=mock_response)
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                mock_client_cls.return_value = mock_client
-
-                results = await search_ticker_analysis("NVDA")
-
-        assert results == []
-
-    @pytest.mark.anyio
-    async def test_returns_empty_when_searxng_not_configured(self) -> None:
-        """Test returns empty list when SearXNG is not configured."""
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.searxng_url = None
-
-            results = await search_ticker_analysis("AAPL")
-
-        assert results == []
-
-    @pytest.mark.anyio
-    async def test_returns_empty_on_http_error(self) -> None:
-        """Test returns empty list when SearXNG request fails."""
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.searxng_url = "http://localhost:8080"
-
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.get = AsyncMock(side_effect=httpx.RequestError("connection failed"))
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                mock_client_cls.return_value = mock_client
-
-                results = await search_ticker_analysis("AAPL")
-
-        assert results == []
-
-    @pytest.mark.anyio
-    async def test_custom_count(self) -> None:
-        """Test custom count parameter limits results."""
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {"title": f"Result {i}", "content": "snippet", "url": f"https://ex.com/{i}"}
-                for i in range(10)
-            ]
-        }
-
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            mock_settings.return_value.searxng_url = "http://localhost:8080"
-
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.get = AsyncMock(return_value=mock_response)
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                mock_client_cls.return_value = mock_client
-
-                results = await search_ticker_analysis("AAPL", count=3)
-
-        assert len(results) == 3
 
 
 class TestSearchProvidersExhaustedError:

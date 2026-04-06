@@ -67,38 +67,66 @@ START → Tier 1 (parallel, signal discovery):
           → Brief Compiler → END
 ```
 
-**Key insight**: CompanyAnalyst costs ~$0.10-0.30 per ticker and takes ~40s. Running it on the full watchlist (15-20 tickers) is wasteful. Tier 1 agents discover which tickers are relevant today, then Tier 2 does deep dives only on those. EventCalendarAnalyst removed — earnings/FOMC context is captured by News + Social; actual financial data flows through yfinance (real-time) and SEC EDGAR (filings).
+#### Completed:
 
-**New agent — SocialSentimentAnalyst** (OpenAI, vsmart):
-- Reads from `raw_tweets` table (last 24h) via `db.get_raw_tweets()`
-- Formats tweets by account with bias/credibility from `accounts.py`
-- Tools: `verify_ticker`, `web_search` (5 calls max), `web_read`
-- Cross-confirmation priority: themes from multiple accounts weighted higher
-- Output: `SocialSentimentAnalysis` (themes, ticker mentions with sentiment)
+**CompanyAnalyst** [DONE]:
+- Three-phase pipeline: yfinance fundamentals + quarterly financials → deterministic scoring (Piotroski, insider clusters, red flags) → LLM synthesis from 10-K/10-Q prose
+- Uses yfinance quarterly data (same-day updates) instead of XBRL (delayed)
+- Lives in `processing/intelligence/specialists/company/`
 
-**New agent — NewsAnalyst** (OpenAI, vsmart):
-- Reads enriched `raw_messages` (last 24h, impact_score >= 20) via `db.get_raw_messages()`
-- `raw_messages` table enriched with `impact_score` + `tickers` from Flow 1 Stage 1 (rule-based, no LLM)
-- Tools: `web_search` (5 calls max), `web_read` for context verification
-- Synthesizes themes across messages, classifies event types, detects contrarian signals
-- Output: `NewsAnalysis` (themes, ticker mentions with relevance, event classifications)
+**raw_messages enrichment** [DONE]:
+- `raw_messages` table has `impact_score` (SMALLINT) + `tickers` (TEXT[]) columns
+- Flow 1 Stage 1 writes scores in single INSERT (no separate UPDATE)
+- `db.get_raw_messages(since_hours, min_impact_score)` ready for NewsAnalyst
+
+**YFinance quarterly financials** [DONE]:
+- `get_quarterly_financials()` → `QuarterlyFinancials` model (income, balance sheet, cash flow)
+- 5-6 quarters of data, Redis-cached
+
+**SocialSentimentAnalyst** [DONE]:
+- PydanticAI agent (OpenAI vsmart) reading `raw_tweets` table (last 24h)
+- Tweets formatted by account with bias/credibility profiles from `x_accounts.py` (24 curated accounts)
+- Tools: `verify_ticker` (us_tickers.json → yfinance Search fallback for non-US), `web_search` (5 calls max), `web_read`
+- Extracts both ticker-specific signals (any ticker any account mentions) and macro themes (non-ticker trading ideas like risk-off, sector rotation)
+- Output: `SocialSentimentAnalysis` (ticker_mentions: list[TickerMention], macro_themes: list[MacroTheme], summary)
+- Lives in `processing/intelligence/specialists/social_sentiment/`
+
+**verify_ticker updated** [DONE]:
+- Fallback changed from SearXNG to yfinance `Search` API
+- Handles non-US tickers (D05.SI for DBS Singapore, 0700.HK for Tencent, etc.)
+
+**New models** [DONE]: `SocialSentimentAnalysis`, `TickerMention`, `MacroTheme`
+
+**NewsAnalyst** [DONE]:
+- PydanticAI agent (OpenAI vsmart) reading enriched `raw_messages` (last 24h, impact_score >= 20)
+- Groups related messages into `NewsStoryCluster` objects (same event = 1 cluster, not N separate mentions)
+- Each cluster classified by `NewsEventType` (earnings, m&a, regulatory, macro, geopolitical, management, legal, product, financing, other)
+- Per-ticker: `NewsTickerMention` with sentiment + magnitude (low/medium/high) + confidence (0-1) + `is_direct_impact` (False for sector drag)
+- Tools: `verify_ticker` (us_tickers.json → yfinance fallback), `web_search` (5 max), `web_read`
+- Output: `NewsAnalysis` (story_clusters, macro_themes, summary)
+- Lives in `processing/intelligence/specialists/news/`
+
+**New models** [DONE]: `NewsEventType`, `NewsTickerMention`, `NewsStoryCluster`, `NewsAnalysis`
+
+**SearXNG removed from ticker verification** [DONE]: Replaced with yfinance Search API fallback. Dead code (`search_ticker_analysis`, `_search_searxng`) removed from `web_search.py`.
+
+#### Remaining:
 
 **extract_tickers node** (deterministic, no LLM):
 - Collects all tickers mentioned in Social + News outputs
 - Deduplicates, produces `target_tickers: list[str]`
 
-**CompanyAnalyst node** — wraps Phase 2 agent:
-- Runs `analyze_company()` only for `target_tickers` (not full watchlist)
-- Refactored: uses yfinance quarterly financials instead of XBRL for structured data
-- Output: `list[CompanyAnalysis]`
+**CompanyAnalyst LangGraph node wrapper**:
+- Wraps existing `analyze_company()` as a LangGraph node
+- Runs only for `target_tickers` (not full watchlist)
 
-**State**: `IntelligenceState` TypedDict with `Annotated` reducers. Deps via closure factory.
+**LangGraph infrastructure**:
+- `intelligence/state.py` — `IntelligenceState` TypedDict with `Annotated` reducers
+- `intelligence/graph.py` — `build_intelligence_graph()` closure factory, all nodes + edges
+- `intelligence/compiler.py` — basic assembly of all outputs (no LLM). Expanded in Phase 3C.
+- Add `langgraph>=1.1` dependency to `pyproject.toml`
 
-**Brief Compiler** (no LLM): Basic assembly of all outputs. Expanded in Phase 3C.
-
-**New files**: `intelligence/state.py`, `intelligence/graph.py`, `intelligence/compiler.py`, `intelligence/specialists/social_sentiment/`, `intelligence/specialists/news_analyst.py`
-**New dependency**: `langgraph` (v1.1+)
-**Refactored**: CompanyAnalyst — replace XBRL with yfinance quarterly financials
+**New model**: `NewsAnalysis`
 
 ---
 

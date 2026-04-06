@@ -100,32 +100,6 @@ async def search_market_impact(
     )
 
 
-async def search_ticker_analysis(
-    ticker: str,
-    company_name: str | None = None,
-    count: int = 3,
-) -> list[dict[str, Any]]:
-    """Search for recent analyst ratings, price targets, and news for a ticker.
-
-    Uses SearXNG only (free, self-hosted) to avoid spending Brave/Exa quota
-    on ticker lookups. Returns empty list if SearXNG is not configured.
-    """
-    settings = get_settings()
-    if not settings.searxng_url:
-        logger.debug("SearXNG not configured — ticker analysis search skipped", ticker=ticker)
-        return []
-
-    year = date.today().year
-    name_part = f" {company_name}" if company_name else ""
-    query = f"{ticker}{name_part} analyst rating price target upgrade downgrade forecast {year}"
-
-    try:
-        return await _search_searxng(query, count, settings.searxng_url, recency="month")
-    except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-        logger.warning("SearXNG ticker search failed", ticker=ticker, error=str(e))
-        return []
-
-
 def _get_date_range(recency: Recency) -> tuple[date | None, date]:
     """Get start date based on recency setting."""
     today = date.today()
@@ -203,42 +177,6 @@ async def read_web_page(url: str, max_chars: int = _READ_MAX_CHARS) -> str:
         return f"Failed to read page: {e}"
     finally:
         await crawler.close()
-
-
-async def _search_searxng(
-    query: str, count: int, base_url: str, recency: Recency
-) -> list[dict[str, Any]]:
-    """Search using self-hosted SearXNG instance.
-
-    SearXNG aggregates results from multiple search engines (Google, Bing, DDG, etc.)
-    and provides a JSON API with no rate limits when self-hosted.
-    """
-    params: dict[str, Any] = {
-        "q": query,
-        "format": "json",
-        "categories": "general,news",
-    }
-
-    # Add time range filter for recent results
-    if recency != "none":
-        params["time_range"] = recency
-
-    async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
-        response = await client.get(f"{base_url.rstrip('/')}/search", params=params)
-        response.raise_for_status()
-        data = response.json()
-
-        results = []
-        for r in data.get("results", [])[:count]:
-            results.append(
-                {
-                    "title": r.get("title", ""),
-                    "snippet": r.get("content", "")[:300] if r.get("content") else "",
-                    "url": r.get("url", ""),
-                    "published_date": r.get("publishedDate", ""),
-                }
-            )
-        return results
 
 
 async def _search_exa(

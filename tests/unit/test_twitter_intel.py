@@ -13,7 +13,10 @@ from fastapi import FastAPI
 
 from synesis.ingestion.twitterapi import Tweet
 from synesis.processing.common.watchlist import WatchlistManager
-from synesis.processing.twitter.accounts import ACCOUNT_PROFILES, get_profile
+from synesis.processing.intelligence.specialists.social_sentiment.x_accounts import (
+    ACCOUNT_PROFILES,
+    get_profile,
+)
 
 
 # ---------------------------------------------------------------------------
