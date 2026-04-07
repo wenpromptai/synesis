@@ -4,8 +4,9 @@ Shared across all specialist agents and the LangGraph pipeline (Phase 3).
 
 Design principle: Analysts are INFORMATION GATHERERS. They extract, summarize,
 and structure key facts. They do NOT assign sentiment scores or trading signals.
-Only the EquityStrategist assigns sentiment_score on TradeIdeas.
-MacroView has sentiment_score because regime direction is inherently directional.
+BullResearcher and BearResearcher debate opposing cases per ticker — neither
+scores. MacroView has sentiment_score because regime direction is inherently
+directional. A future Trader agent will be the sole decision maker.
 """
 
 from __future__ import annotations
@@ -126,7 +127,7 @@ class CompanyAnalysis(BaseModel):
     insider_vs_financials: str = ""
     disclosure_consistency: str = ""
 
-    # Key findings (no scoring — strategist decides)
+    # Key findings (no scoring — deferred to Trader)
     primary_thesis: str = ""
     key_risks: list[str] = Field(default_factory=list)
     monitoring_triggers: list[str] = Field(default_factory=list)
@@ -138,7 +139,7 @@ class CompanyAnalysis(BaseModel):
 
 
 class SocialSentimentAnalysis(BaseModel):
-    """Output of SocialSentimentAnalyst — feeds extract_tickers + strategists."""
+    """Output of SocialSentimentAnalyst — feeds extract_tickers + downstream analysts + debate."""
 
     ticker_mentions: list[TickerMention] = Field(default_factory=list)
     macro_themes: list[MacroTheme] = Field(default_factory=list)
@@ -188,7 +189,7 @@ class NewsAnalysis(BaseModel):
 
 
 # =============================================================================
-# Strategist Output (Layer 2) — ONLY strategists assign sentiment_score
+# Strategist Output (Layer 2)
 # =============================================================================
 
 
@@ -221,27 +222,50 @@ class MacroView(BaseModel):
     analysis_date: date
 
 
-class TradeIdea(BaseModel):
-    """A trade recommendation from EquityStrategist — the ONLY scored output."""
+# =============================================================================
+# Debate Output (Layer 3 — per-ticker via Send)
+# =============================================================================
 
-    ticker: str
+
+class TickerDebate(BaseModel):
+    """Output of a BullResearcher or BearResearcher for a single ticker."""
+
+    role: Literal["bull", "bear"]
+    ticker: str = Field(min_length=1)
+    argument: str = ""
+    key_evidence: list[str] = Field(default_factory=list)
+    analysis_date: date
+    round: int = Field(default=1, ge=1)
+
+
+# =============================================================================
+# Trader Output (Phase 3D — the ONLY scored output in the pipeline)
+# =============================================================================
+
+
+class TradeIdea(BaseModel):
+    """A trade recommendation from the Trader — the ONLY scored output."""
+
+    ticker: str = Field(min_length=1)
     sentiment_score: float = Field(
-        default=0.0,
         ge=-1.0,
         le=1.0,
-        description="Signal: sign=direction, magnitude=conviction. -1.0 (strong short) to 1.0 (strong long)",
+        description="Direction + conviction. -1.0 (strong sell) to 1.0 (strong buy). 0 = skip.",
     )
     thesis: str = ""
-    structure: str = ""
+    trade_structure: str = ""
     catalyst: str = ""
     timeframe: str = ""
     key_risk: str = ""
+    analysis_date: date
 
 
-class EquityIdeas(BaseModel):
-    """EquityStrategist output — ranked trade ideas."""
+class TraderOutput(BaseModel):
+    """Full Trader output — wraps one or more TradeIdeas."""
 
     trade_ideas: list[TradeIdea] = Field(default_factory=list)
+    skipped_tickers: list[str] = Field(default_factory=list)
+    portfolio_note: str = ""
     analysis_date: date
 
 

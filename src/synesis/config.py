@@ -73,6 +73,11 @@ class Settings(CacheTTLSettings, BaseSettings):
         default=True,
         description="Enable MacroStrategist in intelligence pipeline (FRED regime assessment + sector tilts)",
     )
+    debate_rounds: int = Field(
+        default=1,
+        ge=0,
+        description="Bull/bear debate rounds per ticker (0=parallel/no debate, 1+=sequential rounds)",
+    )
 
     # Discord (notifications)
     discord_webhook_url: SecretStr | None = Field(
@@ -175,10 +180,10 @@ class Settings(CacheTTLSettings, BaseSettings):
     openai_base_url: str | None = Field(default=None)
 
     # Model names
-    llm_model: str = Field(default="claude-3-5-haiku-20241022")
-    llm_model_smart: str = Field(default="claude-sonnet-4-20250514")
+    llm_model: str = Field(default="gpt-5-nano")
+    llm_model_smart: str = Field(default="gpt-4o-mini")
     llm_model_vsmart: str = Field(
-        default="claude-sonnet-4-20250514",
+        default="gpt-5.2",
         description="Most capable model for complex tasks (event synthesis, Twitter agent)",
     )
 

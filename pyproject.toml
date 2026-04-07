@@ -101,6 +101,8 @@ module = [
     "yfinance",
     "yfinance.*",
     "scipy.*",
+    "pandas_ta",
+    "pandas_ta.*",
 ]
 ignore_missing_imports = true
 
@@ -118,6 +120,7 @@ markers = [
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "pandas-stubs>=3.0.0.260204",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",

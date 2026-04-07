@@ -20,20 +20,23 @@ class IntelligenceState(TypedDict):
     # Input (set at invocation)
     current_date: str
 
-    # Tier 1 outputs (one writer each, no reducer needed)
+    # Layer 1 outputs (one writer each, no reducer needed)
     social_analysis: dict[str, Any]
     news_analysis: dict[str, Any]
 
     # Ticker extraction (deterministic)
     target_tickers: list[str]
 
-    # Tier 2 outputs (multiple parallel writers via Send, needs reducer)
+    # Layer 2 outputs (multiple parallel writers via Send, needs reducer)
     company_analyses: Annotated[list[dict[str, Any]], add]
     price_analyses: Annotated[list[dict[str, Any]], add]
 
-    # Layer 2: Strategist outputs
+    # MacroStrategist output (parallel with Layer 2, one writer, no reducer needed)
     macro_view: dict[str, Any]
-    equity_ideas: dict[str, Any]
+
+    # Layer 3: Debate outputs (multiple parallel writers via Send, needs reducer)
+    bull_analyses: Annotated[list[dict[str, Any]], add]
+    bear_analyses: Annotated[list[dict[str, Any]], add]
 
     # Final output
     brief: dict[str, Any]

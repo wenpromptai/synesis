@@ -138,6 +138,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("notification_channel", "NOTIFICATION_CHANNEL", "discord", "discord"),
     ("stage2_enabled", "STAGE2_ENABLED", "false", False),
     ("macro_strategist_enabled", "MACRO_STRATEGIST_ENABLED", "true", True),
+    ("debate_rounds", "DEBATE_ROUNDS", "2", 2),
     # --- Discord notifications ---
     (
         "discord_webhook_url",

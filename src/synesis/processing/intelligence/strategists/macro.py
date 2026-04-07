@@ -1,4 +1,4 @@
-"""MacroStrategist — assesses market regime from FRED data + Tier 1 themes.
+"""MacroStrategist — assesses market regime from FRED data + Layer 1 themes.
 
 Pre-fetches key economic indicators (VIX, yields, fed funds, unemployment),
 formats them as structured context, then uses an LLM to interpret the regime,
@@ -115,8 +115,8 @@ def _format_fred_context(fred_data: dict[str, Any]) -> str:
 
 
 def _format_macro_themes(state: dict[str, Any]) -> str:
-    """Format Tier 1 macro themes for the LLM prompt."""
-    lines = ["## Macro Themes from Tier 1 Analysts"]
+    """Format Layer 1 macro themes for the LLM prompt."""
+    lines = ["## Macro Themes from Layer 1 Analysts"]
 
     social = state.get("social_analysis", {})
     for theme in social.get("macro_themes", []):
@@ -135,7 +135,7 @@ def _format_macro_themes(state: dict[str, Any]) -> str:
             )
 
     if len(lines) == 1:
-        lines.append("- No macro themes identified by Tier 1 analysts.")
+        lines.append("- No macro themes identified by Layer 1 analysts.")
 
     return "\n".join(lines)
 
@@ -172,7 +172,7 @@ Today's date: {current_date}
 - `get_fred_data(series_id)` — Fetch a FRED economic data series (last 5 observations).
 
 ## Rules
-- Ground regime assessment in FRED data + Tier 1 themes, not speculation.
+- Ground regime assessment in FRED data + Layer 1 themes, not speculation.
 - Use web_search + web_read to get current context that FRED data lags on (e.g. breaking policy changes, geopolitical events).
 - Sector tilts should be probabilistic, not prescriptive.
 - sentiment_score calibration: ±0.8-1.0 = high conviction, ±0.4-0.7 = moderate, ±0.1-0.3 = weak.
@@ -219,6 +219,7 @@ async def _tool_get_fred_data(
             lines.append(f"  {o.date}: {o.value}")
         return "\n".join(lines)
     except Exception as e:
+        logger.warning("FRED tool fetch failed", series_id=series_id, error=str(e), exc_info=True)
         return f"FRED fetch failed for '{series_id}': {e}"
 
 

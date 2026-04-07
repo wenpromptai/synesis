@@ -14,6 +14,7 @@ References:
 from dataclasses import dataclass, field
 
 import numpy as np
+import numpy.typing as npt
 from model2vec import StaticModel
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -94,7 +95,7 @@ class MessageDeduplicator:
                 )
                 raise RuntimeError(f"Model loading failed: {e}") from e
 
-    def _get_embedding(self, text: str) -> np.ndarray:
+    def _get_embedding(self, text: str) -> npt.NDArray[np.float32]:
         """Generate embedding for text.
 
         Raises:
@@ -105,12 +106,12 @@ class MessageDeduplicator:
         try:
             # Model2Vec encode returns shape (1, dim) for single text
             embedding = self._model.encode([text])[0]
-            result: np.ndarray = embedding.astype(np.float32)
+            result: npt.NDArray[np.float32] = embedding.astype(np.float32)
             return result
         except Exception as e:
             raise RuntimeError(f"Embedding generation failed: {e}") from e
 
-    def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
+    def _cosine_similarity(self, a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> float:
         """Compute cosine similarity between two vectors."""
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
@@ -123,7 +124,7 @@ class MessageDeduplicator:
         return f"{REDIS_KEY_PREFIX}{platform}:{external_id}"
 
     async def _check_duplicate_with_embedding(
-        self, message: UnifiedMessage, embedding: np.ndarray
+        self, message: UnifiedMessage, embedding: npt.NDArray[np.float32]
     ) -> DeduplicationResult:
         """Check if a message is a duplicate using pre-computed embedding.
 
@@ -243,7 +244,9 @@ class MessageDeduplicator:
         embedding = self._get_embedding(message.text)
         return await self._check_duplicate_with_embedding(message, embedding)
 
-    async def _store_embedding(self, message: UnifiedMessage, embedding: np.ndarray) -> bool:
+    async def _store_embedding(
+        self, message: UnifiedMessage, embedding: npt.NDArray[np.float32]
+    ) -> bool:
         """Store pre-computed embedding in Redis.
 
         Args:

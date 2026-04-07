@@ -122,46 +122,36 @@ START → Tier 1 (parallel, signal discovery):
 
 ---
 
-### Phase 3B: Strategists + PriceAnalyst [DONE]
-**Goal**: Add PriceAnalyst (Tier 2), MacroStrategist + EquityStrategist (Layer 2), and conviction gate.
+### Phase 3B: PriceAnalyst + MacroStrategist [DONE]
+**Goal**: Add PriceAnalyst (Layer 2) and MacroStrategist (market regime assessment).
 
-**Design principle** (from TradingAgents): Analysts are **information gatherers** — they extract, summarize, and structure key facts. They do NOT assign sentiment scores. Only the EquityStrategist assigns `sentiment_score` on `TradeIdea`. This is the single point of judgment.
+**Design principle** (from TradingAgents): Analysts are **information gatherers** — they extract, summarize, and structure key facts. They do NOT assign sentiment scores or make trading decisions. Scoring and decisions are deferred to the Trader (Phase 3D).
 
 **LangGraph additions**:
 ```
-Tier 2 (parallel per ticker via Send):
+Layer 2 (parallel per ticker via Send):
   CompanyAnalyst | PriceAnalyst
-    → MacroStrategist (defer=True, waits for all Tier 2)
-      → EquityStrategist → Conviction Gate → Compiler
-  Gate: abs(sentiment_score) >= 0.7 → debate (Phase 3C) OR compiler
+    + MacroStrategist (parallel with Layer 2, only needs FRED + Layer 1 themes)
 ```
 
 #### Completed:
 
 **Analyst refactor** [DONE]:
 - Removed `sentiment_score` from all analyst outputs: `TickerMention`, `MacroTheme`, `InsiderSignal`, `CompanyAnalysis`
-- Analysts focus on extracting valuable context — no scoring, no meta-commentary about "the strategist"
-- `sentiment_score` kept only on `TradeIdea` (EquityStrategist output), `MacroView`, `SectorTilt`
-- Removed convergence map and base conviction pre-computation from EquityStrategist
+- Analysts focus on extracting valuable context — no scoring, no meta-commentary
+- `sentiment_score` kept only on `MacroView`, `SectorTilt` (regime direction is inherently directional)
 
 **MacroStrategist** [DONE]:
-- PydanticAI agent (OpenAI vsmart) assessing market regime from FRED data + Tier 1 themes
+- PydanticAI agent (OpenAI vsmart) assessing market regime from FRED data + Layer 1 themes
 - FRED series: VIX, 10Y/2Y yields, fed funds, unemployment — 10-observation trend history
 - Tools: web_search (2 max), web_read (unlimited), get_fred_data
 - Configurable via `MACRO_STRATEGIST_ENABLED` in .env
 - Output: `MacroView` (regime, sentiment_score, key_drivers, sector_tilts, risks)
+- Independent of Layer 2 per-ticker analysts — only needs FRED + Layer 1 themes
 
-**EquityStrategist** [DONE]:
-- PydanticAI agent (OpenAI vsmart) — sole decision maker
-- Reads ALL upstream context: macro regime, social mentions, news clusters, company analyses, price analyses
-- Tools: web_search (2 max), web_read (unlimited)
-- Output: `EquityIdeas` with ranked `TradeIdea` list (only place `sentiment_score` is assigned)
-
-**Conviction gate** [DONE]:
-- Placeholder: routes everything to compiler
-- Phase 3C adds: abs(sentiment_score) >= 0.7 → debate
-
-**Models** [DONE]: `MacroView`, `SectorTilt`, `TradeIdea`, `EquityIdeas`
+**EquityStrategist** [DONE — replaced by BullResearcher/BearResearcher in Phase 3C]:
+- Was: sole decision maker producing ranked `TradeIdea` list
+- Code removed in Phase 3C; context formatters extracted to `intelligence/context.py`
 
 **PriceAnalyst** [DONE]:
 - Three-phase pipeline per ticker: data gathering → pandas-ta indicators + options metrics → LLM interpretation
@@ -178,31 +168,64 @@ Tier 2 (parallel per ticker via Send):
 - Lives in `processing/intelligence/specialists/price/`
 - 26 unit tests (indicators, patterns, IV computation) + 6 integration tests
 
+**Models** [DONE]: `MacroView`, `SectorTilt`
+
 #### Phase 3B Complete.
 
 ---
 
-### Phase 3C: Debate Loop (Layer 2.5)
-**Goal**: Add bull/bear debate with adjudicator for high-conviction trade ideas.
+### Phase 3C: Bull/Bear Debate (Layer 2)
+**Goal**: Replace EquityStrategist with a TradingAgents-inspired bull/bear debate. Every extracted ticker gets debated by opposing researchers who receive ALL upstream context. No scoring — a future Trader node (Phase 3D) will make final decisions.
 
-**LangGraph additions**:
+**Reference**: [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) — bull/bear researchers debate with full analyst context, then a Research Manager (our future Trader) synthesizes.
+
+**Design principle**: Analysts gather facts (Layer 1 + 2). Researchers argue opposing cases using those facts across all tickers in a single call. Neither side scores — they present evidence-based arguments. The Trader (Phase 3D) will be the sole decision maker.
+
+**LangGraph topology**:
 ```
-Gate (abs(sentiment_score) >= 0.7) → debate per idea:
-  BullAdvocate R1 | BearAdvocate R1 → sync
-    → BullAdvocate R2 | BearAdvocate R2 �� sync
-      → Adjudicator → Compiler
+START → Layer 1 (parallel): SocialSentimentAnalyst | NewsAnalyst
+  → extract_tickers
+    → route_to_L2 (conditional):
+        Always: MacroStrategist
+        Per ticker: CompanyAnalyst | PriceAnalyst
+      → l2_join (defer=True, waits for all)
+        → l2_router (conditional):
+            Has tickers → BullResearcher | BearResearcher (parallel, all tickers in one call each)
+            No tickers  → Compiler (directly, macro-only brief)
+          → Compiler (defer=True) → END
 ```
+
+**Key changes from Phase 3B**:
+- MacroStrategist runs **parallel** with per-ticker analysts (only needs FRED + Layer 1 themes)
+- EquityStrategist and conviction gate removed
+- `l2_join` is a defer=True sync barrier; `l2_router` conditionally skips debate when no tickers
 
 **New agents**:
-- **BullAdvocate** (OpenAI vsmart): Argues strongest case for each gated trade idea. No tools, pure argumentation.
-- **BearAdvocate** (OpenAI vsmart): Attacks the thesis, finds contradictions. No tools.
-- **Adjudicator** (OpenAI vsmart): Weighs both sides, adjusts sentiment_score, produces final recommendation. web_search (1 max) for fact-checking.
+- **BullResearcher** (OpenAI vsmart): Builds strongest evidence-based case FOR investing. Receives ALL upstream context (social, news, company, price, macro) and analyzes all tickers in one call. Tools: web_search (3 max), web_read (unlimited).
+- **BearResearcher** (OpenAI vsmart): Builds strongest evidence-based case AGAINST. Same context and tools.
 
-**Output**: `AdjudicatedIdea` (revised sentiment_score, bull/bear summaries)
+**New models**: `DebateArgument` (ticker, argument, key_evidence), `DebateAnalysis` (role, arguments list, analysis_date)
 
-**Compiler expanded**: Ranks ideas by abs(sentiment_score). Assembles `DailyIntelligenceBrief`.
+**State fields**: `bull_analysis` + `bear_analysis` (single dict each, one writer, no reducer)
 
-**New files**: `intelligence/debate/bull.py`, `intelligence/debate/bear.py`, `intelligence/debate/adjudicator.py`
+**Compiler**: Groups bull + bear arguments by ticker. Includes `price_analyses` in output. Surfaces pipeline errors via `errors` field. No scoring, no conviction splitting.
+
+**New files**: `intelligence/context.py` (shared formatters), `intelligence/debate/__init__.py`, `intelligence/debate/bull.py`, `intelligence/debate/bear.py`
+
+**Removed**: `equity_strategist` node, `conviction_gate` node, `equity_ideas` state field, `strategists/equity.py`, `TradeIdea` + `EquityIdeas` models
+
+---
+
+### Phase 3D: Trader (Research Manager)
+**Goal**: Add a Trader node that synthesizes debate output into actionable trade ideas. Equivalent to TradingAgents' Research Manager.
+
+**Deferred** — build after Phase 3C is validated.
+
+**Trader** (OpenAI vsmart):
+- Reads all debate arguments (bull + bear per ticker) + macro regime
+- Makes decisive stance per ticker: Buy, Sell, or Hold (avoids defaulting to Hold)
+- Produces `TradeIdea` with `sentiment_score` — the ONLY scored output in the pipeline
+- Output: `EquityIdeas` (ranked trade ideas)
 
 ---
 
@@ -212,10 +235,10 @@ Gate (abs(sentiment_score) >= 0.7) → debate per idea:
 **Changes**:
 - Replace 3 daily scheduler jobs (twitter, events, market brief) with 1 unified pipeline trigger
 - Compile LangGraph at startup in `agent/__main__.py`, wire all provider clients via closure
-- New Discord embed formatters for intelligence brief (header + trade ideas + supporting context + watchlist)
-- Debated ideas show bull/bear summary in embeds
+- New Discord embed formatters for intelligence brief (header + debates + supporting context + watchlist)
+- Debated ideas show bull/bear arguments in embeds
 - API endpoint: `POST /api/v1/intelligence/trigger` for manual runs
-- Retire Market Brief (subsumed by MacroStrategist + EquityStrategist + Compiler)
+- Retire Market Brief (subsumed by MacroStrategist + Debate + Compiler)
 - Event fetch job stays separate (populates DB before pipeline runs)
 
 ---
@@ -224,10 +247,11 @@ Gate (abs(sentiment_score) >= 0.7) → debate per idea:
 
 Lands in Discord each morning (~10:30am ET):
 1. **Macro Regime** — risk-on/off, confidence, key drivers, sector tilts
-2. **Trade Ideas** (ranked by conviction) — ticker, direction, thesis, structure, catalyst. Debated ideas include bull/bear summary + stop-loss trigger
-3. **Quick Takes** — lower conviction / watch-only ideas, 1 line each
-4. **Supporting Context** — top insider signals, technical setups, risk radar
-5. **Watchlist Updates** — tickers added/removed with reasons
+2. **Ticker Debates** — per ticker: bull argument, bear argument, key evidence from each side
+3. **Supporting Context** — top insider signals, technical setups, risk radar
+4. **Watchlist Updates** — tickers added/removed with reasons
+
+*Phase 3D adds*: Trade Ideas (ranked by conviction) with sentiment_score, thesis, structure, catalyst, timeframe.
 
 ## Cost & Performance
 
@@ -238,9 +262,9 @@ Lands in Discord each morning (~10:30am ET):
 | CompanyAnalyst (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.30-1.00 |
 | PriceAnalyst (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.05-0.15 |
 | MacroStrategist | OpenAI vsmart | ~$0.08 |
-| EquityStrategist | OpenAI vsmart | ~$0.12 |
-| Debate (avg 1.5 ideas/day, 2 rounds) | OpenAI vsmart | ~$0.20 |
-| **Total** | | **~$1.00-1.80** |
+| BullResearcher (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.10-0.30 |
+| BearResearcher (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.10-0.30 |
+| **Total** | | **~$0.88-2.08** |
 
 Wall clock: ~80-130s end-to-end.
 

@@ -119,7 +119,7 @@ async def test_format_macro_themes():
 
     formatted = _format_macro_themes(state)
 
-    assert "## Macro Themes from Tier 1 Analysts" in formatted
+    assert "## Macro Themes from Layer 1 Analysts" in formatted
     assert "[Social] risk-off rotation" in formatted
     assert "[Social] AI capex cycle" in formatted
     assert "[News] tariff escalation" in formatted
