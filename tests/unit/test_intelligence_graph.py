@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-import pytest
 
 from synesis.processing.intelligence.compiler import compile_brief
 from synesis.processing.intelligence.graph import build_intelligence_graph
@@ -36,20 +35,18 @@ class TestCompileBrief:
                 "current_date": "2026-04-06",
                 "social_analysis": {
                     "summary": "Bullish tech sentiment",
-                    "ticker_mentions": [{"ticker": "NVDA", "sentiment_score": 0.7}],
-                    "macro_themes": [{"theme": "AI capex", "sentiment_score": 0.5}],
+                    "ticker_mentions": [{"ticker": "NVDA", "context": "heavy call buying"}],
+                    "macro_themes": [{"theme": "AI capex", "context": "multiple accounts"}],
                 },
                 "news_analysis": {
                     "summary": "M&A activity",
-                    "story_clusters": [
-                        {"headline": "NVDA deal", "tickers": [{"ticker": "NVDA"}]}
-                    ],
-                    "macro_themes": [{"theme": "Risk-off", "sentiment_score": -0.3}],
+                    "story_clusters": [{"headline": "NVDA deal", "tickers": [{"ticker": "NVDA"}]}],
+                    "macro_themes": [{"theme": "Risk-off", "context": "tariff fears"}],
                     "messages_analyzed": 7,
                 },
                 "company_analyses": [
-                    {"ticker": "NVDA", "sentiment_score": 0.8},
-                    {"ticker": "AMD", "sentiment_score": 0.3},
+                    {"ticker": "NVDA"},
+                    {"ticker": "AMD"},
                 ],
             }
         )
@@ -67,9 +64,9 @@ class TestCompileBrief:
                 "social_analysis": {},
                 "news_analysis": {},
                 "company_analyses": [
-                    {"ticker": "NVDA", "sentiment_score": 0.8},
+                    {"ticker": "NVDA"},
                     {"ticker": "AAPL", "error": True},
-                    {"ticker": "AMD", "sentiment_score": -0.2},
+                    {"ticker": "AMD"},
                 ],
             }
         )
@@ -102,6 +99,9 @@ class TestBuildGraph:
         assert "news_analyst" in node_names
         assert "extract_tickers" in node_names
         assert "company_analyst" in node_names
+        assert "price_analyst" in node_names
+        assert "macro_strategist" in node_names
+        assert "equity_strategist" in node_names
         assert "compiler" in node_names
 
 
@@ -113,8 +113,8 @@ class TestExtractTickers:
         # extract_tickers_node reads from state dicts
         social = {
             "ticker_mentions": [
-                {"ticker": "NVDA", "sentiment_score": 0.7},
-                {"ticker": "AMD", "sentiment_score": 0.3},
+                {"ticker": "NVDA", "context": "heavy call buying"},
+                {"ticker": "AMD"},
             ]
         }
         tickers = {m["ticker"] for m in social.get("ticker_mentions", []) if m.get("ticker")}
@@ -127,13 +127,13 @@ class TestExtractTickers:
                 {
                     "headline": "NVDA deal",
                     "tickers": [
-                        {"ticker": "NVDA", "sentiment_score": 0.8},
-                        {"ticker": "INTC", "sentiment_score": -0.3},
+                        {"ticker": "NVDA"},
+                        {"ticker": "INTC", "context": "competitive pressure"},
                     ],
                 },
                 {
                     "headline": "DBS earnings",
-                    "tickers": [{"ticker": "D05.SI", "sentiment_score": 0.6}],
+                    "tickers": [{"ticker": "D05.SI", "context": "record Q1 profit"}],
                 },
             ]
         }
@@ -164,3 +164,42 @@ class TestExtractTickers:
                 if m.get("ticker"):
                     tickers.add(m["ticker"])
         assert tickers == set()
+
+
+class TestCompilerWithStrategists:
+    """Tests for compiler with strategist outputs."""
+
+    def test_splits_trade_ideas_by_conviction(self) -> None:
+        """Ideas with abs(sentiment_score) >= 0.7 are trade_ideas, rest are quick_takes."""
+        brief = compile_brief(
+            {
+                "current_date": "2026-04-06",
+                "social_analysis": {},
+                "news_analysis": {},
+                "company_analyses": [],
+                "macro_view": {"regime": "risk_on", "sentiment_score": 0.5},
+                "equity_ideas": {
+                    "trade_ideas": [
+                        {"ticker": "NVDA", "sentiment_score": 0.85, "thesis": "Strong"},
+                        {"ticker": "AMD", "sentiment_score": 0.4, "thesis": "Moderate"},
+                        {"ticker": "INTC", "sentiment_score": -0.75, "thesis": "Short"},
+                    ],
+                },
+            }
+        )
+        assert len(brief["trade_ideas"]) == 2  # NVDA (0.85) + INTC (-0.75)
+        assert len(brief["quick_takes"]) == 1  # AMD (0.4)
+        assert brief["macro"]["regime"] == "risk_on"
+
+    def test_graph_has_strategist_nodes(self) -> None:
+        """Graph contains strategist + gate nodes."""
+        graph = build_intelligence_graph(
+            db=AsyncMock(),
+            sec_edgar=AsyncMock(),
+            yfinance=AsyncMock(),
+            fred=AsyncMock(),
+        )
+        node_names = set(graph.get_graph().nodes)
+        assert "macro_strategist" in node_names
+        assert "equity_strategist" in node_names
+        assert "conviction_gate" in node_names

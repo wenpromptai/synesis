@@ -69,6 +69,10 @@ class Settings(CacheTTLSettings, BaseSettings):
         default=True,
         description="Enable Stage 2 processing (LLM analysis, market matching, notification)",
     )
+    macro_strategist_enabled: bool = Field(
+        default=True,
+        description="Enable MacroStrategist in intelligence pipeline (FRED regime assessment + sector tilts)",
+    )
 
     # Discord (notifications)
     discord_webhook_url: SecretStr | None = Field(

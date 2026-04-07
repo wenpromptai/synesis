@@ -2,11 +2,10 @@
 
 Shared across all specialist agents and the LangGraph pipeline (Phase 3).
 
-Convention: All agents use sentiment_score (-1.0 to 1.0) for directional signals.
-- -1.0 = max bearish / strong sell
-- 0.0 = neutral
-- +1.0 = max bullish / strong buy
-The magnitude of the score reflects conviction.
+Design principle: Analysts are INFORMATION GATHERERS. They extract, summarize,
+and structure key facts. They do NOT assign sentiment scores or trading signals.
+Only the EquityStrategist assigns sentiment_score on TradeIdeas.
+MacroView has sentiment_score because regime direction is inherently directional.
 """
 
 from __future__ import annotations
@@ -24,15 +23,9 @@ from pydantic import BaseModel, Field
 
 
 class TickerMention(BaseModel):
-    """A ticker surfaced by any analyst with sentiment and context."""
+    """A ticker surfaced by any analyst with context."""
 
     ticker: str
-    sentiment_score: float = Field(
-        default=0.0,
-        ge=-1.0,
-        le=1.0,
-        description="Sentiment: -1.0 (max bearish) to 1.0 (max bullish)",
-    )
     context: str = ""
     source_accounts: list[str] = Field(default_factory=list)
 
@@ -41,12 +34,6 @@ class MacroTheme(BaseModel):
     """A non-ticker trading theme (e.g. risk-off, sector rotation)."""
 
     theme: str
-    sentiment_score: float = Field(
-        default=0.0,
-        ge=-1.0,
-        le=1.0,
-        description="Broad market impact: -1.0 (strongly bearish for SPY) to 1.0 (strongly bullish). Asset-specific implications left to strategists.",
-    )
     context: str = ""
     source_accounts: list[str] = Field(default_factory=list)
 
@@ -102,12 +89,6 @@ class InsiderSignal(BaseModel):
     csuite_activity: str = ""
     form144_count: int = 0
     notable_transactions: list[str] = Field(default_factory=list)
-    sentiment_score: float = Field(
-        default=0.0,
-        ge=-1.0,
-        le=1.0,
-        description="Insider sentiment: -1.0 (heavy selling) to 1.0 (heavy buying)",
-    )
 
 
 class RedFlag(BaseModel):
@@ -120,7 +101,7 @@ class RedFlag(BaseModel):
 
 
 class CompanyAnalysis(BaseModel):
-    """Final CompanyAnalyst output per ticker."""
+    """CompanyAnalyst output — structured information, no scoring."""
 
     ticker: str
     company_name: str
@@ -145,13 +126,7 @@ class CompanyAnalysis(BaseModel):
     insider_vs_financials: str = ""
     disclosure_consistency: str = ""
 
-    # Synthesis
-    sentiment_score: float = Field(
-        default=0.0,
-        ge=-1.0,
-        le=1.0,
-        description="Overall signal: -1.0 (strong sell) to 1.0 (strong buy)",
-    )
+    # Key findings (no scoring — strategist decides)
     primary_thesis: str = ""
     key_risks: list[str] = Field(default_factory=list)
     monitoring_triggers: list[str] = Field(default_factory=list)
@@ -203,10 +178,114 @@ class NewsStoryCluster(BaseModel):
 
 
 class NewsAnalysis(BaseModel):
-    """Output of NewsAnalyst — groups news into story clusters with ticker signals."""
+    """Output of NewsAnalyst — groups news into story clusters."""
 
     story_clusters: list[NewsStoryCluster] = Field(default_factory=list)
     macro_themes: list[MacroTheme] = Field(default_factory=list)
     summary: str = ""
     analysis_date: date
     messages_analyzed: int = 0
+
+
+# =============================================================================
+# Strategist Output (Layer 2) — ONLY strategists assign sentiment_score
+# =============================================================================
+
+
+class SectorTilt(BaseModel):
+    """A sector/asset class tilt from the macro regime."""
+
+    sector: str
+    sentiment_score: float = Field(
+        default=0.0,
+        ge=-1.0,
+        le=1.0,
+        description="Tilt: -1.0 (strongly underweight) to 1.0 (strongly overweight)",
+    )
+    reasoning: str = ""
+
+
+class MacroView(BaseModel):
+    """MacroStrategist output — regime assessment + sector tilts."""
+
+    regime: Literal["risk_on", "risk_off", "transitioning", "uncertain"]
+    sentiment_score: float = Field(
+        default=0.0,
+        ge=-1.0,
+        le=1.0,
+        description="Broad market outlook: -1.0 (strongly bearish) to 1.0 (strongly bullish)",
+    )
+    key_drivers: list[str] = Field(default_factory=list)
+    sector_tilts: list[SectorTilt] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    analysis_date: date
+
+
+class TradeIdea(BaseModel):
+    """A trade recommendation from EquityStrategist — the ONLY scored output."""
+
+    ticker: str
+    sentiment_score: float = Field(
+        default=0.0,
+        ge=-1.0,
+        le=1.0,
+        description="Signal: sign=direction, magnitude=conviction. -1.0 (strong short) to 1.0 (strong long)",
+    )
+    thesis: str = ""
+    structure: str = ""
+    catalyst: str = ""
+    timeframe: str = ""
+    key_risk: str = ""
+
+
+class EquityIdeas(BaseModel):
+    """EquityStrategist output — ranked trade ideas."""
+
+    trade_ideas: list[TradeIdea] = Field(default_factory=list)
+    analysis_date: date
+
+
+# =============================================================================
+# Price Analyst Output
+# =============================================================================
+
+
+class PriceAnalysis(BaseModel):
+    """PriceAnalyst output per ticker — information only, no scoring."""
+
+    ticker: str
+    analysis_date: date
+    spot_price: float | None = None
+    change_1d_pct: float | None = None
+
+    # Technical indicators (from pandas-ta on yfinance bars)
+    ema_8: float | None = None
+    ema_21: float | None = None
+    ema_cross: str = ""
+    adx: float | None = None
+    rsi_14: float | None = None
+    macd_histogram: float | None = None
+    macd_signal_cross: str = ""
+    atr_percent: float | None = None
+    bb_width_percentile: float | None = None
+    bb_percent_b: float | None = None
+    price_zscore: float | None = None
+    volume_ratio: float | None = None
+    obv_trend: str = ""
+    nearest_support: float | None = None
+    nearest_resistance: float | None = None
+
+    # Options metrics (IV self-computed from Massive EOD, RV from yfinance)
+    atm_iv: float | None = None
+    realized_vol_30d: float | None = None
+    iv_rv_spread: float | None = None
+    put_call_volume_ratio: float | None = None
+    atm_skew_ratio: float | None = None
+    days_to_expiry: int | None = None
+
+    # Pattern flags (deterministic)
+    notable_setups: list[str] = Field(default_factory=list)
+
+    # LLM interpretation (no scoring)
+    technical_narrative: str = ""
+    options_narrative: str = ""

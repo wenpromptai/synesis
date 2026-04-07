@@ -29,6 +29,11 @@ class IntelligenceState(TypedDict):
 
     # Tier 2 outputs (multiple parallel writers via Send, needs reducer)
     company_analyses: Annotated[list[dict[str, Any]], add]
+    price_analyses: Annotated[list[dict[str, Any]], add]
+
+    # Layer 2: Strategist outputs
+    macro_view: dict[str, Any]
+    equity_ideas: dict[str, Any]
 
     # Final output
     brief: dict[str, Any]

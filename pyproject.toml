@@ -51,6 +51,7 @@ dependencies = [
     "scipy>=1.17.1",
     "lxml>=6.0.2",
     "langgraph>=1.1.6",
+    "pandas-ta>=0.4.71b0",
 ]
 
 [project.scripts]

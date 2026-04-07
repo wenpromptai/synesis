@@ -185,7 +185,7 @@ async def test_build_insider_signal(real_deps):
     assert signal.sell_count > 0
     assert signal.total_sell_value > 0
     assert signal.mspr is not None and signal.mspr < 0
-    assert signal.sentiment_score < 0  # bearish (heavy selling)
+    assert signal.mspr < 0  # bearish (heavy selling)
     assert len(signal.notable_transactions) > 0
 
 
@@ -266,7 +266,7 @@ async def test_full_pipeline(real_deps):
     assert len(result.financial_health.quarterly_eps_trend) >= 2
 
     assert result.insider_signal.sell_count > 0
-    assert result.insider_signal.sentiment_score < 0  # bearish
+    assert result.insider_signal.mspr is not None and result.insider_signal.mspr < 0  # bearish
     assert result.insider_signal.cluster_detected is True
 
     assert len(result.red_flags) > 0
@@ -282,7 +282,6 @@ async def test_full_pipeline(real_deps):
     assert len(result.disclosure_consistency) > 20
 
     # Synthesis
-    assert -1.0 <= result.sentiment_score <= 1.0
     assert len(result.primary_thesis) > 20
     assert len(result.key_risks) >= 1
     assert len(result.monitoring_triggers) >= 1

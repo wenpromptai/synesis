@@ -67,3 +67,8 @@ build/
 # Data files (large, local only)
 data/marketfeed.jsonl
 data/marketfeed.bak.jsonl
+
+# Docs (Obsidian vault, personal notes — not part of codebase)
+docs/kg/
+docs/zaikia/
+docs/multibagger.pdf

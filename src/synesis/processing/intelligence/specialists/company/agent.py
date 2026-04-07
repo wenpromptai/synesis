@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from synesis.core.logging import get_logger
@@ -53,11 +53,10 @@ class CompanyDeps:
 
 
 async def _gather_yfinance(yf: YFinanceClient, ticker: str) -> dict[str, Any]:
-    """Fetch yfinance fundamentals, quote, and quarterly financials."""
+    """Fetch yfinance fundamentals and quarterly financials."""
     fundamentals = await yf.get_fundamentals(ticker)
-    quote = await yf.get_quote(ticker)
     quarterly = await yf.get_quarterly_financials(ticker)
-    return {"fundamentals": fundamentals, "quote": quote, "quarterly": quarterly}
+    return {"fundamentals": fundamentals, "quarterly": quarterly}
 
 
 async def _gather_edgar_insiders(edgar: SECEdgarClient, ticker: str) -> dict[str, Any]:
@@ -248,9 +247,7 @@ def _build_insider_signal(insider_data: dict[str, Any]) -> InsiderSignal:
             f"{int(t.shares):,} shares{price_str} on {t.transaction_date}"
         )
 
-    # Insider sentiment score: MSPR is already -1 to +1
     mspr = sentiment.get("mspr")
-    insider_score = mspr if mspr is not None else 0.0
 
     return InsiderSignal(
         mspr=mspr,
@@ -262,57 +259,47 @@ def _build_insider_signal(insider_data: dict[str, Any]) -> InsiderSignal:
         csuite_activity=csuite_summary,
         form144_count=len(form144),
         notable_transactions=notable,
-        sentiment_score=insider_score,
     )
 
 
 # ── Phase 3: LLM Synthesis ──────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a senior equity research analyst specializing in fundamental analysis of US public companies.
-You combine quantitative rigor with qualitative judgment from SEC filings.
+You are a fundamental research analyst. You produce deep company analysis from SEC filings,
+financial data, and insider activity.
 
 Today's date: {current_date}
 
 ## Your Analytical Framework
 
-1. EARNINGS QUALITY (most important)
-   - Cash flow from operations vs reported net income (accrual quality)
+1. **EARNINGS QUALITY** (most important)
+   - Cash flow from operations vs reported net income — is the company converting profit to cash?
    - Revenue recognition patterns: is growth real or pulled forward?
-   - Non-GAAP vs GAAP divergence: are adjustments growing?
+   - Non-GAAP vs GAAP divergence: are adjustments growing over time?
 
-2. FINANCIAL STRENGTH
-   - Pre-computed scores are provided. Interpret them in context.
+2. **FINANCIAL STRENGTH**
+   - Pre-computed scores are provided. Interpret what they mean in context.
    - Piotroski F-Score: 7-9 strong, 4-6 moderate, 0-3 weak
-   - Beneish M-Score: >-1.78 suggests possible earnings manipulation (if available)
+   - Highlight what's improving vs deteriorating quarter-over-quarter.
 
-3. INSIDER CROSS-REFERENCING (your unique edge)
-   - Compare insider buying/selling patterns against financial trends
-   - C-suite buying during price weakness = strong conviction signal
-   - C-suite selling during growth claims = potential red flag
-   - Cluster buying/selling (3+ insiders within 14 days) = high-signal event
+3. **INSIDER ACTIVITY** (unique edge)
+   - Compare insider buying/selling patterns against financial trends.
+   - C-suite buying during price weakness = strong signal of management confidence.
+   - C-suite selling during growth claims = potential red flag — why are they selling?
+   - Cluster activity (3+ insiders within 14 days) = coordinated action worth flagging.
 
-4. RED FLAG DETECTION
-   - Late filings (NT 10-K / NT 10-Q)
-   - Cash flow divergence (profit but no cash)
-   - Insider selling clusters before negative announcements
+4. **BUSINESS QUALITY FROM FILINGS**
+   - Extract geographic exposure and concentration risk from 10-K.
+   - Customer/supplier concentration — who are they dependent on?
+   - Competitive moat: what protects this business?
+   - Compare MD&A narrative tone against actual financial numbers — are they consistent?
+   - Newer filings weighted more heavily than older ones.
 
-5. FILING PROSE ANALYSIS
-   - Extract geographic exposure, customer/supplier concentration
-   - Assess competitive moat and business quality from 10-K descriptions
-   - Compare MD&A tone against actual financial numbers
-   - Newer filings should be weighted MORE heavily than older ones
-
-## Rules
-- NEVER fabricate financial data. If unavailable, say "not available"
-- Always cite which filing period (Q1 2025, FY 2024) data comes from
-- Cross-reference at least 2 data points before making claims
-- If insider activity contradicts financial trends, flag this prominently
-- Sentiment score calibration (-1.0 to 1.0):
-  ±0.8 to ±1.0: Overwhelming evidence, high conviction
-  ±0.5 to ±0.7: Strong evidence with minor uncertainties
-  ±0.2 to ±0.4: Mixed signals, moderate conviction
-  ±0.0 to ±0.1: Insufficient data or highly conflicting signals
+## Guidelines
+- NEVER fabricate financial data. If unavailable, say "not available".
+- Always cite which filing period (Q1 2025, FY 2024) data comes from.
+- Cross-reference at least 2 data points before making claims.
+- If insider activity contradicts financial trends, highlight this prominently.
 """
 
 
@@ -326,7 +313,6 @@ class _LLMAnalysisOutput(BaseModel):
     key_customers_suppliers: str
     insider_vs_financials: str
     disclosure_consistency: str
-    sentiment_score: float = Field(ge=-1.0, le=1.0)
     primary_thesis: str
     key_risks: list[str]
     monitoring_triggers: list[str]
@@ -342,7 +328,6 @@ def _build_user_prompt(
 ) -> str:
     """Build the user prompt with all gathered data."""
     fundamentals = yf_data["fundamentals"]
-    quote = yf_data["quote"]
     quarterly: QuarterlyFinancials = yf_data["quarterly"]
 
     sections: list[str] = []
@@ -354,8 +339,6 @@ def _build_user_prompt(
         sections.append(
             f"**Sector:** {fundamentals.sector or 'N/A'} / {fundamentals.industry or 'N/A'}"
         )
-    if quote.last:
-        sections.append(f"**Current Price:** ${quote.last:.2f}")
 
     sections.append("\n## Pre-Computed Financial Health")
     sections.append(financial_health.model_dump_json(indent=2))
@@ -400,13 +383,13 @@ def _build_user_prompt(
 
     sections.append(
         "\n## Instructions\n"
-        "Analyze this company and produce a complete analysis. "
-        "Fill in ALL qualitative fields (business_summary, earnings_quality, "
-        "risk_assessment, geographic_exposure, key_customers_suppliers, "
-        "insider_vs_financials, disclosure_consistency) plus the synthesis "
-        "fields (sentiment_score, primary_thesis, key_risks, "
-        "monitoring_triggers). Use the filing prose and quarterly financials "
-        "for qualitative insights and cross-reference against the quantitative data."
+        "Produce a thorough company analysis covering: business_summary (what they do, "
+        "competitive position), earnings_quality (cash conversion, revenue recognition), "
+        "risk_assessment (key risks from filings), geographic_exposure, "
+        "key_customers_suppliers (concentration risks), insider_vs_financials "
+        "(do insider actions align with the numbers?), disclosure_consistency "
+        "(does MD&A match reality?), primary_thesis (one-paragraph key finding), "
+        "key_risks (top 3), and monitoring_triggers (what to watch next)."
     )
 
     return "\n".join(sections)
@@ -511,7 +494,7 @@ async def analyze_company(
         "Phase 2 complete: scoring done",
         ticker=ticker,
         piotroski=financial_health.piotroski_f,
-        insider_sentiment=insider_signal.sentiment_score,
+        insider_mspr=insider_signal.mspr,
         red_flags=len(red_flags),
     )
 
@@ -574,7 +557,6 @@ async def analyze_company(
         key_customers_suppliers=llm_output.key_customers_suppliers,
         insider_vs_financials=llm_output.insider_vs_financials,
         disclosure_consistency=llm_output.disclosure_consistency,
-        sentiment_score=llm_output.sentiment_score,
         primary_thesis=llm_output.primary_thesis,
         key_risks=llm_output.key_risks,
         monitoring_triggers=llm_output.monitoring_triggers,

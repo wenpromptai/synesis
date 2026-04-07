@@ -87,8 +87,8 @@ START → Tier 1 (parallel, signal discovery):
 - PydanticAI agent (OpenAI vsmart) reading `raw_tweets` table (last 24h)
 - Tweets formatted by account with bias/credibility profiles from `x_accounts.py` (24 curated accounts)
 - Tools: `verify_ticker` (us_tickers.json → yfinance Search fallback for non-US), `web_search` (5 calls max), `web_read`
-- Extracts both ticker-specific signals (any ticker any account mentions) and macro themes (non-ticker trading ideas like risk-off, sector rotation)
-- Output: `SocialSentimentAnalysis` (ticker_mentions: list[TickerMention], macro_themes: list[MacroTheme], summary)
+- Extracts ticker mentions with context + macro themes (no scoring — information only)
+- Output: `SocialSentimentAnalysis` (ticker_mentions, macro_themes, summary)
 - Lives in `processing/intelligence/specialists/social_sentiment/`
 
 **verify_ticker updated** [DONE]:
@@ -101,12 +101,12 @@ START → Tier 1 (parallel, signal discovery):
 - PydanticAI agent (OpenAI vsmart) reading enriched `raw_messages` (last 24h, impact_score >= 20)
 - Groups related messages into `NewsStoryCluster` objects (same event = 1 cluster, not N separate mentions)
 - Each cluster classified by `NewsEventType` (earnings, m&a, regulatory, macro, geopolitical, management, legal, product, financing, other)
-- Per-ticker: `NewsTickerMention` with sentiment + magnitude (low/medium/high) + confidence (0-1) + `is_direct_impact` (False for sector drag)
+- Per-ticker: `TickerMention` with context (shared model, no scoring)
 - Tools: `verify_ticker` (us_tickers.json → yfinance fallback), `web_search` (5 max), `web_read`
 - Output: `NewsAnalysis` (story_clusters, macro_themes, summary)
 - Lives in `processing/intelligence/specialists/news/`
 
-**New models** [DONE]: `NewsEventType`, `NewsTickerMention`, `NewsStoryCluster`, `NewsAnalysis`
+**New models** [DONE]: `NewsEventType`, `NewsStoryCluster`, `NewsAnalysis`
 
 **SearXNG removed from ticker verification** [DONE]: Replaced with yfinance Search API fallback. Dead code (`search_ticker_analysis`, `_search_searxng`) removed from `web_search.py`.
 
@@ -122,59 +122,87 @@ START → Tier 1 (parallel, signal discovery):
 
 ---
 
-### Phase 3B: Strategists (Layer 2)
-**Goal**: Add MacroStrategist + EquityStrategist as Layer 2 nodes that synthesize Layer 1 outputs. Add conviction gate for debate routing.
+### Phase 3B: Strategists + PriceAnalyst [DONE]
+**Goal**: Add PriceAnalyst (Tier 2), MacroStrategist + EquityStrategist (Layer 2), and conviction gate.
+
+**Design principle** (from TradingAgents): Analysts are **information gatherers** — they extract, summarize, and structure key facts. They do NOT assign sentiment scores. Only the EquityStrategist assigns `sentiment_score` on `TradeIdea`. This is the single point of judgment.
 
 **LangGraph additions**:
 ```
-Layer 1 fan-in → MacroStrategist → EquityStrategist → Gate
-  Gate: conviction >= 0.7 AND 2+ source convergence
-    → debate (Phase 3C) OR compiler
+Tier 2 (parallel per ticker via Send):
+  CompanyAnalyst | PriceAnalyst
+    → MacroStrategist (defer=True, waits for all Tier 2)
+      → EquityStrategist → Conviction Gate → Compiler
+  Gate: abs(sentiment_score) >= 0.7 → debate (Phase 3C) OR compiler
 ```
 
-**New agents**:
-- **MacroStrategist** (OpenAI, smart): Regime assessment (risk-on/off), sector tilts, macro trade ideas. Tools: FRED observations, web search (2 calls max). Input: social macro themes + news signals + FRED data.
-- **EquityStrategist** (OpenAI, smart): Cross-signal convergence synthesis. Pre-computes convergence map: `{ticker: [sources]}` showing which tickers appear in 2+ Layer 1 reports. Tools: quotes, options snapshots (3 calls max), web search (2 calls max). Output: `TradeIdea` list ranked by conviction.
+#### Completed:
 
-**Gate logic**: Deterministic routing function. Ideas with conviction >= 0.7, 2+ source convergence, and direction in (long, short) route to debate. Others go directly to compiler.
+**Analyst refactor** [DONE]:
+- Removed `sentiment_score` from all analyst outputs: `TickerMention`, `MacroTheme`, `InsiderSignal`, `CompanyAnalysis`
+- Analysts focus on extracting valuable context — no scoring, no meta-commentary about "the strategist"
+- `sentiment_score` kept only on `TradeIdea` (EquityStrategist output), `MacroView`, `SectorTilt`
+- Removed convergence map and base conviction pre-computation from EquityStrategist
 
-**New files**: `intelligence/strategists/macro.py`, `intelligence/strategists/equity.py`
-**Models**: `MacroView`, `SectorTilt`, `TradeIdea`, `EquityIdeas`
+**MacroStrategist** [DONE]:
+- PydanticAI agent (OpenAI vsmart) assessing market regime from FRED data + Tier 1 themes
+- FRED series: VIX, 10Y/2Y yields, fed funds, unemployment — 10-observation trend history
+- Tools: web_search (2 max), web_read (unlimited), get_fred_data
+- Configurable via `MACRO_STRATEGIST_ENABLED` in .env
+- Output: `MacroView` (regime, sentiment_score, key_drivers, sector_tilts, risks)
+
+**EquityStrategist** [DONE]:
+- PydanticAI agent (OpenAI vsmart) — sole decision maker
+- Reads ALL upstream context: macro regime, social mentions, news clusters, company analyses, price analyses
+- Tools: web_search (2 max), web_read (unlimited)
+- Output: `EquityIdeas` with ranked `TradeIdea` list (only place `sentiment_score` is assigned)
+
+**Conviction gate** [DONE]:
+- Placeholder: routes everything to compiler
+- Phase 3C adds: abs(sentiment_score) >= 0.7 → debate
+
+**Models** [DONE]: `MacroView`, `SectorTilt`, `TradeIdea`, `EquityIdeas`
+
+**PriceAnalyst** [DONE]:
+- Three-phase pipeline per ticker: data gathering → pandas-ta indicators + options metrics → LLM interpretation
+- **yfinance** (free, unlimited): 3mo OHLCV bars, quote, options snapshot (realized vol)
+- **Massive** (up to 3 calls per ticker): contract lookup → ATM call EOD bars → ATM put EOD bars
+- **IV self-computed** from Massive EOD close prices via Newton-Raphson BS inversion (verified: ~27% for AAPL ATM)
+- **pandas-ta** (local from bars): RSI-14, MACD, EMA-8/21, ADX-14, ATR-14, BBands, OBV, pivot points, z-score
+- Options metrics: ATM IV + skew (put IV / call IV), IV-RV spread, put/call volume ratio
+- Notable setup detection: BB squeeze, RSI extremes, OBV divergence, IV-RV spread, elevated put skew
+- Short interest available via CompanyAnalyst (yfinance `short_percent_of_float`)
+- Runs **parallel per ticker** via Send (same as CompanyAnalyst) — Massive rate limiter handles queuing internally
+- Output: `PriceAnalysis` (indicators + options metrics + notable setups + LLM narratives, no scoring)
+- New dependency: `pandas-ta>=0.4`
+- Lives in `processing/intelligence/specialists/price/`
+- 26 unit tests (indicators, patterns, IV computation) + 6 integration tests
+
+#### Phase 3B Complete.
 
 ---
 
 ### Phase 3C: Debate Loop (Layer 2.5)
-**Goal**: Add bull/bear debate with adjudicator for high-conviction trade ideas. Uses per-field state for parallel safety (from ai-investment-agent pattern).
+**Goal**: Add bull/bear debate with adjudicator for high-conviction trade ideas.
 
 **LangGraph additions**:
 ```
-Gate → parallel per round:
-  BullAdvocate R1 | BearAdvocate R1 → Debate Sync R1
-    → BullAdvocate R2 | BearAdvocate R2 → Debate Sync R2
+Gate (abs(sentiment_score) >= 0.7) → debate per idea:
+  BullAdvocate R1 | BearAdvocate R1 → sync
+    → BullAdvocate R2 | BearAdvocate R2 �� sync
       → Adjudicator → Compiler
 ```
 
 **New agents**:
-- **BullAdvocate** (OpenAI, fast): Argues strongest case for each gated trade idea. No tools, pure argumentation. Sees full debate history via state reducer.
-- **BearAdvocate** (OpenAI, fast): Attacks the thesis, finds contradictions. No tools. Increments debate round counter.
-- **Adjudicator** (OpenAI, smart): Weighs both sides, adjusts conviction, produces final recommendation. 1 web search max for fact-checking.
+- **BullAdvocate** (OpenAI vsmart): Argues strongest case for each gated trade idea. No tools, pure argumentation.
+- **BearAdvocate** (OpenAI vsmart): Attacks the thesis, finds contradictions. No tools.
+- **Adjudicator** (OpenAI vsmart): Weighs both sides, adjusts sentiment_score, produces final recommendation. web_search (1 max) for fact-checking.
 
-**Debate state**: Per-field ownership pattern (not shared key) for parallel safety:
-```python
-class DebateState(TypedDict):
-    bull_r1: str      # Bull owns
-    bear_r1: str      # Bear owns
-    bull_r2: str      # Bull owns
-    bear_r2: str      # Bear owns
-    round: int
-```
+**Output**: `AdjudicatedIdea` (revised sentiment_score, bull/bear summaries)
 
-**Output**: `AdjudicatedIdea` (revised conviction, verdict, bull/bear summaries, stop-loss trigger)
-
-**Compiler expanded**: Ranks ideas by final conviction (adjudicated if debated, raw otherwise). Assembles full `DailyIntelligenceBrief`.
+**Compiler expanded**: Ranks ideas by abs(sentiment_score). Assembles `DailyIntelligenceBrief`.
 
 **New files**: `intelligence/debate/bull.py`, `intelligence/debate/bear.py`, `intelligence/debate/adjudicator.py`
-**Models**: `AdjudicatedIdea`, `DailyIntelligenceBrief`
 
 ---
 
@@ -206,12 +234,13 @@ Lands in Discord each morning (~10:30am ET):
 | Component | Model | Est. Cost/Day |
 |---|---|---|
 | SocialSentimentAnalyst | OpenAI vsmart | ~$0.15 |
-| NewsAnalyst | No LLM (reader) | ~$0.00 |
+| NewsAnalyst | OpenAI vsmart | ~$0.10 |
 | CompanyAnalyst (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.30-1.00 |
-| MacroStrategist | Sonnet | ~$0.08 |
-| EquityStrategist | Sonnet | ~$0.12 |
-| Debate (avg 1.5 ideas/day, 2 rounds) | Haiku x4 + Sonnet | ~$0.20 |
-| **Total** | | **~$0.70-1.20** |
+| PriceAnalyst (per ticker, ~3-5/day) | OpenAI vsmart | ~$0.05-0.15 |
+| MacroStrategist | OpenAI vsmart | ~$0.08 |
+| EquityStrategist | OpenAI vsmart | ~$0.12 |
+| Debate (avg 1.5 ideas/day, 2 rounds) | OpenAI vsmart | ~$0.20 |
+| **Total** | | **~$1.00-1.80** |
 
 Wall clock: ~80-130s end-to-end.
 
