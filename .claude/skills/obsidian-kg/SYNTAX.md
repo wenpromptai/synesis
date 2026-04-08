@@ -18,7 +18,7 @@
 up: ["[[Parent]]"]
 related: ["[[Related]]"]
 created: 2026-04-07
-type: concept | strategy | source | map
+type: concept | strategy | source | connection
 tags: [tag1, tag2]
 aliases: [Alias]
 ---

@@ -1,5 +1,15 @@
 # KG Node Templates
 
+## Source Citation Convention
+
+All node types can include source citations when updated during compilation. Add as a collapsed callout at the bottom of the node, before the footer:
+
+```markdown
+> [!quote]- Sources
+> - [[sources/yartseva-2025|Yartseva (2025)]] — FCF yield as predictor
+> - [[sources/brief-2026-04-07|Brief 2026-04-07]] — observed in risk_off regime
+```
+
 ---
 
 ## Concept Node
@@ -10,7 +20,7 @@ up: ["[[Parent Map]]"]
 related: ["[[Related Concept]]"]
 created: {{date}}
 type: concept
-tags: [options, concept-domain]
+tags: [domain-tags]
 aliases: [Alternative Name]
 ---
 
@@ -53,17 +63,17 @@ How this concept manifests in real trading. Link to strategies that use it:
 
 ## Strategy Node
 
+A general-purpose strategy template. The LLM adds domain-specific sections as needed (e.g., Greeks Profile for options, screening factors for equity, macro indicators for macro strategies). Not every section is required — use what fits.
+
 ```markdown
 ---
-up: ["[[Options Strategies]]"]
+up: ["[[Parent Map]]"]
 related: ["[[Related Strategy]]"]
 created: {{date}}
 type: strategy
-category: options
-subcategory: income | directional | volatility | hedging | systematic
+category: options | equity | macro | event-driven | multi-asset
 complexity: simple | medium | advanced
-data_source: [yfinance]
-tags: [options, strategy-tags]
+tags: [strategy-tags]
 ---
 
 # {{Strategy Name}}
@@ -73,63 +83,33 @@ tags: [options, strategy-tags]
 
 ## Core Mechanic
 
-What you do, why it works, ASCII P&L diagram.
-
-```
-P&L diagram here
-```
-
-## Greeks Profile
-
-| Greek | Exposure | Meaning |
-|-------|----------|---------|
-| [[Delta]] | ... | ... |
-| [[Gamma]] | ... | ... |
-| [[Theta]] | ... | ... |
-| [[Vega]] | ... | ... |
+What you do, why it works. Add visuals appropriate to the domain:
+- Options: ASCII P&L diagram
+- Equity: screening criteria table
+- Macro: decision flowchart
 
 ## When It Works
 
-- Market conditions
-- [[IV Rank]] thresholds
-- Regime fit
+- Market conditions / regime fit
+- Key signals or thresholds
+- What environment makes this strategy most effective
 
-## Trade Construction
+## Construction / Implementation
 
-Step-by-step entry with concrete parameters (DTE, delta, width).
-
-| Parameter | Value |
-|-----------|-------|
-| DTE | ... |
-| Delta | ... |
-| Target exit | ... |
-
-### Screener Criteria
-
-| Filter | Threshold |
-|--------|-----------|
-| ... | ... |
+How to execute. Concrete parameters, step-by-step.
 
 ## Risk Management
 
-- Max loss scenario
-- Stop/adjustment rules
+- Key risks and what triggers them
 - Position sizing guidance
+- Stop/adjustment rules
 
 > [!danger] Key Risk
 > Primary risk and what triggers it.
 
-## Data Pipeline
-
-> [!info] Synesis Data
-> | Need | Source | Method |
-> |------|--------|--------|
-> | ... | yfinance | `get_options_chain()` |
-
 ---
 **Related strategies:** [[Strategy 1]] | [[Strategy 2]]
 **Concepts:** [[Concept 1]] | [[Concept 2]]
-**Regimes:** [[Regime 1]] | [[Regime 2]]
 ```
 
 ---
@@ -186,47 +166,40 @@ What the source doesn't cover or gets wrong.
 
 ---
 
-## Map Node (MOC)
+## Connection Node
 
 ```markdown
 ---
-up: ["[[Home]]"]
+up: ["[[Parent Map]]"]
 related: []
 created: {{date}}
-type: map
-tags: [map, domain]
+type: connection
+nodes: ["[[node-a]]", "[[node-b]]"]
+discovered_from: compilation | linting | manual
+tags: [connection]
 ---
 
-# {{Topic}} Map
+# {{Relationship as statement}}
 
-> [!abstract] Overview
-> What this map covers and why it matters.
+> [!abstract]
+> One-line description of the non-obvious relationship.
 
-## Core Nodes
+## Nodes Involved
 
-- [[Node 1]] — brief description
-- [[Node 2]] — brief description
+- [[node-a]] — role in this connection
+- [[node-b]] — role in this connection
 
-## By Category
+## Evidence
 
-### Subcategory A
-- [[Node]] — description
+What data or observation revealed this connection.
 
-### Subcategory B
-- [[Node]] — description
+## Implications
 
-## How They Connect
+What this means for trading decisions or further research.
 
-```mermaid
-graph TD
-    A[Core] --> B[Related]
-    A --> C[Related]
-```
-
-## Decision Guide
-
-When to use what — flowchart or table.
+> [!quote]- Sources
+> - [[sources/brief-YYYY-MM-DD]] — where this was observed
 
 ---
-Back to [[Home]]
+**See also:** [[Related Node 1]] | [[Related Node 2]]
 ```

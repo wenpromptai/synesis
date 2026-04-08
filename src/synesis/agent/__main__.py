@@ -32,6 +32,7 @@ from synesis.agent.scheduler import (
     create_scheduler,
     event_digest_job,
     event_fetch_job,
+    intelligence_brief_job,
     market_brief_job,
     watchlist_cleanup_job,
 )
@@ -272,6 +273,8 @@ async def agent_lifespan(
         fred_client = None
         nasdaq_client = None
         sec_edgar_client = None
+        yfinance_client = None
+        massive_client = None
         if db:
             from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
             from synesis.providers.nasdaq import NasdaqClient
@@ -285,6 +288,36 @@ async def agent_lifespan(
                 from synesis.providers.fred import FREDClient
 
                 fred_client = FREDClient(redis=redis)
+
+            # YFinance + Massive for intelligence pipeline
+            from synesis.providers.yfinance.client import YFinanceClient
+
+            yfinance_client = YFinanceClient(redis=redis)
+
+            if settings.massive_api_key:
+                from synesis.providers.massive.client import MassiveClient
+
+                massive_client = MassiveClient(redis=redis)
+
+            # Intelligence brief: 9am SGT (1am UTC) daily
+            scheduler.add_job(
+                intelligence_brief_job,
+                CronTrigger(hour=1, minute=0, timezone="UTC"),
+                args=[
+                    db,
+                    sec_edgar_client,
+                    yfinance_client,
+                    fred_client,
+                    massive_client,
+                    crawler_instance,
+                ],
+                id="intelligence_brief",
+                max_instances=1,
+            )
+            logger.info(
+                "Intelligence brief scheduled",
+                schedule="9am SGT (1am UTC) daily",
+            )
 
             # Structured fetch: 6pm ET daily
             scheduler.add_job(
@@ -416,6 +449,21 @@ async def agent_lifespan(
 
             trigger_fns["event_digest"] = _trigger_event_digest
 
+        if db and sec_edgar_client and yfinance_client:
+            from synesis.processing.intelligence.job import run_intelligence_brief
+
+            async def _trigger_intelligence_brief() -> dict[str, Any]:
+                return await run_intelligence_brief(
+                    db=db,
+                    sec_edgar=sec_edgar_client,
+                    yfinance=yfinance_client,
+                    fred=fred_client,
+                    massive=massive_client,
+                    crawler=crawler_instance,
+                )
+
+            trigger_fns["intelligence_brief"] = _trigger_intelligence_brief
+
         yield AgentState(
             redis=redis,
             db=db,
@@ -458,6 +506,13 @@ async def agent_lifespan(
                 logger.debug("Telegram listener stopped")
             except Exception:
                 logger.error("Error stopping Telegram listener", exc_info=True)
+
+        if massive_client:
+            try:
+                await massive_client.close()
+                logger.debug("MassiveClient closed")
+            except Exception:
+                logger.error("Error closing MassiveClient", exc_info=True)
 
         if price_service:
             try:

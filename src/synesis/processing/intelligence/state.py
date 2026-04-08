@@ -38,5 +38,8 @@ class IntelligenceState(TypedDict):
     bull_analyses: Annotated[list[dict[str, Any]], add]
     bear_analyses: Annotated[list[dict[str, Any]], add]
 
+    # Trader output (multiple parallel writers in per_ticker mode, needs reducer)
+    trade_ideas: Annotated[list[dict[str, Any]], add]
+
     # Final output
     brief: dict[str, Any]

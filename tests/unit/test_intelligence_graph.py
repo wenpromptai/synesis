@@ -54,6 +54,8 @@ class TestCompileBrief:
         assert brief["macro_themes"] == []
         assert brief["l1_summary"]["social"] == ""
         assert brief["l1_summary"]["news"] == ""
+        assert brief["trade_ideas"] == []
+        assert brief["errors"]["trader_failures"] == []
 
     def test_populated_state(self) -> None:
         """Populated state assembles correctly."""
@@ -88,6 +90,103 @@ class TestCompileBrief:
         assert brief["l1_summary"]["news"] == "M&A activity"
         assert brief["messages_analyzed"] == 7
         assert len(brief["price_analyses"]) == 1
+
+    def test_full_pipeline_state(self) -> None:
+        """All pipeline stages populated — verify every brief field."""
+        brief = compile_brief(
+            {
+                "current_date": "2026-04-07",
+                "social_analysis": {
+                    "summary": "Tech bullish",
+                    "ticker_mentions": [{"ticker": "NVDA", "context": "AI hype"}],
+                    "macro_themes": [{"theme": "AI capex"}],
+                },
+                "news_analysis": {
+                    "summary": "Earnings season",
+                    "story_clusters": [{"headline": "NVDA beats", "tickers": [{"ticker": "NVDA"}]}],
+                    "macro_themes": [{"theme": "Rate cuts"}],
+                    "messages_analyzed": 12,
+                },
+                "company_analyses": [
+                    {"ticker": "NVDA", "company_name": "NVIDIA"},
+                    {"ticker": "AMD", "error": True},
+                ],
+                "price_analyses": [
+                    {"ticker": "NVDA", "spot_price": 150.0},
+                ],
+                "macro_view": {
+                    "regime": "risk_on",
+                    "sentiment_score": 0.6,
+                    "key_drivers": ["Strong employment"],
+                    "sector_tilts": [{"sector": "Tech", "sentiment_score": 0.7}],
+                    "risks": ["Fed uncertainty"],
+                },
+                "bull_analyses": [
+                    {
+                        "ticker": "NVDA",
+                        "role": "bull",
+                        "argument": "AI demand strong",
+                        "round": 1,
+                    },
+                ],
+                "bear_analyses": [
+                    {
+                        "ticker": "NVDA",
+                        "role": "bear",
+                        "argument": "Overvalued",
+                        "round": 1,
+                    },
+                    {"ticker": "AMD", "error": True},
+                ],
+                "trade_ideas": [
+                    {
+                        "tickers": ["NVDA"],
+                        "trade_structure": "bull call spread 150/160 June",
+                        "thesis": "AI demand",
+                    },
+                    {"tickers": ["AMD"], "error": True},
+                ],
+            }
+        )
+        # Date
+        assert brief["date"] == "2026-04-07"
+        # Macro
+        assert brief["macro"]["regime"] == "risk_on"
+        assert brief["macro"]["sentiment_score"] == 0.6
+        assert brief["macro"]["key_drivers"] == ["Strong employment"]
+        assert len(brief["macro"]["sector_tilts"]) == 1
+        assert brief["macro"]["risks"] == ["Fed uncertainty"]
+        # Debates
+        assert len(brief["debates"]) == 1
+        assert brief["debates"][0]["ticker"] == "NVDA"
+        assert "bull" in brief["debates"][0]
+        assert "bear" in brief["debates"][0]
+        # L1 summary
+        assert brief["l1_summary"]["social"] == "Tech bullish"
+        assert brief["l1_summary"]["news"] == "Earnings season"
+        # Company/price (errors filtered)
+        assert brief["tickers_analyzed"] == ["NVDA"]
+        assert len(brief["company_analyses"]) == 1
+        assert len(brief["price_analyses"]) == 1
+        # Macro themes (merged from both L1)
+        assert len(brief["macro_themes"]) == 2
+        # Ticker mentions
+        assert len(brief["ticker_mentions"]["social"]) == 1
+        assert len(brief["ticker_mentions"]["news_clusters"]) == 1
+        # Messages
+        assert brief["messages_analyzed"] == 12
+        # Trade ideas (errors filtered)
+        assert len(brief["trade_ideas"]) == 1
+        assert brief["trade_ideas"][0]["tickers"] == ["NVDA"]
+        # Errors — all failure types tracked
+        assert brief["errors"]["social_failed"] is False
+        assert brief["errors"]["news_failed"] is False
+        assert brief["errors"]["company_failures"] == ["AMD"]
+        assert brief["errors"]["price_failures"] == []
+        assert brief["errors"]["bull_failures"] == []
+        assert brief["errors"]["bear_failures"] == ["AMD"]
+        assert brief["errors"]["macro_failed"] is False
+        assert brief["errors"]["trader_failures"] == ["AMD"]
 
     def test_filters_errored_analyses(self) -> None:
         """Company analyses with error=True are excluded from tickers_analyzed."""
@@ -1113,54 +1212,454 @@ class TestPerTickerContextFormatters:
 class TestTradeIdeaModel:
     """Tests for TradeIdea model validation."""
 
-    def test_valid_trade_idea(self) -> None:
+    def test_valid_single_ticker(self) -> None:
         idea = TradeIdea(
-            ticker="NVDA",
-            sentiment_score=0.8,
+            tickers=["NVDA"],
+            trade_structure="bull call spread NVDA 150/160 June",
             thesis="Strong AI demand",
-            trade_structure="bull call spread",
             catalyst="Earnings beat",
             timeframe="2-4 weeks",
             key_risk="Valuation",
             analysis_date=date(2026, 4, 7),
         )
-        assert idea.ticker == "NVDA"
-        assert idea.sentiment_score == 0.8
+        assert idea.tickers == ["NVDA"]
+        assert "NVDA" in idea.trade_structure
 
-    def test_sentiment_score_bounded(self) -> None:
-        with pytest.raises(Exception):
-            TradeIdea(
-                ticker="NVDA",
-                sentiment_score=1.5,
-                analysis_date=date(2026, 4, 7),
-            )
-        with pytest.raises(Exception):
-            TradeIdea(
-                ticker="NVDA",
-                sentiment_score=-1.5,
-                analysis_date=date(2026, 4, 7),
-            )
+    def test_pair_trade(self) -> None:
+        idea = TradeIdea(
+            tickers=["NVDA", "AMD"],
+            trade_structure="equity L/S: long NVDA / short AMD",
+            thesis="NVDA outperforms AMD",
+            analysis_date=date(2026, 4, 7),
+        )
+        assert len(idea.tickers) == 2
+        assert idea.tickers[1] == "AMD"
 
-    def test_ticker_requires_min_length(self) -> None:
+    def test_tickers_requires_at_least_one(self) -> None:
         with pytest.raises(Exception):
             TradeIdea(
-                ticker="",
-                sentiment_score=0.5,
+                tickers=[],
+                trade_structure="buy shares",
                 analysis_date=date(2026, 4, 7),
             )
 
-    def test_trader_output_with_skipped(self) -> None:
+    def test_tickers_rejects_empty_string_element(self) -> None:
+        with pytest.raises(Exception):
+            TradeIdea(
+                tickers=[""],
+                trade_structure="buy shares",
+                analysis_date=date(2026, 4, 7),
+            )
+
+    def test_trade_structure_requires_non_empty(self) -> None:
+        with pytest.raises(Exception):
+            TradeIdea(
+                tickers=["NVDA"],
+                trade_structure="",
+                analysis_date=date(2026, 4, 7),
+            )
+
+    def test_trader_output(self) -> None:
         output = TraderOutput(
             trade_ideas=[
                 TradeIdea(
-                    ticker="NVDA",
-                    sentiment_score=0.8,
+                    tickers=["NVDA"],
+                    trade_structure="buy 100 shares NVDA",
                     analysis_date=date(2026, 4, 7),
                 ),
             ],
-            skipped_tickers=["AAPL"],
             portfolio_note="Correlated tech exposure",
             analysis_date=date(2026, 4, 7),
         )
         assert len(output.trade_ideas) == 1
-        assert output.skipped_tickers == ["AAPL"]
+
+
+class TestCompilerTradeIdeas:
+    """Tests for trade ideas in the compiled brief."""
+
+    def test_trade_ideas_included(self) -> None:
+        state = {
+            "current_date": "2026-04-07",
+            "social_analysis": {},
+            "news_analysis": {},
+            "company_analyses": [],
+            "price_analyses": [],
+            "bull_analyses": [],
+            "bear_analyses": [],
+            "trade_ideas": [
+                {"tickers": ["AAPL"], "trade_structure": "buy shares", "thesis": "Weak buy"},
+                {
+                    "tickers": ["NVDA"],
+                    "trade_structure": "bull call spread",
+                    "thesis": "Strong buy",
+                },
+            ],
+        }
+        brief = compile_brief(state)
+        assert len(brief["trade_ideas"]) == 2
+
+    def test_trade_ideas_filters_errors(self) -> None:
+        state = {
+            "current_date": "2026-04-07",
+            "social_analysis": {},
+            "news_analysis": {},
+            "company_analyses": [],
+            "price_analyses": [],
+            "bull_analyses": [],
+            "bear_analyses": [],
+            "trade_ideas": [
+                {"tickers": ["NVDA"], "trade_structure": "buy shares", "thesis": "Buy"},
+                {"tickers": ["AAPL"], "error": True},
+            ],
+        }
+        brief = compile_brief(state)
+        assert len(brief["trade_ideas"]) == 1
+        assert brief["trade_ideas"][0]["tickers"] == ["NVDA"]
+        assert brief["errors"]["trader_failures"] == ["AAPL"]
+
+    def test_empty_trade_ideas(self) -> None:
+        state = {
+            "current_date": "2026-04-07",
+            "social_analysis": {},
+            "news_analysis": {},
+            "company_analyses": [],
+            "price_analyses": [],
+            "bull_analyses": [],
+            "bear_analyses": [],
+            "trade_ideas": [],
+        }
+        brief = compile_brief(state)
+        assert brief["trade_ideas"] == []
+        assert brief["errors"]["trader_failures"] == []
+
+
+def _trader_output(tickers: list[str]) -> TraderOutput:
+    """Helper to create a mock TraderOutput for given tickers."""
+    return TraderOutput(
+        trade_ideas=[
+            TradeIdea(
+                tickers=[t],
+                trade_structure=f"buy 100 shares {t}",
+                thesis=f"Buy {t}",
+                catalyst="Earnings",
+                timeframe="2 weeks",
+                key_risk="Valuation",
+                analysis_date=date(2026, 4, 7),
+            )
+            for t in tickers
+        ],
+        analysis_date=date(2026, 4, 7),
+    )
+
+
+class TestTraderGraphStructure:
+    """Tests for Trader node presence in the graph."""
+
+    def test_trader_gate_node_exists(self) -> None:
+        graph = build_intelligence_graph(
+            db=AsyncMock(),
+            sec_edgar=AsyncMock(),
+            yfinance=AsyncMock(),
+            fred=AsyncMock(),
+            crawler=AsyncMock(),
+        )
+        node_names = set(graph.get_graph().nodes)
+        assert "trader_gate" in node_names
+
+    def test_trader_node_exists(self) -> None:
+        graph = build_intelligence_graph(
+            db=AsyncMock(),
+            sec_edgar=AsyncMock(),
+            yfinance=AsyncMock(),
+            fred=AsyncMock(),
+            crawler=AsyncMock(),
+        )
+        node_names = set(graph.get_graph().nodes)
+        assert "trader" in node_names
+
+
+class TestTraderGraphExecution:
+    """Tests for Trader in full graph execution."""
+
+    @pytest.mark.asyncio
+    async def test_per_ticker_trader_produces_trade_ideas(self) -> None:
+        """Per-ticker mode: Trader called once per ticker, ideas in brief."""
+
+        async def mock_company(ticker, deps):
+            return _company(ticker)
+
+        async def mock_price(ticker, deps):
+            return _price(ticker)
+
+        async def mock_bull(state, current_date, debate_history=None):
+            return _bull(state["ticker"])
+
+        async def mock_bear(state, current_date, debate_history=None):
+            return _bear(state["ticker"])
+
+        async def mock_trader_per_ticker(state, current_date):
+            return _trader_output([state["ticker"]])
+
+        with (
+            patch(f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social(["NVDA"])),
+            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA"])),
+            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
+            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
+            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
+            patch("synesis.config.get_settings") as mock_settings,
+            patch(f"{_PATCH_PREFIX}.research_bull", side_effect=mock_bull),
+            patch(f"{_PATCH_PREFIX}.research_bear", side_effect=mock_bear),
+            patch(
+                f"{_PATCH_PREFIX}.analyze_trade_per_ticker", side_effect=mock_trader_per_ticker
+            ) as trader_spy,
+        ):
+            mock_settings.return_value.debate_rounds = 0
+            mock_settings.return_value.macro_strategist_enabled = True
+            mock_settings.return_value.trader_mode = "per_ticker"
+            graph = build_intelligence_graph(
+                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
+            )
+            result = await graph.ainvoke(
+                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
+            )
+
+        assert trader_spy.call_count == 1
+        brief = result["brief"]
+        assert len(brief["trade_ideas"]) == 1
+        assert brief["trade_ideas"][0]["tickers"] == ["NVDA"]
+
+    @pytest.mark.asyncio
+    async def test_portfolio_trader_produces_trade_ideas(self) -> None:
+        """Portfolio mode: Trader called once with all tickers."""
+
+        async def mock_company(ticker, deps):
+            return _company(ticker)
+
+        async def mock_price(ticker, deps):
+            return _price(ticker)
+
+        async def mock_bull(state, current_date, debate_history=None):
+            return _bull(state["ticker"])
+
+        async def mock_bear(state, current_date, debate_history=None):
+            return _bear(state["ticker"])
+
+        async def mock_trader_portfolio(state, current_date, tickers):
+            return _trader_output(tickers)
+
+        with (
+            patch(
+                f"{_PATCH_PREFIX}.analyze_social_sentiment",
+                return_value=_social(["NVDA", "AMD"]),
+            ),
+            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA", "AMD"])),
+            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
+            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
+            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
+            patch("synesis.config.get_settings") as mock_settings,
+            patch(f"{_PATCH_PREFIX}.research_bull", side_effect=mock_bull),
+            patch(f"{_PATCH_PREFIX}.research_bear", side_effect=mock_bear),
+            patch(
+                f"{_PATCH_PREFIX}.analyze_trade_portfolio", side_effect=mock_trader_portfolio
+            ) as trader_spy,
+        ):
+            mock_settings.return_value.debate_rounds = 0
+            mock_settings.return_value.macro_strategist_enabled = True
+            mock_settings.return_value.trader_mode = "portfolio"
+            graph = build_intelligence_graph(
+                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
+            )
+            result = await graph.ainvoke(
+                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
+            )
+
+        assert trader_spy.call_count == 1
+        brief = result["brief"]
+        assert len(brief["trade_ideas"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_no_tickers_skips_trader(self) -> None:
+        """No tickers → trader skipped, no trade ideas."""
+        with (
+            patch(f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social([])),
+            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news([])),
+            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
+            patch(f"{_PATCH_PREFIX}.analyze_trade_per_ticker") as trader_spy,
+            patch("synesis.config.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.debate_rounds = 0
+            mock_settings.return_value.macro_strategist_enabled = True
+            mock_settings.return_value.trader_mode = "per_ticker"
+            graph = build_intelligence_graph(
+                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
+            )
+            result = await graph.ainvoke(
+                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
+            )
+
+        trader_spy.assert_not_called()
+        brief = result["brief"]
+        assert brief["trade_ideas"] == []
+
+    @pytest.mark.asyncio
+    async def test_trader_partial_failure(self) -> None:
+        """One ticker's Trader fails, others succeed — brief has both."""
+
+        async def mock_company(ticker, deps):
+            return _company(ticker)
+
+        async def mock_price(ticker, deps):
+            return _price(ticker)
+
+        async def mock_bull(state, current_date, debate_history=None):
+            return _bull(state["ticker"])
+
+        async def mock_bear(state, current_date, debate_history=None):
+            return _bear(state["ticker"])
+
+        call_count = 0
+
+        async def mock_trader_per_ticker(state, current_date):
+            nonlocal call_count
+            call_count += 1
+            if state["ticker"] == "AMD":
+                raise RuntimeError("LLM timeout")
+            return _trader_output([state["ticker"]])
+
+        with (
+            patch(
+                f"{_PATCH_PREFIX}.analyze_social_sentiment",
+                return_value=_social(["NVDA", "AMD"]),
+            ),
+            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA", "AMD"])),
+            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
+            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
+            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
+            patch("synesis.config.get_settings") as mock_settings,
+            patch(f"{_PATCH_PREFIX}.research_bull", side_effect=mock_bull),
+            patch(f"{_PATCH_PREFIX}.research_bear", side_effect=mock_bear),
+            patch(
+                f"{_PATCH_PREFIX}.analyze_trade_per_ticker",
+                side_effect=mock_trader_per_ticker,
+            ),
+        ):
+            mock_settings.return_value.debate_rounds = 0
+            mock_settings.return_value.macro_strategist_enabled = True
+            mock_settings.return_value.trader_mode = "per_ticker"
+            graph = build_intelligence_graph(
+                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
+            )
+            result = await graph.ainvoke(
+                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
+            )
+
+        assert call_count == 2
+        brief = result["brief"]
+        # NVDA succeeded
+        assert len(brief["trade_ideas"]) == 1
+        assert brief["trade_ideas"][0]["tickers"] == ["NVDA"]
+        # AMD failed
+        assert "AMD" in brief["errors"]["trader_failures"]
+
+
+class TestTraderDebateFormatting:
+    """Tests for _format_debate_for_ticker in trader.py."""
+
+    def test_formats_single_round(self) -> None:
+        """Single round debate produces bull + bear sections."""
+        from synesis.processing.intelligence.trader.trader import _format_debate_for_ticker
+
+        state = {
+            "bull_analyses": [
+                {
+                    "ticker": "NVDA",
+                    "role": "bull",
+                    "argument": "Strong buy",
+                    "key_evidence": ["Revenue up"],
+                    "round": 1,
+                },
+            ],
+            "bear_analyses": [
+                {
+                    "ticker": "NVDA",
+                    "role": "bear",
+                    "argument": "Overvalued",
+                    "key_evidence": ["PE high"],
+                    "round": 1,
+                },
+            ],
+        }
+        result = _format_debate_for_ticker(state, "NVDA")
+        assert "BULL" in result
+        assert "Strong buy" in result
+        assert "BEAR" in result
+        assert "Overvalued" in result
+
+    def test_filters_to_ticker(self) -> None:
+        """Only includes debate for the requested ticker."""
+        from synesis.processing.intelligence.trader.trader import _format_debate_for_ticker
+
+        state = {
+            "bull_analyses": [
+                {"ticker": "NVDA", "role": "bull", "argument": "NVDA bull", "round": 1},
+                {"ticker": "AMD", "role": "bull", "argument": "AMD bull", "round": 1},
+            ],
+            "bear_analyses": [
+                {"ticker": "NVDA", "role": "bear", "argument": "NVDA bear", "round": 1},
+            ],
+        }
+        result = _format_debate_for_ticker(state, "NVDA")
+        assert "NVDA bull" in result
+        assert "NVDA bear" in result
+        assert "AMD bull" not in result
+
+    def test_multi_round_includes_all(self) -> None:
+        """Multi-round debate includes all rounds, ordered."""
+        from synesis.processing.intelligence.trader.trader import _format_debate_for_ticker
+
+        state = {
+            "bull_analyses": [
+                {"ticker": "NVDA", "role": "bull", "argument": "Bull round 1", "round": 1},
+                {"ticker": "NVDA", "role": "bull", "argument": "Bull round 2", "round": 2},
+            ],
+            "bear_analyses": [
+                {"ticker": "NVDA", "role": "bear", "argument": "Bear round 1", "round": 1},
+                {"ticker": "NVDA", "role": "bear", "argument": "Bear round 2", "round": 2},
+            ],
+        }
+        result = _format_debate_for_ticker(state, "NVDA")
+        assert "Bull round 1" in result
+        assert "Bull round 2" in result
+        assert "Bear round 1" in result
+        assert "Bear round 2" in result
+        # Round 1 should appear before round 2
+        assert result.index("Round 1") < result.index("Round 2")
+
+    def test_skips_errored(self) -> None:
+        """Errored entries are excluded."""
+        from synesis.processing.intelligence.trader.trader import _format_debate_for_ticker
+
+        state = {
+            "bull_analyses": [
+                {"ticker": "NVDA", "error": True},
+                {"ticker": "NVDA", "role": "bull", "argument": "Good bull", "round": 1},
+            ],
+            "bear_analyses": [],
+        }
+        result = _format_debate_for_ticker(state, "NVDA")
+        assert "Good bull" in result
+
+    def test_no_debate_available(self) -> None:
+        """No debate data produces fallback message."""
+        from synesis.processing.intelligence.trader.trader import _format_debate_for_ticker
+
+        state = {"bull_analyses": [], "bear_analyses": []}
+        result = _format_debate_for_ticker(state, "NVDA")
+        assert "No debate available" in result
+
+    def test_missing_state_keys(self) -> None:
+        """Missing bull/bear keys handled gracefully."""
+        from synesis.processing.intelligence.trader.trader import _format_debate_for_ticker
+
+        result = _format_debate_for_ticker({}, "NVDA")
+        assert "No debate available" in result

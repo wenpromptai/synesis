@@ -68,7 +68,5 @@ build/
 data/marketfeed.jsonl
 data/marketfeed.bak.jsonl
 
-# Docs (Obsidian vault, personal notes — not part of codebase)
-docs/kg/
+# Docs (personal notes — not part of codebase)
 docs/zaikia/
-docs/multibagger.pdf

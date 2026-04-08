@@ -139,6 +139,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("stage2_enabled", "STAGE2_ENABLED", "false", False),
     ("macro_strategist_enabled", "MACRO_STRATEGIST_ENABLED", "true", True),
     ("debate_rounds", "DEBATE_ROUNDS", "2", 2),
+    ("trader_mode", "TRADER_MODE", "portfolio", "portfolio"),
     # --- Discord notifications ---
     (
         "discord_webhook_url",

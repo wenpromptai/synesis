@@ -42,15 +42,23 @@ class DebateState(TypedDict):
 
 async def _bull_debate_node(state: DebateState) -> dict[str, Any]:
     """Run BullResearcher with debate history context."""
+    ticker = state["ticker"]
+    round_num = state["round"]
+    logger.info("BullResearcher debate round starting", ticker=ticker, round=round_num)
     current = date.fromisoformat(state["current_date"])
     result = await research_bull(dict(state), current, debate_history=state["debate_history"])
+    logger.info("BullResearcher debate round complete", ticker=ticker, round=round_num)
     return {"debate_history": [result.model_dump(mode="json")]}
 
 
 async def _bear_debate_node(state: DebateState) -> dict[str, Any]:
     """Run BearResearcher with debate history, then increment round."""
+    ticker = state["ticker"]
+    round_num = state["round"]
+    logger.info("BearResearcher debate round starting", ticker=ticker, round=round_num)
     current = date.fromisoformat(state["current_date"])
     result = await research_bear(dict(state), current, debate_history=state["debate_history"])
+    logger.info("BearResearcher debate round complete", ticker=ticker, round=round_num)
     return {
         "debate_history": [result.model_dump(mode="json")],
         "round": state["round"] + 1,

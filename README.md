@@ -11,6 +11,8 @@ Real-time financial news analysis and prediction market trading system. Transfor
 - **Cache/Queue:** Redis
 - **LLM:** PydanticAI (Claude / OpenAI)
 - **Data Providers:** SEC EDGAR, NASDAQ, Finnhub, yfinance, FRED, Massive.com
+- **Intelligence:** LangGraph multi-agent pipeline (PydanticAI)
+- **Knowledge:** LLM-compiled knowledge graph (Obsidian markdown)
 - **Trading:** Polymarket (Gamma API + CLOB API)
 
 ## Quickstart
@@ -57,6 +59,7 @@ src/synesis/
 ├── core/              # Logging, constants, dependencies
 ├── ingestion/         # Telegram listener, Google News RSS poller
 ├── processing/        # All analysis pipelines
+│   ├── intelligence/  # LangGraph multi-agent pipeline (daily briefs)
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
 │   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
@@ -77,6 +80,38 @@ src/synesis/
 ├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
 └── api/               # HTTP/WebSocket endpoints
 ```
+
+## Intelligence Pipeline
+
+Daily LangGraph state machine (9:00 AM SGT / 1:00 AM UTC) that transforms social/news signals into structured trade ideas:
+
+```
+social_sentiment + news_analyst → extract_tickers → company + price + macro (parallel)
+→ bull/bear debate (configurable rounds) → Trader → compiler → Discord + KG brief
+```
+
+Each pipeline run auto-saves a markdown brief to `docs/kg/raw/synesis_briefs/` for knowledge graph compilation. See `docs/ARCHITECTURE.md` for full details.
+
+## Knowledge Graph (`docs/kg/`)
+
+LLM-compiled investment knowledge base (Karpathy-style). Raw sources are compiled into interlinked Obsidian markdown nodes. View in Obsidian.
+
+```
+docs/kg/
+├── _index.md              # Master index (LLM reads this first)
+├── _compile_log.md        # Audit trail
+├── raw/                   # Source documents (PDFs, articles, pipeline briefs)
+│   └── synesis_briefs/    # Auto-saved daily pipeline briefs
+├── sources/               # Extracted summaries from raw documents
+│   └── connections/       # Non-obvious relationships between nodes
+├── maps/                  # Topic indexes (MOCs)
+├── concepts/              # Atomic concept nodes
+└── strategies/            # Strategy playbooks
+```
+
+**Claude Code commands:**
+- `/kg-compile` — Compile unprocessed raw files into KG nodes (run after new sources accumulate)
+- `/kg-lint` — Health checks + intelligence checks (run periodically)
 
 ## Development
 

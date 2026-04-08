@@ -346,3 +346,25 @@ class TestSystemConfig:
         assert body["env"] == "development"
         assert body["llm_provider"] == "anthropic"
         assert body["telegram_enabled"] is False
+
+
+# ===========================================================================
+# Intelligence endpoints
+# ===========================================================================
+
+INTEL_PREFIX = "/api/v1/intelligence"
+
+
+class TestIntelligenceTrigger:
+    async def test_trigger_returns_503_when_not_configured(self, client: httpx.AsyncClient) -> None:
+        r = await client.post(f"{INTEL_PREFIX}/trigger")
+        assert r.status_code == 503
+
+    async def test_trigger_returns_200_when_configured(
+        self, client: httpx.AsyncClient, mock_agent_state: _MockAgentState
+    ) -> None:
+        mock_agent_state.trigger_fns["intelligence_brief"] = AsyncMock()
+        r = await client.post(f"{INTEL_PREFIX}/trigger")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "triggered"

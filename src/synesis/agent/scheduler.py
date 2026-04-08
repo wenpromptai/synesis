@@ -17,14 +17,17 @@ if TYPE_CHECKING:
 
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
     from synesis.providers.fred import FREDClient
+    from synesis.providers.massive.client import MassiveClient
     from synesis.providers.nasdaq import NasdaqClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
+    from synesis.providers.yfinance.client import YFinanceClient
     from synesis.storage.database import Database
 
 __all__ = [
     "create_scheduler",
     "event_digest_job",
     "event_fetch_job",
+    "intelligence_brief_job",
     "market_brief_job",
     "refresh_tickers_job",
     "watchlist_cleanup_job",
@@ -95,6 +98,35 @@ async def event_digest_job(
         logger.info("Event digest job complete", sent=sent)
     except Exception:
         logger.exception("Event digest job failed")
+
+
+async def intelligence_brief_job(
+    db: Database,
+    sec_edgar: SECEdgarClient,
+    yfinance: YFinanceClient,
+    fred: FREDClient | None = None,
+    massive: MassiveClient | None = None,
+    crawler: Crawl4AICrawlerProvider | None = None,
+) -> None:
+    """Run the daily intelligence pipeline and send brief to Discord."""
+    from synesis.processing.intelligence.job import run_intelligence_brief
+
+    try:
+        brief = await run_intelligence_brief(
+            db=db,
+            sec_edgar=sec_edgar,
+            yfinance=yfinance,
+            fred=fred,
+            massive=massive,
+            crawler=crawler,
+        )
+        logger.info(
+            "Intelligence brief job complete",
+            tickers=len(brief.get("tickers_analyzed", [])),
+            trade_ideas=len(brief.get("trade_ideas", [])),
+        )
+    except Exception:
+        logger.exception("Intelligence brief job failed")
 
 
 async def refresh_tickers_job() -> None:

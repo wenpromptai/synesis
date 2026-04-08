@@ -78,6 +78,10 @@ class Settings(CacheTTLSettings, BaseSettings):
         ge=0,
         description="Bull/bear debate rounds per ticker (0=parallel/no debate, 1+=sequential rounds)",
     )
+    trader_mode: Literal["per_ticker", "portfolio"] = Field(
+        default="per_ticker",
+        description="Trader evaluation mode: 'per_ticker' or 'portfolio'",
+    )
 
     # Discord (notifications)
     discord_webhook_url: SecretStr | None = Field(

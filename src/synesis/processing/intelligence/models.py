@@ -6,14 +6,14 @@ Design principle: Analysts are INFORMATION GATHERERS. They extract, summarize,
 and structure key facts. They do NOT assign sentiment scores or trading signals.
 BullResearcher and BearResearcher debate opposing cases per ticker — neither
 scores. MacroView has sentiment_score because regime direction is inherently
-directional. A future Trader agent will be the sole decision maker.
+directional. The Trader agent is the sole decision maker.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -239,21 +239,25 @@ class TickerDebate(BaseModel):
 
 
 # =============================================================================
-# Trader Output (Phase 3D — the ONLY scored output in the pipeline)
+# Trader Output (Phase 3D)
 # =============================================================================
 
 
 class TradeIdea(BaseModel):
-    """A trade recommendation from the Trader — the ONLY scored output."""
+    """A trade recommendation from the Trader.
 
-    ticker: str = Field(min_length=1)
-    sentiment_score: float = Field(
-        ge=-1.0,
-        le=1.0,
-        description="Direction + conviction. -1.0 (strong sell) to 1.0 (strong buy). 0 = skip.",
+    Single-ticker ideas have one ticker. Pair/relative value trades have 2+
+    (only produced in portfolio mode). trade_structure is the primary field —
+    it describes exactly what to do and is the cue for execution.
+    """
+
+    tickers: list[Annotated[str, Field(min_length=1)]] = Field(min_length=1)
+    trade_structure: str = Field(
+        min_length=1,
+        description="The specific trade: 'buy 100 shares NVDA', 'bull call spread NVDA 150/160 June', "
+        "'equity L/S: long NVDA / short AMD', etc.",
     )
     thesis: str = ""
-    trade_structure: str = ""
     catalyst: str = ""
     timeframe: str = ""
     key_risk: str = ""
@@ -261,10 +265,9 @@ class TradeIdea(BaseModel):
 
 
 class TraderOutput(BaseModel):
-    """Full Trader output — wraps one or more TradeIdeas."""
+    """Full Trader output — one or more TradeIdeas."""
 
     trade_ideas: list[TradeIdea] = Field(default_factory=list)
-    skipped_tickers: list[str] = Field(default_factory=list)
     portfolio_note: str = ""
     analysis_date: date
 

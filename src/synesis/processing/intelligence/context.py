@@ -2,7 +2,7 @@
 
 Per-ticker formatters filter pipeline state to a single ticker's context
 for use in the per-ticker bull/bear debate fan-out. The macro formatter
-provides regime context for the future Trader node (Phase 3D).
+provides regime context for the Trader node (Phase 3D).
 """
 
 from __future__ import annotations

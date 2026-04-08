@@ -66,6 +66,14 @@ src/synesis/
 ├── core/              # Logging, constants, dependencies
 ├── ingestion/         # Telegram listener, Google News RSS poller
 ├── processing/        # All analysis pipelines
+│   ├── intelligence/  # LangGraph multi-agent pipeline (see docs/ARCHITECTURE.md)
+│   │   ├── specialists/   # Layer 1-2: social_sentiment, news, company, price
+│   │   ├── strategists/   # MacroStrategist (regime + sector tilts)
+│   │   ├── debate/        # Bull/bear debate subgraph (configurable rounds)
+│   │   ├── trader/        # Trader (sole decision maker → TradeIdea)
+│   │   ├── graph.py       # LangGraph state machine wiring
+│   │   ├── compiler.py    # Brief assembly + markdown export for KG
+│   │   └── job.py         # Pipeline runner → Discord + KG brief save
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
 │   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
@@ -88,6 +96,7 @@ src/synesis/
 
 tests/                 # Test files
 docs/                  # Documentation (Obsidian vault)
+docs/kg/               # LLM-compiled knowledge graph (Karpathy-style)
 scripts/               # Utility scripts
 ```
 
@@ -111,6 +120,8 @@ scripts/               # Utility scripts
 ## Context
 
 - `.claude/skills/fastapi-developing/` - FastAPI patterns
+- `.claude/skills/obsidian-kg/` - Knowledge graph building, compilation, and linting
+- `docs/ARCHITECTURE.md` - Intelligence pipeline architecture (LangGraph topology, state, agents)
 
 ## Key APIs
 
@@ -136,6 +147,24 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 - `/market/*` — Market brief: trigger daily brief (5/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
+
+## Intelligence Pipeline
+
+Daily LangGraph pipeline (9:00 AM SGT / 1:00 AM UTC): social/news signals → per-ticker company + price analysis + macro regime → bull/bear debate → Trader decisions → Discord + KG brief.
+
+See `docs/ARCHITECTURE.md` for full graph topology, state schema, and agent inventory.
+
+**Pipeline brief auto-save:** Each run saves a markdown brief to `docs/kg/raw/synesis_briefs/YYYY-MM-DD.md` for future KG compilation.
+
+## Knowledge Graph (`docs/kg/`)
+
+LLM-compiled investment knowledge base viewed in Obsidian. Raw sources (pipeline briefs, PDFs, articles) are compiled into interlinked concept, strategy, source, and connection nodes.
+
+**Slash commands:**
+- `/kg-compile` — Process uncompiled raw files in `docs/kg/raw/` into KG nodes. The LLM reads the schema + current KG state + raw source and decides what to extract/update/create. Run after new raw sources accumulate.
+- `/kg-lint` — Health checks (broken links, orphans, sparse nodes, missing frontmatter, stale index) + intelligence checks (connection discovery, missing node candidates, content staleness, research suggestions). Run periodically to maintain KG quality and discover growth opportunities.
+
+**Skill reference:** `.claude/skills/obsidian-kg/SKILL.md`
 
 ## Trading Strategy
 
