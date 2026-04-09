@@ -45,10 +45,15 @@ class TestRunIntelligenceBrief:
             "yfinance": MagicMock(),
         }
 
+    @patch("synesis.processing.intelligence.job._save_brief_to_kg")
     @patch("synesis.processing.intelligence.job.send_discord", new_callable=AsyncMock)
     @patch("synesis.processing.intelligence.job.build_intelligence_graph")
     async def test_sends_discord_batches(
-        self, mock_build: MagicMock, mock_send: AsyncMock, mock_deps: dict[str, Any]
+        self,
+        mock_build: MagicMock,
+        mock_send: AsyncMock,
+        _mock_kg: MagicMock,
+        mock_deps: dict[str, Any],
     ) -> None:
         brief = _make_brief()
         mock_graph = AsyncMock()
@@ -61,10 +66,15 @@ class TestRunIntelligenceBrief:
         assert result["date"] == "2026-04-08"
         assert mock_send.called
 
+    @patch("synesis.processing.intelligence.job._save_brief_to_kg")
     @patch("synesis.processing.intelligence.job.send_discord", new_callable=AsyncMock)
     @patch("synesis.processing.intelligence.job.build_intelligence_graph")
     async def test_empty_brief_skips_discord(
-        self, mock_build: MagicMock, mock_send: AsyncMock, mock_deps: dict[str, Any]
+        self,
+        mock_build: MagicMock,
+        mock_send: AsyncMock,
+        _mock_kg: MagicMock,
+        mock_deps: dict[str, Any],
     ) -> None:
         """When brief has no date (compiler didn't run), skip Discord send."""
         mock_graph = AsyncMock()
@@ -77,10 +87,15 @@ class TestRunIntelligenceBrief:
         assert result == {}
         mock_send.assert_not_called()
 
+    @patch("synesis.processing.intelligence.job._save_brief_to_kg")
     @patch("synesis.processing.intelligence.job.send_discord", new_callable=AsyncMock)
     @patch("synesis.processing.intelligence.job.build_intelligence_graph")
     async def test_batch_isolation_on_failure(
-        self, mock_build: MagicMock, mock_send: AsyncMock, mock_deps: dict[str, Any]
+        self,
+        mock_build: MagicMock,
+        mock_send: AsyncMock,
+        _mock_kg: MagicMock,
+        mock_deps: dict[str, Any],
     ) -> None:
         """If one Discord batch fails, remaining batches should still send."""
         brief = _make_brief()
