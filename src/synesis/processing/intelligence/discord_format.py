@@ -142,17 +142,13 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
         bull_arg = bull.get("argument", "")
         if bull_arg:
             bull_text = _format_debate_side(bull_arg, bull.get("key_evidence", []))
-            fields.append(
-                {"name": "\U0001f7e2 Bull Case", "value": bull_text[:1024], "inline": False}
-            )
+            fields.extend(_split_field("\U0001f7e2 Bull Case", bull_text, inline=False))
 
         # Bear argument
         bear_arg = bear.get("argument", "")
         if bear_arg:
             bear_text = _format_debate_side(bear_arg, bear.get("key_evidence", []))
-            fields.append(
-                {"name": "\U0001f534 Bear Case", "value": bear_text[:1024], "inline": False}
-            )
+            fields.extend(_split_field("\U0001f534 Bear Case", bear_text, inline=False))
 
         # Trade ideas for this ticker (single-ticker only)
         ticker_ideas = ideas_by_ticker.get(ticker, [])
@@ -173,9 +169,7 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
                 meta_parts.append(f"\u26a0\ufe0f {key_risk}")
             if meta_parts:
                 idea_text += "\n" + " \u2022 ".join(meta_parts)
-            fields.append(
-                {"name": "\U0001f4a1 Trade Idea", "value": idea_text[:1024], "inline": False}
-            )
+            fields.extend(_split_field("\U0001f4a1 Trade Idea", idea_text, inline=False))
 
         embeds.append(
             {
@@ -207,20 +201,6 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
             }
         )
 
-    # ── Errors footer (if any) ──────────────────────────────────
-    errors = brief.get("errors", {})
-    error_lines = _format_errors(errors)
-    if error_lines:
-        embeds.append(
-            {
-                "color": COLOR_BEARISH,
-                "description": ("\u26a0\ufe0f **Pipeline Errors**\n" + "\n".join(error_lines))[
-                    :4096
-                ],
-                "footer": {"text": "Synesis Intelligence"},
-            }
-        )
-
     return _split_into_batches(embeds)
 
 
@@ -245,15 +225,24 @@ def _split_into_batches(embeds: list[dict[str, Any]]) -> list[list[dict[str, Any
     """Split embeds into batches respecting Discord limits.
 
     Each batch has at most 10 embeds and at most 6000 total characters.
+    Oversized single embeds are split by moving excess fields into new embeds.
     """
     if not embeds:
         return []
+
+    # Pre-pass: split any single embed that exceeds the char limit
+    safe_embeds: list[dict[str, Any]] = []
+    for embed in embeds:
+        if _embed_char_count(embed) <= _MAX_CHARS_PER_MSG:
+            safe_embeds.append(embed)
+        else:
+            safe_embeds.extend(_split_oversized_embed(embed))
 
     batches: list[list[dict[str, Any]]] = []
     current_batch: list[dict[str, Any]] = []
     current_chars = 0
 
-    for embed in embeds:
+    for embed in safe_embeds:
         chars = _embed_char_count(embed)
         would_exceed_chars = current_chars + chars > _MAX_CHARS_PER_MSG
         would_exceed_count = len(current_batch) >= _MAX_EMBEDS_PER_MSG
@@ -272,31 +261,83 @@ def _split_into_batches(embeds: list[dict[str, Any]]) -> list[list[dict[str, Any
     return batches
 
 
+def _split_oversized_embed(embed: dict[str, Any]) -> list[dict[str, Any]]:
+    """Split an embed that exceeds 6000 chars into multiple embeds by fields."""
+    fields = embed.get("fields", [])
+    if not fields:
+        # No fields to split — truncate description as last resort
+        return [{**embed, "description": embed.get("description", "")[:4096]}]
+
+    title = embed.get("title", "")
+    color = embed.get("color")
+    # Base overhead: title + description + footer + author
+    base_chars = (
+        len(title)
+        + len(embed.get("description", ""))
+        + len(embed.get("footer", {}).get("text", ""))
+        + len(embed.get("author", {}).get("name", ""))
+    )
+
+    result: list[dict[str, Any]] = []
+    current_fields: list[dict[str, Any]] = []
+    current_chars = base_chars
+
+    for field in fields:
+        field_chars = len(field.get("name", "")) + len(field.get("value", ""))
+        if current_fields and current_chars + field_chars > _MAX_CHARS_PER_MSG:
+            # Emit current embed
+            part = {**embed, "fields": current_fields}
+            if result:
+                # Continuation — keep title for context but drop description
+                part = {"title": f"{title} (cont.)", "color": color, "fields": current_fields}
+            result.append(part)
+            current_fields = []
+            current_chars = len(title) + 8  # " (cont.)" overhead
+        current_fields.append(field)
+        current_chars += field_chars
+
+    if current_fields:
+        part = {**embed, "fields": current_fields}
+        if result:
+            part = {"title": f"{title} (cont.)", "color": color, "fields": current_fields}
+        result.append(part)
+
+    return result or [embed]
+
+
+def _split_field(name: str, value: str, *, inline: bool = False) -> list[dict[str, Any]]:
+    """Split a field value into multiple fields if it exceeds Discord's 1024 char limit.
+
+    Continuation fields use "{name} (cont.)" as the name for context.
+    """
+    if len(value) <= 1024:
+        return [{"name": name, "value": value, "inline": inline}]
+
+    fields: list[dict[str, Any]] = []
+    remaining = value
+    first = True
+    while remaining:
+        chunk = remaining[:1024]
+        # Try to break at a newline for cleaner splits
+        if len(remaining) > 1024:
+            last_nl = chunk.rfind("\n")
+            if last_nl > 512:
+                chunk = remaining[:last_nl]
+        fields.append(
+            {
+                "name": name if first else f"{name} (cont.)",
+                "value": chunk,
+                "inline": inline,
+            }
+        )
+        remaining = remaining[len(chunk) :]
+        first = False
+    return fields
+
+
 def _format_debate_side(argument: str, key_evidence: list[str]) -> str:
     """Format a single debate side (argument + evidence) into a readable string."""
     lines = [argument]
     for ev in key_evidence[:4]:
         lines.append(f"\u203a {ev}")
     return "\n".join(lines)
-
-
-def _format_errors(errors: dict[str, Any]) -> list[str]:
-    """Format pipeline errors into human-readable lines."""
-    lines: list[str] = []
-    if errors.get("social_failed"):
-        lines.append("\u2022 Social analysis failed")
-    if errors.get("news_failed"):
-        lines.append("\u2022 News analysis failed")
-    if errors.get("macro_failed"):
-        lines.append("\u2022 Macro analysis failed")
-    for label, key in [
-        ("Company", "company_failures"),
-        ("Price", "price_failures"),
-        ("Bull", "bull_failures"),
-        ("Bear", "bear_failures"),
-        ("Trader", "trader_failures"),
-    ]:
-        tickers = errors.get(key, [])
-        if tickers:
-            lines.append(f"\u2022 {label} failed: {', '.join(tickers)}")
-    return lines

@@ -220,6 +220,7 @@ services:
       - .env.docker
     volumes:
       - ./shared:/app/shared
+      - ./docs/kg:/app/docs/kg
     depends_on:
       timescaledb:
         condition: service_healthy

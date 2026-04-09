@@ -6,8 +6,10 @@ from typing import Any
 
 
 from synesis.processing.intelligence.discord_format import (
+    _MAX_CHARS_PER_MSG,
     _format_debate_side,
-    _format_errors,
+    _split_field,
+    _split_oversized_embed,
     format_intelligence_brief,
 )
 
@@ -209,35 +211,6 @@ class TestFormatIntelligenceBrief:
         # Header + signal summary
         assert len(all_embeds) == 2
 
-    def test_error_embed_shown(self) -> None:
-        brief = _make_brief(
-            errors={
-                "social_failed": True,
-                "news_failed": False,
-                "company_failures": ["TSLA"],
-                "price_failures": [],
-                "bull_failures": [],
-                "bear_failures": ["NVDA"],
-                "macro_failed": False,
-                "trader_failures": [],
-            }
-        )
-        batches = format_intelligence_brief(brief)
-        all_embeds = [e for batch in batches for e in batch]
-        error_embeds = [e for e in all_embeds if "Pipeline Errors" in e.get("description", "")]
-        assert len(error_embeds) == 1
-        desc = error_embeds[0]["description"]
-        assert "Social analysis failed" in desc
-        assert "Company failed: TSLA" in desc
-        assert "Bear failed: NVDA" in desc
-
-    def test_no_error_embed_when_clean(self) -> None:
-        brief = _make_brief()
-        batches = format_intelligence_brief(brief)
-        all_embeds = [e for batch in batches for e in batch]
-        error_embeds = [e for e in all_embeds if "Pipeline Errors" in e.get("description", "")]
-        assert len(error_embeds) == 0
-
     def test_batch_splitting_by_count(self) -> None:
         """More than 10 embeds should be split into multiple batches."""
         # Use minimal content so char limit isn't hit first
@@ -252,8 +225,6 @@ class TestFormatIntelligenceBrief:
 
     def test_batch_splitting_by_char_limit(self) -> None:
         """Batches should split when total chars exceed 6000."""
-        from synesis.processing.intelligence.discord_format import _MAX_CHARS_PER_MSG
-
         # Each debate with ~800 chars of argument → 6 debates ≈ 4800+ chars
         # + header ≈ ~200 chars → should split before all 6 fit in one batch
         debates = [
@@ -275,8 +246,8 @@ class TestFormatIntelligenceBrief:
             total_chars = sum(_embed_char_count(e) for e in batch)
             assert total_chars <= _MAX_CHARS_PER_MSG
 
-    def test_field_values_truncated(self) -> None:
-        """Long field values should be truncated to Discord's 1024 char limit."""
+    def test_long_field_values_split(self) -> None:
+        """Long field values should be split into multiple fields, not truncated."""
         long_argument = "x" * 2000
         brief = _make_brief(
             debates=[
@@ -291,15 +262,133 @@ class TestFormatIntelligenceBrief:
         )
         batches = format_intelligence_brief(brief)
         all_embeds = [e for batch in batches for e in batch]
-        debate_embed = next(e for e in all_embeds if "LONG" in e.get("title", ""))
-        bull_field = debate_embed["fields"][0]
-        assert len(bull_field["value"]) <= 1024
+        long_embeds = [e for e in all_embeds if "LONG" in e.get("title", "")]
+        bull_fields = [f for e in long_embeds for f in e.get("fields", []) if "Bull" in f["name"]]
+        assert len(bull_fields) >= 2
+        assert all(len(f["value"]) <= 1024 for f in bull_fields)
+        # All content preserved across splits
+        total_chars = sum(len(f["value"]) for f in bull_fields)
+        assert total_chars == 2000
 
     def test_invalid_date_fallback(self) -> None:
         brief = _make_brief(date="not-a-date")
         batches = format_intelligence_brief(brief)
         header = batches[0][0]
         assert "not-a-date" in header["title"]
+
+
+class TestSplitField:
+    """Tests for _split_field helper."""
+
+    def test_short_value_returns_single_field(self) -> None:
+        result = _split_field("Name", "short text")
+        assert len(result) == 1
+        assert result[0] == {"name": "Name", "value": "short text", "inline": False}
+
+    def test_exactly_1024_returns_single_field(self) -> None:
+        result = _split_field("F", "x" * 1024)
+        assert len(result) == 1
+        assert len(result[0]["value"]) == 1024
+
+    def test_1025_chars_splits_into_two(self) -> None:
+        result = _split_field("F", "x" * 1025)
+        assert len(result) == 2
+        assert all(len(f["value"]) <= 1024 for f in result)
+        assert sum(len(f["value"]) for f in result) == 1025
+
+    def test_continuation_naming(self) -> None:
+        result = _split_field("Bull Case", "x" * 2000)
+        assert result[0]["name"] == "Bull Case"
+        assert result[1]["name"] == "Bull Case (cont.)"
+
+    def test_newline_break_above_512(self) -> None:
+        """Splits at newline when it is past position 512."""
+        value = "a" * 600 + "\n" + "b" * 500
+        result = _split_field("F", value)
+        assert len(result) == 2
+        # First chunk should end at the newline (600 chars of 'a')
+        assert result[0]["value"] == "a" * 600
+        # Second chunk starts with the newline
+        assert result[1]["value"].startswith("\n")
+
+    def test_newline_before_512_ignored(self) -> None:
+        """Newlines before position 512 are ignored — splits at 1024."""
+        value = "a" * 100 + "\n" + "b" * 1200
+        result = _split_field("F", value)
+        assert len(result) == 2
+        assert len(result[0]["value"]) == 1024
+
+    def test_three_way_split(self) -> None:
+        result = _split_field("F", "x" * 3000)
+        assert len(result) == 3
+        assert all(len(f["value"]) <= 1024 for f in result)
+        assert sum(len(f["value"]) for f in result) == 3000
+        assert result[0]["name"] == "F"
+        assert result[1]["name"] == "F (cont.)"
+        assert result[2]["name"] == "F (cont.)"
+
+    def test_inline_propagated(self) -> None:
+        result = _split_field("F", "x" * 2000, inline=True)
+        assert all(f["inline"] is True for f in result)
+
+
+class TestSplitOversizedEmbed:
+    """Tests for _split_oversized_embed helper."""
+
+    def test_small_embed_unchanged(self) -> None:
+        embed = {"title": "T", "color": 0x00FF00, "fields": [{"name": "F", "value": "v"}]}
+        result = _split_oversized_embed(embed)
+        assert len(result) == 1
+        assert result[0] == embed
+
+    def test_no_fields_truncates_description(self) -> None:
+        embed = {"title": "T", "description": "d" * 5000}
+        result = _split_oversized_embed(embed)
+        assert len(result) == 1
+        assert len(result[0]["description"]) == 4096
+
+    def test_oversized_embed_splits_by_fields(self) -> None:
+        # Create fields totaling well over 6000 chars
+        fields = [{"name": f"F{i}", "value": "x" * 900} for i in range(8)]
+        embed = {"title": "Big", "color": 0xFF0000, "fields": fields}
+        result = _split_oversized_embed(embed)
+        assert len(result) >= 2
+        # Each part should be within the char limit
+        for part in result:
+            total = (
+                len(part.get("title", ""))
+                + len(part.get("description", ""))
+                + sum(len(f["name"]) + len(f["value"]) for f in part.get("fields", []))
+            )
+            assert total <= _MAX_CHARS_PER_MSG
+
+    def test_continuation_title_and_no_description(self) -> None:
+        fields = [{"name": f"F{i}", "value": "x" * 900} for i in range(8)]
+        embed = {
+            "title": "Original",
+            "color": 0xFF0000,
+            "description": "Intro text",
+            "footer": {"text": "Footer"},
+            "fields": fields,
+        }
+        result = _split_oversized_embed(embed)
+        assert len(result) >= 2
+        # First part keeps original structure
+        assert result[0]["title"] == "Original"
+        assert result[0]["description"] == "Intro text"
+        # Continuation parts have (cont.) title and no description/footer
+        for part in result[1:]:
+            assert part["title"] == "Original (cont.)"
+            assert "description" not in part
+            assert "footer" not in part
+
+    def test_all_fields_preserved(self) -> None:
+        fields = [{"name": f"F{i}", "value": "x" * 900} for i in range(8)]
+        embed = {"title": "T", "fields": fields}
+        result = _split_oversized_embed(embed)
+        all_fields = [f for part in result for f in part.get("fields", [])]
+        assert len(all_fields) == 8
+        assert [f["name"] for f in all_fields] == [f"F{i}" for i in range(8)]
 
 
 class TestFormatDebateSide:
@@ -319,35 +408,3 @@ class TestFormatDebateSide:
         evidence = [f"Point {i}" for i in range(10)]
         result = _format_debate_side("Argument", evidence)
         assert result.count("\u203a") == 4
-
-
-class TestFormatErrors:
-    """Tests for _format_errors helper."""
-
-    def test_empty_errors(self) -> None:
-        errors: dict[str, Any] = {
-            "social_failed": False,
-            "news_failed": False,
-            "company_failures": [],
-            "price_failures": [],
-            "bull_failures": [],
-            "bear_failures": [],
-            "macro_failed": False,
-            "trader_failures": [],
-        }
-        assert _format_errors(errors) == []
-
-    def test_boolean_failures(self) -> None:
-        errors: dict[str, Any] = {"social_failed": True, "macro_failed": True}
-        lines = _format_errors(errors)
-        assert any("Social" in line for line in lines)
-        assert any("Macro" in line for line in lines)
-
-    def test_ticker_list_failures(self) -> None:
-        errors: dict[str, Any] = {
-            "company_failures": ["AAPL", "TSLA"],
-            "trader_failures": ["NVDA"],
-        }
-        lines = _format_errors(errors)
-        assert any("Company failed: AAPL, TSLA" in line for line in lines)
-        assert any("Trader failed: NVDA" in line for line in lines)

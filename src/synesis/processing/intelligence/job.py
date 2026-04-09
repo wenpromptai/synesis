@@ -6,11 +6,13 @@ Also saves each brief as markdown to the knowledge graph at
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.notifications.discord import send_discord
 from synesis.processing.intelligence.compiler import format_brief_as_markdown
@@ -93,19 +95,27 @@ async def run_intelligence_brief(
         ),
     )
 
-    # Save brief to KG for future compilation (non-blocking)
+    # Save brief to KG for future compilation (never raises)
     _save_brief_to_kg(brief)
 
     # Send to Discord (isolate batch failures so remaining batches still send)
+    settings = get_settings()
+    webhook = settings.discord_events_webhook_url or settings.discord_webhook_url
+    if not webhook:
+        logger.error("No Discord webhook configured — intelligence brief will not be delivered")
+        return brief
+
     batches = format_intelligence_brief(brief)
     for i, batch in enumerate(batches):
         if batch:
             try:
-                await send_discord(batch)
+                await send_discord(batch, webhook_url_override=webhook)
             except Exception:
                 logger.exception(
                     "Failed to send Discord batch", batch_index=i, batch_embeds=len(batch)
                 )
+            if i < len(batches) - 1:
+                await asyncio.sleep(1.0)
 
     return brief
 
@@ -113,7 +123,7 @@ async def run_intelligence_brief(
 def _save_brief_to_kg(brief: dict[str, Any]) -> None:
     """Save compiled brief as markdown to the knowledge graph raw directory.
 
-    Non-blocking — logs warning on failure, never raises.
+    Synchronous — logs error on failure, never raises.
     Output: ``docs/kg/raw/synesis_briefs/YYYY-MM-DD.md``
     """
     brief_date = brief.get("date", "")

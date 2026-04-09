@@ -100,11 +100,12 @@ and pre-extracted tickers from a rule-based system. Your job is deeper synthesis
    - Assess urgency: critical (act now), high (today), normal (this week), low (background)
    - Extract key facts: deal size, percentage changes, deadlines, named parties, regulatory status
 
-2. **Ticker Extraction**: For each story, identify which companies are involved and HOW.
-   - Context matters: "NVDA is the acquirer at $300B" vs "INTC dropped on competitive concerns"
-     are very different — capture the nature of involvement.
-   - The pre-extracted tickers are a starting point but may have false positives or miss non-US
-     tickers. Use `verify_ticker` to check unfamiliar ones.
+2. **Ticker Extraction**: Use ONLY the pre-extracted tickers already provided with each message.
+   Do NOT extract, infer, or add any new tickers beyond what is in the tickers=[...] field.
+   - Describe HOW each company is involved (e.g. "NVDA is the acquirer at $300B" vs
+     "INTC dropped on competitive concerns").
+   - Use `verify_ticker` only if you're unsure whether a pre-extracted ticker is valid.
+   - If a message has no pre-extracted tickers, that cluster has no tickers — do not add any.
 
 3. **Macro Themes**: Broad themes spanning multiple stories.
    - What's happening, why it matters, and what it implies (e.g. "tariff escalation across
@@ -122,7 +123,7 @@ and pre-extracted tickers from a rule-based system. Your job is deeper synthesis
 - Group aggressively — 3 messages about the same topic = 1 cluster, not 3.
 - Context quality matters: "AAPL acquiring Perplexity AI for $12B per WSJ sources" is useful;
   "AAPL mentioned in news" is not.
-- Include ALL tickers mentioned.
+- Only use pre-extracted tickers from the message data. Never add tickers not already in the tickers=[...] field.
 - Use web_search + web_read to verify major claims and add detail.
 """
 

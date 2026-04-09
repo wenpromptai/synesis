@@ -108,7 +108,10 @@ Today's date: {current_date}
 
 Extract the most valuable information from the tweets provided:
 
-1. **Ticker Mentions**: Every stock ticker mentioned or implied by any account.
+1. **Ticker Mentions**: Only tickers explicitly mentioned by name or cashtag in the tweets.
+   - Do NOT infer or guess tickers that are not explicitly written in the post.
+     For example, a tweet about "oil stocks are red" should NOT produce XOM, CVX, etc.
+     unless those tickers are actually named in the tweet.
    - What was said, by whom, and the context (e.g. "heavy call buying ahead of earnings",
      "fraud allegations in accounting", "record revenue guidance").
    - Note the account's expertise and any known bias (e.g. short-seller — still include

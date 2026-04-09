@@ -285,9 +285,11 @@ class _TickerData:
             if not name or len(name) < 3:
                 continue
 
-            # Only multi-word names algorithmically
-            if " " in name and name not in name_map:
-                first_word = name.split()[0]
+            # Only 3+ word names algorithmically (2-word names are too
+            # prone to false positives; important ones go in CURATED_NAMES)
+            words = name.split()
+            if len(words) >= 3 and name not in name_map:
+                first_word = words[0]
                 if first_word not in _GENERIC_FIRST_WORDS:
                     name_map[name] = sym
 
@@ -302,6 +304,9 @@ _data = _TickerData()
 
 # Regex matching explicit $TICKER references (e.g. "$NVDA", "$AAPL")
 _DOLLAR_TICKER_RE = re.compile(r"[$]([A-Z]{1,5})\b")
+
+# Cashtag labels that are NOT real tickers (used as category tags by news feeds)
+_TICKER_BLOCKLIST: set[str] = {"MACRO", "FOREX", "CRYPTO", "NEWS", "TRADE", "ALERT"}
 
 
 # =============================================================================
@@ -338,7 +343,7 @@ def match_tickers(text: str) -> list[str]:
     # 1. Explicit $TICKER format (highest confidence)
     for m in _DOLLAR_TICKER_RE.finditer(upper):
         sym = m.group(1)
-        if sym not in found:
+        if sym not in found and sym not in _TICKER_BLOCKLIST:
             found[sym] = m.start()
 
     # 2. Name matching (longest phrase first for greedy matching)

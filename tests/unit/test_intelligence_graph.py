@@ -479,6 +479,7 @@ def _bear(ticker: str) -> TickerDebate:
 _PATCH_PREFIX = "synesis.processing.intelligence.graph"
 
 
+@pytest.mark.slow
 class TestGraphExecution:
     """End-to-end graph execution with mocked agents."""
 
@@ -621,6 +622,7 @@ class TestGraphExecution:
         assert "AMD" not in brief["errors"]["bull_failures"]
 
 
+@pytest.mark.slow
 class TestDebateSubgraph:
     """Tests for the multi-round debate subgraph."""
 
@@ -784,6 +786,7 @@ class TestDebateSubgraph:
         assert len(captured_histories[3]) == 3  # bear round 2
 
 
+@pytest.mark.slow
 class TestMultiRoundGraphExecution:
     """Test full graph with debate subgraph (rounds>=1)."""
 
@@ -1378,6 +1381,7 @@ class TestTraderGraphStructure:
         assert "trader" in node_names
 
 
+@pytest.mark.slow
 class TestTraderGraphExecution:
     """Tests for Trader in full graph execution."""
 
