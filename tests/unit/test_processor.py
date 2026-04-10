@@ -282,7 +282,7 @@ class TestNewsProcessor:
 
         # Enable Stage 2
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = True
+            mock_settings.return_value.news_stage2_enabled = True
             message = create_test_message()
             result = await processor.process_message(message)
 
@@ -396,7 +396,7 @@ class TestUrgencyGate:
         )
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = True
+            mock_settings.return_value.news_stage2_enabled = True
             message = create_test_message(text="CPI comes in hot at 3.5%")
             result = await processor.process_message(message)
 
@@ -410,7 +410,7 @@ class TestUrgencyGate:
         processor._classifier.classify = AsyncMock(return_value=extraction)
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = True
+            mock_settings.return_value.news_stage2_enabled = True
             message = create_test_message(text="*BREAKING* Fed cuts rates by 50bps")
             result = await processor.process_message(message)
 
@@ -503,7 +503,7 @@ class TestStage1Callback:
         callback = AsyncMock(side_effect=RuntimeError("Telegram down"))
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = True
+            mock_settings.return_value.news_stage2_enabled = True
             result = await processor.process_message(
                 create_test_message(), on_stage1_complete=callback
             )
@@ -525,7 +525,7 @@ class TestStage1Callback:
 
 
 class TestStage2DisabledConfig:
-    """Tests for STAGE2_ENABLED=false config gate."""
+    """Tests for NEWS_STAGE2_ENABLED=false config gate."""
 
     @pytest.fixture
     def processor(self) -> NewsProcessor:
@@ -553,13 +553,13 @@ class TestStage2DisabledConfig:
 
     @pytest.mark.asyncio
     async def test_stage2_disabled_skips_analysis(self, processor: NewsProcessor) -> None:
-        """When stage2_enabled=False, Stage 2 is skipped even for critical urgency."""
+        """When news_stage2_enabled=False, Stage 2 is skipped even for critical urgency."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.critical)
         )
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = False
+            mock_settings.return_value.news_stage2_enabled = False
             result = await processor.process_message(create_test_message())
 
         assert result.analysis is None
@@ -567,12 +567,12 @@ class TestStage2DisabledConfig:
 
     @pytest.mark.asyncio
     async def test_stage2_disabled_still_runs_stage1(self, processor: NewsProcessor) -> None:
-        """When stage2_enabled=False, Stage 1 extraction still runs."""
+        """When news_stage2_enabled=False, Stage 1 extraction still runs."""
         extraction = create_test_extraction(urgency=UrgencyLevel.critical)
         processor._classifier.classify = AsyncMock(return_value=extraction)
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = False
+            mock_settings.return_value.news_stage2_enabled = False
             result = await processor.process_message(create_test_message())
 
         assert result.extraction == extraction
@@ -582,27 +582,27 @@ class TestStage2DisabledConfig:
     async def test_stage2_disabled_callback_still_fires_for_high_urgency(
         self, processor: NewsProcessor
     ) -> None:
-        """When stage2_enabled=False, on_stage1_complete callback is still fired for high urgency."""
+        """When news_stage2_enabled=False, on_stage1_complete callback is still fired for high urgency."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.critical)
         )
         callback = AsyncMock()
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = False
+            mock_settings.return_value.news_stage2_enabled = False
             await processor.process_message(create_test_message(), on_stage1_complete=callback)
 
         callback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stage2_enabled_runs_normally(self, processor: NewsProcessor) -> None:
-        """When stage2_enabled=True (default), Stage 2 runs for critical urgency."""
+    async def test_news_stage2_enabled_runs_normally(self, processor: NewsProcessor) -> None:
+        """When news_stage2_enabled=True (default), Stage 2 runs for critical urgency."""
         processor._classifier.classify = AsyncMock(
             return_value=create_test_extraction(urgency=UrgencyLevel.critical)
         )
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
-            mock_settings.return_value.stage2_enabled = True
+            mock_settings.return_value.news_stage2_enabled = True
             result = await processor.process_message(create_test_message())
 
         assert result.analysis is not None

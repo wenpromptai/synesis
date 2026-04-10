@@ -299,7 +299,7 @@ class NewsProcessor:
             log.warning("No Stage 1 callback provided")
 
         # 5. Early exit if Stage 2 is disabled by config (high/critical only from here)
-        stage2_disabled = not get_settings().stage2_enabled
+        stage2_disabled = not get_settings().news_stage2_enabled
 
         if stage2_disabled:
             log.info(

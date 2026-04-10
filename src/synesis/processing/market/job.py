@@ -114,8 +114,7 @@ async def market_brief_job(redis: Redis, db: Database | None = None) -> None:
     """Daily market brief job — fetches snapshot + movers, gathers context, runs LLM analysis, sends to Discord."""
     settings = get_settings()
 
-    # Reuse the events webhook (same Discord channel)
-    webhook = settings.discord_events_webhook_url
+    webhook = settings.discord_brief_webhook_url
     if not webhook:
         webhook = settings.discord_webhook_url
     if not webhook:

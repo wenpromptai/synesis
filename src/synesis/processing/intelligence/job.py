@@ -100,7 +100,7 @@ async def run_intelligence_brief(
 
     # Send to Discord (isolate batch failures so remaining batches still send)
     settings = get_settings()
-    webhook = settings.discord_events_webhook_url or settings.discord_webhook_url
+    webhook = settings.discord_brief_webhook_url or settings.discord_webhook_url
     if not webhook:
         logger.error("No Discord webhook configured — intelligence brief will not be delivered")
         return brief

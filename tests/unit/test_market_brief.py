@@ -672,7 +672,7 @@ class TestMarketBriefJob:
             ) as mock_send,
             patch("synesis.processing.market.job.get_settings") as mock_settings,
         ):
-            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_brief_webhook_url = MagicMock()
             mock_settings.return_value.discord_webhook_url = None
             await market_brief_job(mock_redis)
 
@@ -704,7 +704,7 @@ class TestMarketBriefJob:
             ) as mock_send,
             patch("synesis.processing.market.job.get_settings") as mock_settings,
         ):
-            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_brief_webhook_url = MagicMock()
             mock_settings.return_value.discord_webhook_url = None
             await market_brief_job(mock_redis)
 
@@ -723,7 +723,7 @@ class TestMarketBriefJob:
                 new=AsyncMock(),
             ) as mock_send,
         ):
-            mock_settings.return_value.discord_events_webhook_url = None
+            mock_settings.return_value.discord_brief_webhook_url = None
             mock_settings.return_value.discord_webhook_url = None
             await market_brief_job(mock_redis)
 
@@ -748,7 +748,7 @@ class TestMarketBriefJob:
             ) as mock_send,
             patch("synesis.processing.market.job.get_settings") as mock_settings,
         ):
-            mock_settings.return_value.discord_events_webhook_url = None
+            mock_settings.return_value.discord_brief_webhook_url = None
             mock_settings.return_value.discord_webhook_url = fallback_webhook
             await market_brief_job(mock_redis)
 
@@ -787,7 +787,7 @@ class TestMarketBriefJob:
                 new=AsyncMock(return_value=None),
             ),
         ):
-            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_brief_webhook_url = MagicMock()
             mock_settings.return_value.discord_webhook_url = None
             await market_brief_job(mock_redis, db=mock_db)
 
@@ -829,7 +829,7 @@ class TestMarketBriefJob:
                 new=AsyncMock(return_value=None),
             ),
         ):
-            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_brief_webhook_url = MagicMock()
             mock_settings.return_value.discord_webhook_url = None
             await market_brief_job(mock_redis, db=mock_db)  # Should not raise
 
@@ -852,7 +852,7 @@ class TestMarketBriefJob:
             ),
             patch("synesis.processing.market.job.get_settings") as mock_settings,
         ):
-            mock_settings.return_value.discord_events_webhook_url = MagicMock()
+            mock_settings.return_value.discord_brief_webhook_url = MagicMock()
             mock_settings.return_value.discord_webhook_url = None
             await market_brief_job(mock_redis)  # db=None by default, should not raise
 

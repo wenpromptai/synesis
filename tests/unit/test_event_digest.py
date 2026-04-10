@@ -551,7 +551,7 @@ class TestSendEventDigest:
         db = AsyncMock()
         with patch("synesis.processing.events.digest.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
-                discord_events_webhook_url=None,
+                discord_brief_webhook_url=None,
                 discord_webhook_url=None,
             )
             result = await send_event_digest(db)
@@ -576,7 +576,7 @@ class TestSendEventDigest:
             ) as mock_brief,
         ):
             mock_settings.return_value = MagicMock(
-                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_brief_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
                 discord_webhook_url=None,
             )
             result = await send_event_digest(db, redis=redis)
@@ -600,7 +600,7 @@ class TestSendEventDigest:
             ),
         ):
             mock_settings.return_value = MagicMock(
-                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_brief_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
                 discord_webhook_url=None,
             )
             result = await send_event_digest(db)
@@ -652,7 +652,7 @@ class TestYesterdayBriefDiary:
             ),
         ):
             mock_settings.return_value = MagicMock(
-                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_brief_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
                 discord_webhook_url=None,
             )
             await send_event_digest(db, redis=redis)
@@ -700,7 +700,7 @@ class TestYesterdayBriefDiary:
             ),
         ):
             mock_settings.return_value = MagicMock(
-                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_brief_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
                 discord_webhook_url=None,
             )
             result = await send_event_digest(db, redis=redis)
@@ -744,7 +744,7 @@ class TestYesterdayBriefDiary:
             ),
         ):
             mock_settings.return_value = MagicMock(
-                discord_events_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
+                discord_brief_webhook_url=MagicMock(get_secret_value=lambda: "https://webhook"),
                 discord_webhook_url=None,
             )
             await send_event_digest(db, redis=redis)

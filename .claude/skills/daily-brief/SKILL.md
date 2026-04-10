@@ -19,18 +19,22 @@ The LangGraph pipeline runs these layers sequentially:
 4. **Bull/Bear Debate**: For each priority ticker, build the strongest case for AND against
 5. **Trade Decisions**: Specific trade structures (options spreads, shares with stops) or explicit "no trade" with reasoning
 
-You do all of this, but free-form and deeper.
+You do all of this, but free-form and deeper. Since this replaces the pipeline, you MUST cover ALL tickers from the signals — not just "high-signal" ones. Every ticker that appears in the news/social data gets analyzed and receives a trade decision (trade or explicit "no trade").
 
 ## Step 1: Gather Signals (last 24 hours)
 
 ### News messages from DB
 ```bash
+# If psql is available locally:
 psql "$DATABASE_URL" -c "SELECT source_platform, source_account, raw_text, source_timestamp, impact_score, tickers FROM synesis.raw_messages WHERE source_timestamp > NOW() - INTERVAL '24 hours' AND impact_score >= 20 ORDER BY impact_score DESC, source_timestamp DESC LIMIT 100;"
+
+# If psql is NOT available (common), use Docker:
+docker exec synesis-timescaledb psql -U synesis -d synesis -c "SELECT source_platform, source_account, LEFT(raw_text, 300) as text_preview, source_timestamp, impact_score, tickers FROM synesis.raw_messages WHERE source_timestamp > NOW() - INTERVAL '24 hours' AND impact_score >= 20 ORDER BY impact_score DESC, source_timestamp DESC LIMIT 100;"
 ```
 
 ### Tweets from curated accounts
 ```bash
-psql "$DATABASE_URL" -c "SELECT account_username, tweet_text, tweet_timestamp, tweet_url FROM synesis.raw_tweets WHERE fetched_at >= NOW() - INTERVAL '24 hours' ORDER BY tweet_timestamp DESC LIMIT 100;"
+docker exec synesis-timescaledb psql -U synesis -d synesis -c "SELECT account_username, LEFT(tweet_text, 300) as text_preview, tweet_timestamp FROM synesis.raw_tweets WHERE fetched_at >= NOW() - INTERVAL '24 hours' ORDER BY tweet_timestamp DESC LIMIT 100;"
 ```
 
 **Time window is 24 hours by default.** If the user asks to look further back or at a specific window, adjust the `INTERVAL` accordingly.
@@ -46,22 +50,30 @@ psql "$DATABASE_URL" -c "SELECT account_username, tweet_text, tweet_timestamp, t
 - Your brief complements, not duplicates — focus on where you can add value beyond what the pipeline produced
 
 ### Watchlist
-```
-GET /watchlist/detailed                          — tickers the user is actively tracking
+```bash
+curl -s 'http://localhost:7337/api/v1/watchlist/detailed'
 ```
 Cross-reference these with today's signals — watchlist tickers deserve extra attention even if signal is moderate.
 
+### Batch quotes for all tickers
+Once you have the ticker list, pull all prices in one call:
+```bash
+curl -s 'http://localhost:7337/api/v1/fh?tickers=NVDA,AMZN,META,CVX,...'
+```
+
 ## Step 2: Macro Regime Assessment
 
-Pull FRED data to classify the current regime. Use the local API:
+Pull FRED data to classify the current regime. Use `curl` (WebFetch does NOT work with localhost):
 
+```bash
+curl -s 'http://localhost:7337/api/v1/fred/series/VIXCLS/observations?limit=5&sort_order=desc'
+curl -s 'http://localhost:7337/api/v1/fred/series/DGS10/observations?limit=5&sort_order=desc'
+curl -s 'http://localhost:7337/api/v1/fred/series/DGS2/observations?limit=5&sort_order=desc'
+curl -s 'http://localhost:7337/api/v1/fred/series/T10Y2Y/observations?limit=5&sort_order=desc'
+curl -s 'http://localhost:7337/api/v1/fred/series/DFF/observations?limit=5&sort_order=desc'
 ```
-GET /fred/series/VIXCLS/observations?limit=5    — VIX (recent values + direction)
-GET /fred/series/DGS10/observations?limit=5     — 10Y yield
-GET /fred/series/DGS2/observations?limit=5      — 2Y yield
-GET /fred/series/T10Y2Y/observations?limit=5    — Yield curve spread
-GET /fred/series/DFF/observations?limit=5        — Fed funds rate
-```
+
+**IMPORTANT:** Always use `sort_order=desc` to get the most recent observations first. Without it, you get data from 1960.
 
 Classify regime as `risk_on`, `risk_off`, or `transitioning` with a sentiment score (-1 to +1). Identify:
 - Key macro drivers (what's moving the regime)
@@ -90,46 +102,108 @@ Filter out ETFs and indices (QQQ, SPY, SPX, IWM, DIA, VOO, etc.) unless specific
 - Existing KG context showing thesis evolution
 - Watchlist membership (user is actively tracking these)
 
-### For each priority ticker, gather:
+### For each ticker, you MUST pull (use `curl` — WebFetch does NOT work with localhost):
 
-**Company fundamentals** (local API — all SEC endpoints use Crawl4AI internally where needed):
-```
-GET /sec_edgar/insiders?ticker=X              — insider transactions
-GET /sec_edgar/sentiment?ticker=X             — buy/sell sentiment (MSPR)
-GET /sec_edgar/8k_events?ticker=X             — recent material 8-K events
-GET /sec_edgar/filings?ticker=X&forms=10-K    — latest annual filing
-GET /sec_edgar/earnings/latest?ticker=X       — latest earnings press release (full content via Crawl4AI)
-GET /sec_edgar/13f?cik=X                      — institutional holdings (find CIK via /sec_edgar/company)
-GET /sec_edgar/activists?ticker=X             — activist 13D/13G filings
-GET /sec_edgar/form144?ticker=X               — Form 144 intent-to-sell filings
+**Mandatory for every ticker:**
+```bash
+# Current price + market cap
+curl -s 'http://localhost:7337/api/v1/fh/{ticker}'
+
+# Insider sentiment — are insiders buying or selling?
+curl -s 'http://localhost:7337/api/v1/sec_edgar/sentiment?ticker={ticker}'
+
+# Options snapshot — IV, realized vol, put/call ratio
+curl -s 'http://localhost:7337/api/v1/yf/options/{ticker}/snapshot'
 ```
 
-**Price and technicals** (local API):
-```
-GET /yf/quote/{ticker}                        — current quote, market cap, 50d/200d avg
-GET /yf/history/{ticker}?period=3mo&interval=1d — daily OHLCV for technicals
-GET /yf/options/{ticker}/snapshot              — ATM options, IV, realized vol
-```
-From the OHLCV data, assess key technicals: trend (EMA 8/21 cross, ADX), momentum (RSI 14, MACD), volatility (Bollinger Bands, ATR%), volume (vs average, OBV trend), and support/resistance levels. From the options snapshot, assess IV vs realized vol spread, put/call ratio, and skew — these inform whether to use options or shares, and which structures.
+**For priority tickers (trade candidates), also pull:**
+```bash
+# Price history for technicals
+curl -s 'http://localhost:7337/api/v1/yf/history/{ticker}?period=3mo&interval=1d'
 
-**Filing content** — SEC EDGAR endpoints use Crawl4AI internally for content extraction (earnings releases, proxy filings, 8-K events). For additional filing text (10-K MD&A, Risk Factors), use web search to find the filing URL and read it via WebFetch.
+# Insider transactions detail
+curl -s 'http://localhost:7337/api/v1/sec_edgar/insiders?ticker={ticker}'
 
-**Calendar**:
+# Recent material 8-K events
+curl -s 'http://localhost:7337/api/v1/sec_edgar/8k_events?ticker={ticker}'
+
+# Latest earnings press release (full content via Crawl4AI)
+curl -s 'http://localhost:7337/api/v1/sec_edgar/earnings/latest?ticker={ticker}'
+
+# Next earnings date
+curl -s 'http://localhost:7337/api/v1/earnings/upcoming/{ticker}'
+
+# Form 144 intent-to-sell filings
+curl -s 'http://localhost:7337/api/v1/sec_edgar/form144?ticker={ticker}'
 ```
-GET /earnings/upcoming/{ticker}                — next earnings date
-GET /events/upcoming?days=14                   — upcoming market events
+
+**For deep dives (highest-conviction tickers):**
+```bash
+# 13F institutional holdings (need CIK first)
+curl -s 'http://localhost:7337/api/v1/sec_edgar/company?ticker={ticker}'
+curl -s 'http://localhost:7337/api/v1/sec_edgar/13f?cik={cik}'
+
+# Activist filings
+curl -s 'http://localhost:7337/api/v1/sec_edgar/activists?ticker={ticker}'
+
+# Full options chain with Greeks for specific expiry
+curl -s 'http://localhost:7337/api/v1/yf/options/{ticker}/chain?expiration=YYYY-MM-DD&greeks=true'
+```
+
+**From the data, assess:**
+- **Technicals** (from OHLCV history): EMA 8/21 cross, ADX trend strength, RSI 14, MACD, Bollinger Bands (%B, width), ATR%, volume vs average, support/resistance levels
+- **Options** (from snapshot): IV vs realized vol spread (are options over/underpricing movement?), put/call volume ratio, ATM skew — these determine whether to use options or shares, and which structures
+- **Insider signal**: MSPR direction, any cluster buying/selling, Form 144 filings
+- **Catalysts**: Next earnings date, pending 8-K events, regulatory milestones
+
+**Calendar (pull once, not per ticker):**
+```bash
+curl -s 'http://localhost:7337/api/v1/earnings/upcoming?days=14'
+curl -s 'http://localhost:7337/api/v1/events/upcoming?days=14'
 ```
 
 **Web search** — research deeply: recent analyst coverage, earnings previews, regulatory developments, competitive dynamics, supply chain signals. No caps — search as much as you need.
 
 ## Step 4: Bull/Bear Analysis + Trade Decisions
 
-For each priority ticker:
+For each ticker, build bull and bear cases, then make a trade decision. **Adapt your analysis to the type of stock** — don't evaluate everything the same way. These are starting points, not rigid rules — use your judgment.
 
-1. **Build the bull case** — strongest evidence for buying. Cite specific numbers from filings, technicals, and research.
-2. **Build the bear case** — strongest evidence against. Focus on what could go wrong, cash flow quality, insider behavior, valuation risk.
-3. **Make a decisive call** — which side is stronger? If the evidence supports a trade:
+### Analysis intuition by sector
+
+**High-growth tech / AI (NVDA, MRVL, CRWV, etc.):**
+- What matters MOST: revenue growth rate, TAM expansion, product pipeline, competitive moat, AI capex tailwinds, forward guidance, market expectations vs delivery
+- What matters LESS: current P/E, dividend yield, Piotroski score
+- Bull case focuses on: growth acceleration, new product cycles, hyperscaler capex commitments, market share gains
+- Bear case focuses on: growth deceleration, customer concentration, capex-to-revenue conversion, competitive threats, valuation relative to growth rate
+
+**Mega-cap quality (AAPL, MSFT, GOOG, META, AMZN):**
+- What matters MOST: earnings durability, cash generation, competitive moat width, capital allocation, regulatory risk, AI monetization trajectory
+- Bull/bear debate centers on: multiple sustainability vs macro compression, specific business line risks (Search vs Cloud vs Ads), and whether the market is already pricing in perfection
+
+**Cyclicals / industrials (CAT, CVX, energy):**
+- What matters MOST: cycle position, pricing power, margin trends, cash flow conversion, backlog quality, commodity price sensitivity
+- Bull case focuses on: cycle tailwinds (oil, infrastructure), pricing pass-through, shareholder returns
+- Bear case focuses on: margin compression, inventory builds, late-cycle demand weakness, tariff exposure
+
+**Small/mid-cap hardware / optics (AAOI, FN, COHR, LITE):**
+- What matters MOST: cash flow quality (is revenue converting to cash?), customer concentration, working capital trends, balance sheet stress, short interest
+- These names are binary — the stock either works or it doesn't. Use defined-risk structures.
+
+**Financials / fintech (HOOD, CRCL):**
+- What matters MOST: revenue quality (recurring vs transactional), regulatory risk, user growth, take rate trends, balance sheet/funding stability
+- Be skeptical of one-quarter inflections — look for durability
+
+**Utilities / defensives (NEE, CEG, XLU):**
+- What matters MOST: yield vs 10Y Treasury, regulatory/rate case risk, capex funding, leverage, AI datacenter demand as secular driver
+- Duration-sensitive — long-end yields are the dominant factor
+
+### For each ticker:
+
+1. **Build the bull case** — strongest evidence for buying. Use the right framework for the sector. Cite specific numbers.
+2. **Build the bear case** — strongest evidence against. Focus on what the market might be missing or overpricing.
+3. **Make a decisive call** — which side is stronger on a risk-adjusted basis? If the evidence supports a trade:
    - Write a specific trade structure: "Buy NVDA Jun 185/205 call spread at ≤$9 debit" or "Buy CVX shares with stop below $190"
+   - Match the structure to the setup: use options when IV is rich or you want defined risk; use shares when conviction is high and IV is expensive
    - State the catalyst and timeframe
    - State the key risk and exit criteria
 4. **"No trade" is valid** — if the edge isn't there, say so and explain why. This is better than forcing a bad trade.
@@ -137,9 +211,10 @@ For each priority ticker:
 ### Portfolio-level considerations
 After individual ticker analysis, consider:
 - Cross-ticker correlation (are multiple ideas in the same sector/theme?)
-- Concentration risk
+- Concentration risk (too much exposure to one factor like AI or energy?)
 - Pair/relative value opportunities (e.g., long NVDA / short AMD)
 - Overall portfolio directional bias vs the macro regime
+- Net delta exposure — is the book balanced or directionally tilted?
 
 ## Step 5: Output
 
@@ -161,7 +236,12 @@ The body should include at minimum:
 - **Trade Ideas** section with specific structures for each trade
 - **Analysis** for each ticker with bull/bear reasoning and key financials
 
-Structure beyond this is free-form — adapt to what today's data warrants.
+Structure beyond this is free-form — adapt to what today's data warrants. You are encouraged to go beyond the minimum and add whatever you think adds value. Examples:
+- **Watchlist recommendations** — based on the themes and patterns you've identified, suggest tickers NOT in today's signals that the user should be watching. e.g., if AI infrastructure is the dominant theme and you analyzed NVDA/AVGO/MRVL, you might recommend looking at ANET, SMCI, or VRT as related plays.
+- **Theme evolution** — how have the KG themes changed since the last brief? What's intensifying, fading, or emerging?
+- **Cross-market signals** — FX, credit, commodities context that informs equity positioning
+- **Upcoming catalyst calendar** — what's coming in the next 1-2 weeks that could move the portfolio
+- **Contrarian takes** — where is consensus wrong? What's the market not pricing?
 
 **Do NOT update the KG.** The brief goes to `docs/kg/raw/` and will be compiled later via `/kg-compile`.
 
@@ -171,7 +251,7 @@ After saving the brief, ask the user if they want it sent to Discord. Don't auto
 
 Read the webhook URL from the environment:
 ```bash
-echo $DISCORD_WEBHOOK_URL    # or $DISCORD_EVENTS_WEBHOOK_URL
+echo $DISCORD_BRIEF_WEBHOOK_URL    # or $DISCORD_WEBHOOK_URL as fallback
 ```
 
 ### Discord limits (must enforce)

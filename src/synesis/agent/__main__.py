@@ -300,24 +300,27 @@ async def agent_lifespan(
                 massive_client = MassiveClient(redis=redis)
 
             # Intelligence brief: 9am SGT (1am UTC) daily
-            scheduler.add_job(
-                intelligence_brief_job,
-                CronTrigger(hour=1, minute=0, timezone="UTC"),
-                args=[
-                    db,
-                    sec_edgar_client,
-                    yfinance_client,
-                    fred_client,
-                    massive_client,
-                    crawler_instance,
-                ],
-                id="intelligence_brief",
-                max_instances=1,
-            )
-            logger.info(
-                "Intelligence brief scheduled",
-                schedule="9am SGT (1am UTC) daily",
-            )
+            if settings.intelligence_pipeline_enabled:
+                scheduler.add_job(
+                    intelligence_brief_job,
+                    CronTrigger(hour=1, minute=0, timezone="UTC"),
+                    args=[
+                        db,
+                        sec_edgar_client,
+                        yfinance_client,
+                        fred_client,
+                        massive_client,
+                        crawler_instance,
+                    ],
+                    id="intelligence_brief",
+                    max_instances=1,
+                )
+                logger.info(
+                    "Intelligence brief scheduled",
+                    schedule="9am SGT (1am UTC) daily",
+                )
+            else:
+                logger.info("Intelligence pipeline disabled — skipping schedule")
 
             # Structured fetch: 6pm ET daily
             scheduler.add_job(

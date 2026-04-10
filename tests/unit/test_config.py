@@ -136,7 +136,8 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("telegram_chat_id", "TELEGRAM_CHAT_ID", "99999", "99999"),
     # --- Notification channel ---
     ("notification_channel", "NOTIFICATION_CHANNEL", "discord", "discord"),
-    ("stage2_enabled", "STAGE2_ENABLED", "false", False),
+    ("news_stage2_enabled", "NEWS_STAGE2_ENABLED", "false", False),
+    ("intelligence_pipeline_enabled", "INTELLIGENCE_PIPELINE_ENABLED", "false", False),
     ("macro_strategist_enabled", "MACRO_STRATEGIST_ENABLED", "true", True),
     ("debate_rounds", "DEBATE_ROUNDS", "2", 2),
     ("trader_mode", "TRADER_MODE", "portfolio", "portfolio"),
@@ -161,8 +162,8 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
         "https://discord.com/api/webhooks/789/ghi",
     ),  # SecretStr
     (
-        "discord_events_webhook_url",
-        "DISCORD_EVENTS_WEBHOOK_URL",
+        "discord_brief_webhook_url",
+        "DISCORD_BRIEF_WEBHOOK_URL",
         "https://discord.com/api/webhooks/012/jkl",
         "https://discord.com/api/webhooks/012/jkl",
     ),  # SecretStr
@@ -277,7 +278,7 @@ _SECRET_FIELDS = {
     "discord_webhook_url",
     "discord2_webhook_url",
     "discord_twitter_webhook_url",
-    "discord_events_webhook_url",
+    "discord_brief_webhook_url",
     "twitterapi_api_key",
     "polymarket_api_key",
     "polymarket_api_secret",

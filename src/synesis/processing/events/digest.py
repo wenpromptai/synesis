@@ -58,7 +58,7 @@ async def send_event_digest(
     Returns True if at least one message sent successfully.
     """
     settings = get_settings()
-    webhook = settings.discord_events_webhook_url
+    webhook = settings.discord_brief_webhook_url
     if not webhook:
         webhook = settings.discord_webhook_url
     if not webhook:

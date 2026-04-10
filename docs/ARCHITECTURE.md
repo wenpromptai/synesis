@@ -324,8 +324,8 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 | ------------------------ | ---------- | ----------------------------------- | ----------- | ------------------------- |
 | SocialSentimentAnalyst   | smart      | verify_ticker                       | 0           | `SocialSentimentAnalysis` |
 | NewsAnalyst              | smart      | verify_ticker, web_search, web_read | 2           | `NewsAnalysis`            |
-| CompanyAnalyst (Phase 3) | vsmart     | none (deterministic Phase 1-2)      | 0           | `CompanyAnalysis`         |
-| PriceAnalyst (Phase 3)   | vsmart     | none (deterministic Phase 1-2)      | 0           | `PriceAnalysis`           |
+| CompanyAnalyst (Phase 3) | smart      | none (deterministic Phase 1-2)      | 0           | `CompanyAnalysis`         |
+| PriceAnalyst (Phase 3)   | smart      | none (deterministic Phase 1-2)      | 0           | `PriceAnalysis`           |
 | MacroStrategist          | vsmart     | web_search, web_read, get_fred_data | 2           | `MacroView`               |
 | BullResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
 | BearResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |

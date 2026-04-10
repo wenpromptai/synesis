@@ -102,6 +102,8 @@ docs/kg/
 ├── _compile_log.md        # Audit trail
 ├── raw/                   # Source documents (PDFs, articles, pipeline briefs)
 │   └── synesis_briefs/    # Auto-saved daily pipeline briefs
+├── tickers/               # Per-ticker research dossiers (living files)
+├── themes/                # Cross-cutting risk/opportunity themes
 ├── sources/               # Extracted summaries from raw documents
 │   └── connections/       # Non-obvious relationships between nodes
 ├── maps/                  # Topic indexes (MOCs)
@@ -110,6 +112,7 @@ docs/kg/
 ```
 
 **Claude Code commands:**
+- `/daily-brief` — Claude Code-powered intelligence brief (replaces/complements the pipeline)
 - `/kg-compile` — Compile unprocessed raw files into KG nodes (run after new sources accumulate)
 - `/kg-lint` — Health checks + intelligence checks (run periodically)
 

@@ -158,7 +158,7 @@ See `docs/ARCHITECTURE.md` for full graph topology, state schema, and agent inve
 
 ## Knowledge Graph (`docs/kg/`)
 
-LLM-compiled investment knowledge base viewed in Obsidian. Raw sources (pipeline briefs, PDFs, articles) are compiled into interlinked concept, strategy, source, and connection nodes.
+LLM-compiled investment knowledge base viewed in Obsidian. Raw sources (pipeline briefs, PDFs, articles) are compiled into interlinked ticker, theme, concept, strategy, source, and connection nodes.
 
 **Slash commands:**
 - `/daily-brief` — Claude Code-powered intelligence brief. Pulls news/social from DB, researches tickers via local API + web search, forms bull/bear views, produces trade ideas. Complements the automated pipeline with free-form, deeper analysis. Output saved to `docs/kg/raw/synesis_briefs/`.

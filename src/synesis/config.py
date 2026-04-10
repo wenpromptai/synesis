@@ -65,9 +65,13 @@ class Settings(CacheTTLSettings, BaseSettings):
         default="telegram",
         description="Notification output channel: 'telegram' or 'discord'",
     )
-    stage2_enabled: bool = Field(
+    news_stage2_enabled: bool = Field(
         default=True,
-        description="Enable Stage 2 processing (LLM analysis, market matching, notification)",
+        description="Enable news Stage 2 processing (LLM analysis, market matching, notification)",
+    )
+    intelligence_pipeline_enabled: bool = Field(
+        default=True,
+        description="Enable daily intelligence pipeline schedule (9am SGT). Set False to disable.",
     )
     macro_strategist_enabled: bool = Field(
         default=True,
@@ -99,9 +103,10 @@ class Settings(CacheTTLSettings, BaseSettings):
         default=None,
         description="Discord webhook URL for daily Twitter agent digest",
     )
-    discord_events_webhook_url: SecretStr | None = Field(
+    discord_brief_webhook_url: SecretStr | None = Field(
         default=None,
-        description="Discord webhook URL for Event Radar daily digest",
+        alias="DISCORD_BRIEF_WEBHOOK_URL",
+        description="Discord webhook URL for briefs (intelligence, events, market)",
     )
 
     @field_validator("telegram_channels", mode="before")
