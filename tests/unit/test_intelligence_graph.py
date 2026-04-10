@@ -178,6 +178,8 @@ class TestCompileBrief:
         # Trade ideas (errors filtered)
         assert len(brief["trade_ideas"]) == 1
         assert brief["trade_ideas"][0]["tickers"] == ["NVDA"]
+        # Portfolio note defaults to empty when not in state
+        assert brief["portfolio_note"] == ""
         # Errors — all failure types tracked
         assert brief["errors"]["social_failed"] is False
         assert brief["errors"]["news_failed"] is False
@@ -293,6 +295,25 @@ class TestCompilerDebates:
             }
         )
         assert brief["debates"] == []
+
+    def test_portfolio_note_in_brief(self) -> None:
+        """portfolio_note is included in brief when present in state."""
+        brief = compile_brief(
+            {
+                "current_date": "2026-04-06",
+                "social_analysis": {},
+                "news_analysis": {},
+                "company_analyses": [],
+                "bull_analyses": [],
+                "bear_analyses": [],
+                "trade_ideas": [
+                    {"tickers": ["NVDA"], "trade_structure": "buy NVDA"},
+                ],
+                "portfolio_note": "Concentrated in semis — sizing conservatively.",
+            }
+        )
+        assert brief["portfolio_note"] == "Concentrated in semis — sizing conservatively."
+        assert len(brief["trade_ideas"]) == 1
 
     def test_macro_context_in_brief(self) -> None:
         """Macro view is included in brief."""

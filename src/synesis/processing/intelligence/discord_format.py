@@ -124,13 +124,6 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
     debates = brief.get("debates", [])
     trade_ideas = brief.get("trade_ideas", [])
 
-    # Index single-ticker trade ideas by ticker (multi-ticker shown in portfolio section)
-    ideas_by_ticker: dict[str, list[dict[str, Any]]] = {}
-    for idea in trade_ideas:
-        tickers_list = idea.get("tickers", [])
-        if len(tickers_list) == 1:
-            ideas_by_ticker.setdefault(tickers_list[0], []).append(idea)
-
     for debate in debates:
         ticker = debate.get("ticker", "?")
         fields: list[dict[str, Any]] = []
@@ -150,9 +143,20 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
             bear_text = _format_debate_side(bear_arg, bear.get("key_evidence", []))
             fields.extend(_split_field("\U0001f534 Bear Case", bear_text, inline=False))
 
-        # Trade ideas for this ticker (single-ticker only)
-        ticker_ideas = ideas_by_ticker.get(ticker, [])
-        for idea in ticker_ideas:
+        embeds.append(
+            {
+                "title": f"\u2694\ufe0f {ticker}",
+                "color": color,
+                "fields": fields[:25],
+            }
+        )
+
+    # ── Trade Ideas (unified section) ──────────────────────────
+    if trade_ideas:
+        portfolio_note = brief.get("portfolio_note", "")
+        ti_fields: list[dict[str, Any]] = []
+        for idea in trade_ideas:
+            tickers_str = " / ".join(idea.get("tickers", []))
             idea_text = f"**{idea.get('trade_structure', '')}**"
             thesis = idea.get("thesis", "")
             if thesis:
@@ -169,37 +173,16 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
                 meta_parts.append(f"\u26a0\ufe0f {key_risk}")
             if meta_parts:
                 idea_text += "\n" + " \u2022 ".join(meta_parts)
-            fields.extend(_split_field("\U0001f4a1 Trade Idea", idea_text, inline=False))
+            ti_fields.extend(_split_field(f"\U0001f4a1 {tickers_str}", idea_text, inline=False))
 
-        embeds.append(
-            {
-                "title": f"\u2694\ufe0f {ticker}",
-                "color": color,
-                "fields": fields[:25],
-            }
-        )
-
-    # ── Portfolio-level trade ideas (multi-ticker) ──────────────
-    portfolio_ideas = [idea for idea in trade_ideas if len(idea.get("tickers", [])) > 1]
-    if portfolio_ideas:
-        pf_fields: list[dict[str, Any]] = []
-        for idea in portfolio_ideas:
-            tickers_str = " / ".join(idea.get("tickers", []))
-            text = f"**{idea.get('trade_structure', '')}**"
-            catalyst = idea.get("catalyst", "")
-            if catalyst:
-                text += f"\nCatalyst: {catalyst}"
-            timeframe = idea.get("timeframe", "")
-            if timeframe:
-                text += f"\n\u23f0 {timeframe}"
-            pf_fields.append({"name": tickers_str, "value": text[:1024], "inline": False})
-        embeds.append(
-            {
-                "title": "\U0001f4bc Portfolio Ideas",
-                "color": color,
-                "fields": pf_fields[:25],
-            }
-        )
+        trade_embed: dict[str, Any] = {
+            "title": "\U0001f4bc Trade Ideas",
+            "color": color,
+            "fields": ti_fields[:25],
+        }
+        if portfolio_note:
+            trade_embed["description"] = portfolio_note[:4096]
+        embeds.append(trade_embed)
 
     return _split_into_batches(embeds)
 

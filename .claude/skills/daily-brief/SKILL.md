@@ -164,9 +164,9 @@ curl -s 'http://localhost:7337/api/v1/events/upcoming?days=14'
 
 **Web search** — research deeply: recent analyst coverage, earnings previews, regulatory developments, competitive dynamics, supply chain signals. No caps — search as much as you need.
 
-## Step 4: Bull/Bear Analysis + Trade Decisions
+## Step 4: Bull/Bear Analysis
 
-For each ticker, build bull and bear cases, then make a trade decision. **Adapt your analysis to the type of stock** — don't evaluate everything the same way. These are starting points, not rigid rules — use your judgment.
+For each ticker, build bull and bear cases. **Adapt your analysis to the type of stock** — don't evaluate everything the same way. These are starting points, not rigid rules — use your judgment.
 
 ### Analysis intuition by sector
 
@@ -201,22 +201,45 @@ For each ticker, build bull and bear cases, then make a trade decision. **Adapt 
 
 1. **Build the bull case** — strongest evidence for buying. Use the right framework for the sector. Cite specific numbers.
 2. **Build the bear case** — strongest evidence against. Focus on what the market might be missing or overpricing.
-3. **Make a decisive call** — which side is stronger on a risk-adjusted basis? If the evidence supports a trade:
-   - Write a specific trade structure: "Buy NVDA Jun 185/205 call spread at ≤$9 debit" or "Buy CVX shares with stop below $190"
-   - Match the structure to the setup: use options when IV is rich or you want defined risk; use shares when conviction is high and IV is expensive
-   - State the catalyst and timeframe
-   - State the key risk and exit criteria
-4. **"No trade" is valid** — if the edge isn't there, say so and explain why. This is better than forcing a bad trade.
 
-### Portfolio-level considerations
-After individual ticker analysis, consider:
-- Cross-ticker correlation (are multiple ideas in the same sector/theme?)
-- Concentration risk (too much exposure to one factor like AI or energy?)
-- Pair/relative value opportunities (e.g., long NVDA / short AMD)
-- Overall portfolio directional bias vs the macro regime
-- Net delta exposure — is the book balanced or directionally tilted?
+Do NOT make per-ticker trade decisions here. The bull/bear cases are inputs to the portfolio-level trade decisions in Step 5.
 
-## Step 5: Output
+## Step 5: Portfolio Trade Decisions
+
+After analyzing all tickers individually, step back and make trade decisions as a portfolio. You are a portfolio manager, not a stock picker — every idea exists in the context of the others.
+
+### How to think about this
+
+Look at all the bull/bear cases together. The best portfolio of trades might be:
+- **Long only** — if one ticker has a clearly stronger case than everything else, just go long
+- **Long/short equity** — if NVDA has a strong bull case and AMD has a strong bear case, the relative value trade might be better than either leg alone
+- **Options strategies** — bull call spreads, bear put spreads, straddles, calendar spreads — match the structure to the setup. Use options when IV is favorable or you want defined risk; use shares when conviction is high and IV is expensive
+- **Outright sells / shorts** — if the bear case dominates and there's a catalyst
+- **No trade** — if the edge isn't there, say so. This is better than forcing a bad trade.
+
+### What to consider across the portfolio
+
+- **Correlation** — are multiple ideas in the same sector/theme? If 4 of 5 ideas are tech longs, that's not a portfolio — it's a bet on tech
+- **Concentration risk** — too much exposure to one factor (AI, energy, rates)?
+- **Regime alignment** — does the portfolio's directional bias match the macro regime? A book full of longs in a risk-off regime needs justification
+- **Capital allocation** — which ideas deserve the largest position? Highest conviction with best risk/reward gets the most capital
+- **Net delta exposure** — is the book balanced or directionally tilted? Is that intentional?
+
+### Output per trade idea
+
+For each trade (including "no trade" decisions):
+- **Tickers** — which ticker(s) are involved (single ticker for outright, multiple for L/S or pairs)
+- **Trade structure** — specific and actionable: "Buy NVDA Jun 185/205 call spread at ≤$9 debit", "Equity L/S: long NVDA / short AMD 2:1 ratio", "Sell CVX May 150 puts"
+- **Thesis** — why this trade, in the context of the portfolio
+- **Catalyst** — what triggers the move, and when
+- **Timeframe** — how long to hold
+- **Key risk** — what kills the trade, and exit criteria
+
+### Portfolio note
+
+Write a brief portfolio-level summary explaining how the trade ideas fit together — why these trades as a set, what the portfolio's overall exposure looks like, and any cross-ticker observations that informed the decisions.
+
+## Step 6: Output
 
 Save the brief to `docs/kg/raw/synesis_briefs/YYYY-MM-DD.md` with this frontmatter:
 
@@ -245,7 +268,7 @@ Structure beyond this is free-form — adapt to what today's data warrants. You 
 
 **Do NOT update the KG.** The brief goes to `docs/kg/raw/` and will be compiled later via `/kg-compile`.
 
-## Step 6: Send to Discord (optional)
+## Step 7: Send to Discord (optional)
 
 After saving the brief, ask the user if they want it sent to Discord. Don't auto-send.
 
@@ -267,8 +290,8 @@ Break the brief into logical embeds, one per section. Each embed should stay wel
 
 **Embed 1: Header** — regime, sentiment, trade count, key risks
 **Embed 2: Macro** — drivers + sector tilts table as formatted text
-**Embeds 3-N: Trade Ideas** — one embed per trade (or group 2-3 short ones). Each with fields: Thesis, Structure, Catalyst, Risk
-**Final embed: Portfolio Notes** — cross-ticker observations, concentration
+**Embeds 3-N: Per-ticker Debates** — bull/bear cases per ticker (one embed per ticker)
+**Trade Ideas embed** — all trade ideas in one section with portfolio_note as description. Each idea as a field named by its ticker(s) (e.g. "NVDA" or "NVDA / AMD") with structure, thesis, catalyst, timeframe, key risk
 
 For field values that exceed 1024 chars, split into `"Thesis"` and `"Thesis (cont.)"` fields.
 
@@ -288,16 +311,24 @@ curl -X POST "$DISCORD_WEBHOOK_URL" \
     "embeds": [
       {
         "title": "Intelligence Brief — 2026-04-11",
-        "description": "**Regime:** transitioning (+0.15) | **Trades:** 5\n**Top tilt:** Energy +0.7",
+        "description": "**Regime:** transitioning (+0.15) | **Trades:** 3\n**Top tilt:** Energy +0.7",
         "color": 3447003
       },
       {
-        "title": "NVDA — Buy Jun 185/205 call spread",
+        "title": "⚔️ NVDA",
+        "color": 3447003,
+        "fields": [
+          {"name": "🟢 Bull Case", "value": "AI networking growth accelerating; data center revenue +200% YoY...", "inline": false},
+          {"name": "🔴 Bear Case", "value": "Valuation at 60x forward P/E; customer concentration in hyperscalers...", "inline": false}
+        ]
+      },
+      {
+        "title": "💼 Trade Ideas",
+        "description": "Portfolio tilted long semis but defined-risk via spreads. Net delta moderate given transitioning regime.",
         "color": 3066993,
         "fields": [
-          {"name": "Thesis", "value": "AI networking growth; bear case on concentration but defined-risk preferred...", "inline": false},
-          {"name": "Structure", "value": "Buy Jun 2026 185/205 call spread, entry ≤$9 debit", "inline": true},
-          {"name": "Risk", "value": "Macro risk-off; stop if spread -40% or NVDA < $176", "inline": true}
+          {"name": "💡 NVDA", "value": "**Buy Jun 185/205 call spread at ≤$9 debit**\nAI demand thesis; strongest conviction name\n💥 Q2 earnings • ⏰ 6 weeks • ⚠️ Macro risk-off", "inline": false},
+          {"name": "💡 NVDA / AMD", "value": "**Equity L/S: long NVDA / short AMD 2:1 ratio**\nRelative value — NVDA taking share in AI networking\n💥 AMD earnings miss risk • ⏰ 3 months", "inline": false}
         ]
       }
     ]

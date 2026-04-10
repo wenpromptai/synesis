@@ -374,13 +374,19 @@ def build_intelligence_graph(
                 mode=mode,
                 trade_ideas=len(result.trade_ideas),
             )
-            return {
+            out: dict[str, Any] = {
                 "trade_ideas": [idea.model_dump(mode="json") for idea in result.trade_ideas],
             }
+            if mode == "portfolio":
+                out["portfolio_note"] = result.portfolio_note
+            return out
         except Exception:
             if mode == "portfolio":
                 logger.exception("Trader failed (portfolio)", tickers=tickers)
-                return {"trade_ideas": [{"tickers": [t], "error": True} for t in tickers]}
+                return {
+                    "trade_ideas": [{"tickers": [t], "error": True} for t in tickers],
+                    "portfolio_note": "",
+                }
             else:
                 logger.exception("Trader failed", ticker=ticker)
                 return {"trade_ideas": [{"tickers": [ticker], "error": True}]}

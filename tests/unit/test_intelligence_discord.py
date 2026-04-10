@@ -147,7 +147,8 @@ class TestFormatIntelligenceBrief:
         assert "Valuation stretched" in bear_field["value"]
         assert "P/E at 60x" in bear_field["value"]
 
-    def test_single_ticker_trade_idea_in_debate_embed(self) -> None:
+    def test_trade_ideas_in_unified_section(self) -> None:
+        """All trade ideas appear in the Trade Ideas section, not in debate embeds."""
         brief = _make_brief(
             debates=[{"ticker": "AAPL", "bull": {"argument": "Good", "key_evidence": []}}],
             trade_ideas=[
@@ -163,8 +164,16 @@ class TestFormatIntelligenceBrief:
         )
         batches = format_intelligence_brief(brief)
         all_embeds = [e for batch in batches for e in batch]
-        aapl_embed = next(e for e in all_embeds if "AAPL" in e.get("title", ""))
-        idea_fields = [f for f in aapl_embed["fields"] if "Trade Idea" in f["name"]]
+
+        # Trade ideas should NOT be in the debate embed
+        aapl_debate = next(e for e in all_embeds if "AAPL" in e.get("title", ""))
+        idea_fields = [f for f in aapl_debate["fields"] if "AAPL" in f["name"]]
+        assert len(idea_fields) == 0
+
+        # Should be in the unified Trade Ideas section
+        trade_embeds = [e for e in all_embeds if e.get("title") == "\U0001f4bc Trade Ideas"]
+        assert len(trade_embeds) == 1
+        idea_fields = trade_embeds[0]["fields"]
         assert len(idea_fields) == 1
         assert "buy 100 shares AAPL" in idea_fields[0]["value"]
         assert "iPhone cycle" in idea_fields[0]["value"]
@@ -172,8 +181,8 @@ class TestFormatIntelligenceBrief:
         assert "3 months" in idea_fields[0]["value"]
         assert "Trade war" in idea_fields[0]["value"]
 
-    def test_multi_ticker_idea_only_in_portfolio_section(self) -> None:
-        """Multi-ticker ideas should NOT appear in per-ticker embeds."""
+    def test_multi_ticker_idea_in_trade_ideas_section(self) -> None:
+        """Multi-ticker ideas appear in the Trade Ideas section."""
         brief = _make_brief(
             debates=[
                 {"ticker": "NVDA", "bull": {"argument": "Bull NVDA", "key_evidence": []}},
@@ -193,15 +202,35 @@ class TestFormatIntelligenceBrief:
         batches = format_intelligence_brief(brief)
         all_embeds = [e for batch in batches for e in batch]
 
-        # Should NOT appear in per-ticker embeds
-        nvda_embed = next(e for e in all_embeds if "NVDA" in e.get("title", ""))
-        idea_fields = [f for f in nvda_embed["fields"] if "Trade Idea" in f["name"]]
-        assert len(idea_fields) == 0
+        # Should NOT appear in per-ticker debate embeds
+        nvda_embed = next(e for e in all_embeds if "\u2694\ufe0f NVDA" == e.get("title", ""))
+        assert all("Trade" not in f["name"] for f in nvda_embed["fields"])
 
-        # Should appear in portfolio section
-        portfolio_embeds = [e for e in all_embeds if e.get("title") == "\U0001f4bc Portfolio Ideas"]
-        assert len(portfolio_embeds) == 1
-        assert "equity L/S" in portfolio_embeds[0]["fields"][0]["value"]
+        # Should appear in Trade Ideas section
+        trade_embeds = [e for e in all_embeds if e.get("title") == "\U0001f4bc Trade Ideas"]
+        assert len(trade_embeds) == 1
+        assert "equity L/S" in trade_embeds[0]["fields"][0]["value"]
+
+    def test_portfolio_note_in_trade_ideas_section(self) -> None:
+        """portfolio_note renders as description in Trade Ideas embed."""
+        brief = _make_brief(
+            trade_ideas=[
+                {
+                    "tickers": ["NVDA"],
+                    "trade_structure": "buy NVDA",
+                    "thesis": "",
+                    "catalyst": "",
+                    "timeframe": "",
+                    "key_risk": "",
+                }
+            ],
+            portfolio_note="Concentrated in semis — sizing conservatively given correlation.",
+        )
+        batches = format_intelligence_brief(brief)
+        all_embeds = [e for batch in batches for e in batch]
+        trade_embeds = [e for e in all_embeds if e.get("title") == "\U0001f4bc Trade Ideas"]
+        assert len(trade_embeds) == 1
+        assert "sizing conservatively" in trade_embeds[0].get("description", "")
 
     def test_no_debates_no_trade_ideas(self) -> None:
         """Brief with no tickers should still produce header + l1 summary."""

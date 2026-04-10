@@ -40,6 +40,7 @@ class IntelligenceState(TypedDict):
 
     # Trader output (multiple parallel writers in per_ticker mode, needs reducer)
     trade_ideas: Annotated[list[dict[str, Any]], add]
+    portfolio_note: str
 
     # Final output
     brief: dict[str, Any]

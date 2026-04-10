@@ -31,6 +31,7 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
     macro = state.get("macro_view", {})
     trade_ideas_raw = state.get("trade_ideas", [])
     valid_trade_ideas = [t for t in trade_ideas_raw if not t.get("error")]
+    portfolio_note = state.get("portfolio_note", "")
 
     # Extract bull + bear arguments by ticker (last round wins — overwrites earlier rounds)
     bull_analyses = state.get("bull_analyses", [])
@@ -86,6 +87,7 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
         "messages_analyzed": news.get("messages_analyzed", 0),
         # Trade ideas from Trader
         "trade_ideas": valid_trade_ideas,
+        "portfolio_note": portfolio_note,
         # Pipeline errors (for downstream visibility)
         "errors": {
             "social_failed": social.get("error", False),
@@ -159,6 +161,10 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
     if trade_ideas:
         lines.append("## Trade Ideas")
         lines.append("")
+        portfolio_note_md = brief.get("portfolio_note", "")
+        if portfolio_note_md:
+            lines.append(portfolio_note_md)
+            lines.append("")
         for idea in trade_ideas:
             idea_tickers = ", ".join(idea.get("tickers", []))
             structure = idea.get("trade_structure", "")
