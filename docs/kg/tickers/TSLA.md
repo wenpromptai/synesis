@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/capital-intensive-transitions]]"]
+related: ["[[themes/capital-intensive-transitions]]", "[[concepts/implied-volatility]]", "[[concepts/fcf-yield]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Consumer Discretionary"
 industry: "Automobiles"
 tags: [ticker, ev, autonomy, energy]
@@ -20,6 +20,9 @@ Decision: No trade — stay flat
 - Options bid (IV ~53% vs RV ~41.5%); put/call 1.78 — downside not "free"
 - Neither long nor short attractive without clear dated catalyst (autonomy milestone or FCF deterioration)
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[implied-volatility]] | [[fcf-yield]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

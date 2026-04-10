@@ -21,5 +21,15 @@ Strait of Hormuz disruption and shipping lane risks keeping oil bid, creating st
 ## 2026-04-10 (transitioning regime)
 Sector tilt: Energy/upstream oil +0.7 (highest conviction tilt). Brent supported by shipping/geopolitical constraints. De-escalation would rapidly unwind the risk premium. Brief bought CVX shares and sold OIH put credit spread.
 
+## 2026-04-10 (manual brief update) — CRISIS WORSENING
+
+Oil above $100/bbl — **WTI hit $117.63, Brent spot above $120** (2026-04-08, CNBC). The Strait of Hormuz crisis is now described as "the largest oil supply disruption in history." Iran accused the US and Israel of violating the ceasefire agreement (2026-04-09, KobeissiLetter), warning ceasefire could collapse within hours.
+
+- Energy sector tilt upgraded to **+0.8** (from +0.7)
+- CVX testing its $190 stop level ($190.36) despite oil >$100 — CVX-specific Q1 headwinds
+- OIH put credit spread working; watchlist for OIH 420/450 call spread if pullback to $400-405
+- Double inflation hit: tariff pass-through + Hormuz disruption → core goods inflation already surging pre-shock
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime analysis
+> - [[sources/brief-2026-04-10-manual]] — oil price specifics, crisis escalation

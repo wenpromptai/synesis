@@ -31,5 +31,27 @@ Risk of simultaneous inflation acceleration (from energy/oil pass-through) and g
 ## 2026-04-10
 Dominated all positioning decisions. Brief strongly favored defined-risk options structures over outright equity in almost every trade idea. "No trade" decisions frequently cited this theme.
 
+## 2026-04-10 (manual brief update) — UPGRADING TO BASE CASE
+
+> [!warning] Regime Shift
+> Stagflation is becoming **base case**, not tail risk. The combination of oil >$100 + core PCE 3.0% + GDP 0.5% is the textbook definition.
+
+**Macro data hardening:**
+- **Oil above $100/bbl** — WTI hit $117.63, Brent >$120 (2026-04-08). Strait of Hormuz crisis now described as "largest oil supply disruption in history." Iran warned ceasefire could collapse (2026-04-09, KobeissiLetter).
+- **GDP revised to +0.5%** — Q4 2025 third estimate, down from +0.7% (2026-04-09, BEA). Real final sales to private domestic purchasers +1.8%, down 0.6pp from first estimate.
+- **Core PCE sticky at 3.0%** — Feb 2026 core PCE +0.4% m/m, +3.0% y/y. Six-month annualized rate hit 3.4%, highest since June 2024 before Fed cuts began. Goods inflation +0.84% m/m (10.6% annualized), largest since Jan 2022. This is BEFORE oil shock pass-through.
+- **China deflating** — March CPI 1.0% y/y (miss vs 1.2% est); MoM -0.7%. Negative demand signal for non-oil commodities.
+
+**Updated sector tilts:**
+| Sector | Tilt | Change |
+|--------|------|--------|
+| Energy/upstream | **+0.8** | ↑ from +0.7 — oil above $100 confirms |
+| AI infrastructure (selective) | +0.3 | new — CoreWeave/Meta $35B validates capex |
+| Consumer discretionary | **-0.6** | ↓ from -0.5 — oil >$100 is bigger consumer tax |
+| Small caps | **-0.5** | ↓ from -0.4 — GDP weakness + oil = double hit |
+
+**Key risk:** If April/May PCE prints show 3.5%+ core, regime shifts to risk_off. Sentiment downgraded from +0.15 to +0.10 and trending lower.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime driver
+> - [[sources/brief-2026-04-10-manual]] — upgraded to base case with hard macro data

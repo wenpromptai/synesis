@@ -9,7 +9,7 @@ tags: [index, meta]
 > [!abstract]
 > Master index of all nodes. The LLM reads this first to understand what exists before any KG operation. Updated on each compilation pass.
 
-**Last updated:** 2026-04-10 | **Total nodes:** 103
+**Last updated:** 2026-04-11 | **Total nodes:** 116
 
 | Node | Type | One-liner | Updated |
 |------|------|-----------|---------|
@@ -18,11 +18,13 @@ tags: [index, meta]
 | [[tickers/AEHR]] | ticker | Aehr Test — momentum-driven, poor fundamentals, SI ~15% | 2026-04-10 |
 | [[tickers/AMKR]] | ticker | Amkor — advanced packaging capex ramp, negative FCF ahead | 2026-04-10 |
 | [[tickers/AMZN]] | ticker | Amazon — AWS/AI + ads; risk reversal structure | 2026-04-10 |
+| [[tickers/AXTI]] | ticker | AXT Inc — InP substrates (~35% share); China export risk; binary | 2026-04-10 |
 | [[tickers/ARM]] | ticker | Arm Holdings — CPU/IP licensing for AI-edge compute | 2026-04-10 |
 | [[tickers/AVGO]] | ticker | Broadcom — custom ASIC + networking; distributor concentration | 2026-04-10 |
 | [[tickers/CAT]] | ticker | Caterpillar — energy/infrastructure; call spread | 2026-04-10 |
 | [[tickers/CEG]] | ticker | Constellation Energy — nuclear/AI power; merchant risk | 2026-04-10 |
 | [[tickers/COHR]] | ticker | Coherent — datacenter optics; WC deterioration ~5 quarters | 2026-04-10 |
+| [[tickers/CRDO]] | ticker | Credo Technology — optical DSP for AI scale-out; margin compression | 2026-04-10 |
 | [[tickers/CRCL]] | ticker | Circle (USDC) — rate carry trade; call spread on squeeze | 2026-04-10 |
 | [[tickers/CVX]] | ticker | Chevron — geopolitical energy hedge; shares with tight stop | 2026-04-10 |
 | [[tickers/DRAM]] | ticker | Memory sector exposure | 2026-04-10 |
@@ -42,6 +44,7 @@ tags: [index, meta]
 | [[tickers/MP]] | ticker | MP Materials — rare earth; negative FCF, strategic scarcity | 2026-04-10 |
 | [[tickers/MRVL]] | ticker | Marvell — AI interconnect; call spread | 2026-04-10 |
 | [[tickers/MSFT]] | ticker | Microsoft — referenced as AAOI/IREN counterparty | 2026-04-10 |
+| [[tickers/MTSI]] | ticker | MACOM — analog/photonic semis; CPO-agnostic; DC segment +48% | 2026-04-10 |
 | [[tickers/MU]] | ticker | Micron — HBM memory; WC deterioration at peak margins | 2026-04-10 |
 | [[tickers/NEE]] | ticker | NextEra — put credit spread; premium valuation, negative FCF | 2026-04-10 |
 | [[tickers/NVDA]] | ticker | NVIDIA — AI compute; call spread in fragile macro | 2026-04-10 |
@@ -64,12 +67,18 @@ tags: [index, meta]
 | [[themes/customer-concentration]] | theme | Revenue dependency on few customers — earnings fragility | 2026-04-10 |
 | [[themes/working-capital-deterioration]] | theme | Rising AR/inventory absorbing cash; cycle turn indicator | 2026-04-10 |
 | [[themes/geopolitical-energy-risk]] | theme | Hormuz/shipping disruption keeping oil bid | 2026-04-10 |
-| [[themes/stagflation-tail-risk]] | theme | Simultaneous inflation + growth deceleration risk | 2026-04-10 |
+| [[themes/stagflation-tail-risk]] | theme | Stagflation upgrading to BASE CASE — oil >$100, GDP 0.5%, PCE 3.0% | 2026-04-11 |
+| [[themes/ai-infrastructure-financing-risk]] | theme | CoreWeave systemic risk — $35B leveraged AI capex intermediary | 2026-04-11 |
 | [[themes/insider-selling-clusters]] | theme | Coordinated C-suite selling with near-zero buys | 2026-04-10 |
 | [[themes/optical-photonics-supply-chain]] | theme | Datacenter optics stack — shared concentration/WC risks | 2026-04-10 |
 | [[themes/capital-intensive-transitions]] | theme | Negative FCF funded by dilution/debt during capex ramps | 2026-04-10 |
 | [[sources/brief-2026-04-10]] | source | Intelligence brief — transitioning regime, 40 trade ideas | 2026-04-10 |
+| [[sources/brief-2026-04-10-manual]] | source | Manual brief — stagflation base case, CoreWeave $35B, trade updates | 2026-04-11 |
 | [[sources/connections/ai-optics-concentration-wcap]] | connection | AAOI+FN+COHR+LITE share concentration + WC deterioration | 2026-04-10 |
+| [[sources/connections/cpo-adoption-curve-valuation]] | connection | CPO valuation faith gap — 2028 TAM priced in but volume 2027-2028 | 2026-04-10 |
+| [[sources/connections/insider-selling-cross-sector]] | connection | Cross-sector insider selling cluster — AAOI+AAPL+CRCL+FN+LPTH+SMTC | 2026-04-11 |
+| [[sources/connections/ai-compute-stack]] | connection | Core AI silicon supply chain — NVDA+AVGO+TSM+MRVL+ARM | 2026-04-11 |
+| [[sources/cpo-sector-deep-dive-2026-04-10]] | source | CPO sector deep dive — TAM, supply chain, adoption timeline | 2026-04-10 |
 | [[covered-call]] | strategy | Long stock + short OTM call for income | 2026-04-07 |
 | [[covered-put]] | strategy | Short stock + short OTM put for income | 2026-04-07 |
 | [[short-strangle]] | strategy | Short OTM put + call, undefined risk, high premium | 2026-04-07 |
@@ -107,6 +116,10 @@ tags: [index, meta]
 | [[volatility-smile]] | concept | IV variation across strikes (skew) | 2026-04-07 |
 | [[max-pain]] | concept | Strike where option holders lose the most | 2026-04-07 |
 | [[breakeven]] | concept | Price where strategy P&L = zero at expiry | 2026-04-07 |
+| [[co-packaged-optics]] | concept | CPO — optical engines integrated into switch package | 2026-04-10 |
+| [[indium-phosphide-substrates]] | concept | InP — critical III-V substrate for datacenter lasers | 2026-04-10 |
+| [[silicon-photonics]] | concept | SiPh — CMOS-compatible optical integration | 2026-04-10 |
+| [[optical-circuit-switch]] | concept | OCS — all-optical reconfigurable switching for AI clusters | 2026-04-10 |
 | [[fcf-yield]] | concept | Free cash flow yield — strongest multibagger predictor | 2026-04-07 |
 | [[fama-french-factors]] | concept | Five-factor asset pricing model (size, value, profitability, investment) | 2026-04-07 |
 | [[size-effect]] | concept | Small-cap stocks outperform large caps over time | 2026-04-07 |

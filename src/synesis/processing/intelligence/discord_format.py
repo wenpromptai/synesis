@@ -164,13 +164,13 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
             meta_parts = []
             catalyst = idea.get("catalyst", "")
             if catalyst:
-                meta_parts.append(f"\U0001f4a5 {catalyst}")
+                meta_parts.append(f"**Catalyst:** {catalyst}")
             timeframe = idea.get("timeframe", "")
             if timeframe:
-                meta_parts.append(f"\u23f0 {timeframe}")
+                meta_parts.append(f"**Timeframe:** {timeframe}")
             key_risk = idea.get("key_risk", "")
             if key_risk:
-                meta_parts.append(f"\u26a0\ufe0f {key_risk}")
+                meta_parts.append(f"**Key Risk:** {key_risk}")
             if meta_parts:
                 idea_text += "\n" + " \u2022 ".join(meta_parts)
             ti_fields.extend(_split_field(f"\U0001f4a1 {tickers_str}", idea_text, inline=False))

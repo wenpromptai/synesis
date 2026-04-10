@@ -327,8 +327,8 @@ curl -X POST "$DISCORD_WEBHOOK_URL" \
         "description": "Portfolio tilted long semis but defined-risk via spreads. Net delta moderate given transitioning regime.",
         "color": 3066993,
         "fields": [
-          {"name": "💡 NVDA", "value": "**Buy Jun 185/205 call spread at ≤$9 debit**\nAI demand thesis; strongest conviction name\n💥 Q2 earnings • ⏰ 6 weeks • ⚠️ Macro risk-off", "inline": false},
-          {"name": "💡 NVDA / AMD", "value": "**Equity L/S: long NVDA / short AMD 2:1 ratio**\nRelative value — NVDA taking share in AI networking\n💥 AMD earnings miss risk • ⏰ 3 months", "inline": false}
+          {"name": "💡 NVDA", "value": "**Buy Jun 185/205 call spread at ≤$9 debit**\nAI demand thesis; strongest conviction name\n**Catalyst:** Q2 earnings\n**Timeframe:** 6 weeks\n**Key Risk:** Macro risk-off", "inline": false},
+          {"name": "💡 NVDA / AMD", "value": "**Equity L/S: long NVDA / short AMD 2:1 ratio**\nRelative value — NVDA taking share in AI networking\n**Catalyst:** AMD earnings miss risk\n**Timeframe:** 3 months", "inline": false}
         ]
       }
     ]

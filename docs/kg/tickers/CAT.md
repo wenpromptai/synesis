@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/geopolitical-energy-risk]]"]
+related: ["[[themes/geopolitical-energy-risk]]", "[[strategies/options/bull-call-spread]]", "[[concepts/implied-volatility]]", "[[strategies/options/earnings-options-systematic]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Industrials"
 industry: "Construction & Mining Equipment"
 tags: [ticker, industrial, cyclical]
@@ -21,6 +21,9 @@ Decision: Buy 1x CAT 760/830 call spread, 60-90 DTE
 - Catalyst: Q1'26 earnings/guidance; continued energy/infrastructure capex strength
 - Timeframe: 6-12 weeks
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[bull-call-spread]] | [[implied-volatility]] | [[earnings-options-systematic]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

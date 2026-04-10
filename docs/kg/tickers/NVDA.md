@@ -22,5 +22,13 @@ Decision: Buy NVDA Jun 2026 185/205 call spread; entry at/under ~$9.00 debit
 - Timeframe: 4-10 weeks
 - Source: [[sources/brief-2026-04-10]]
 
+## 2026-04-10 (manual brief update)
+- Spot at $183.91 — just below $185 breakout level
+- **CoreWeave signed $21B NEW deal with Meta (total $35B through 2032), using NVIDIA Rubin chips** — direct NVDA demand validation
+- NVDA +1.0% on the day; CoreWeave/Rubin demand supports the call spread thesis
+- **Action:** Hold Jun 185/205 call spread with stop if spread -40%. CoreWeave/Rubin is a positive catalyst.
+- Source: [[sources/brief-2026-04-10-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-10-manual]] — CoreWeave/Rubin demand, trade update

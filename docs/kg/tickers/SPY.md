@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/stagflation-tail-risk]]"]
+related: ["[[themes/stagflation-tail-risk]]", "[[strategies/options/bear-put-spread]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Index"
 industry: "S&P 500 ETF"
 tags: [ticker, index, etf]
@@ -18,6 +18,9 @@ Decision: No trade — stand aside; if needed, buy SPY May 2026 675/655 put spre
 - Bull edge relies on GEX/microstructure + 1-day EMA cross
 - Fragile macro = index multiples capped, downside convexity matters more
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[bear-put-spread]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

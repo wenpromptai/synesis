@@ -20,5 +20,13 @@ Decision: No trade — skip
 - Call-heavy flow + elevated put skew = fat-tailed distribution, not clean long setup
 - Source: [[sources/brief-2026-04-10]]
 
+## 2026-04-10 (manual brief update)
+- MU +3.6% to $421.51 — sector-wide move (SMH +1.7%), not MU-specific
+- DRAM/NAND spot prices reportedly firming (zerohedge tweet); HBM demand validated by CoreWeave/Meta $35B deal
+- Despite positive demand signals, WC deterioration (AR surge to $17.3B) remains genuine red flag at peak margins
+- Pipeline was right to pass. +3.6% is beta, not alpha. Continue to avoid.
+- Source: [[sources/brief-2026-04-10-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-10-manual]] — deeper analysis, confirmed pass

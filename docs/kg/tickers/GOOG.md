@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/ai-infrastructure]]"]
+related: ["[[themes/ai-infrastructure]]", "[[strategies/options/bull-call-spread]]", "[[concepts/fcf-yield]]", "[[strategies/options/earnings-options-systematic]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Technology"
 industry: "Internet Services"
 tags: [ticker, mega-cap, search, cloud, ai]
@@ -21,6 +21,9 @@ Decision: Buy GOOG May 17 2026 310/335 call spread; entry <= 7.50 debit
 - Timeframe: 4-6 weeks (May expiry)
 - Stop: Cut if GOOG < $305 or spread value halves
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[bull-call-spread]] | [[fcf-yield]] | [[earnings-options-systematic]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

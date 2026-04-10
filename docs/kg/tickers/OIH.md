@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/geopolitical-energy-risk]]"]
+related: ["[[themes/geopolitical-energy-risk]]", "[[strategies/options/bear-put-spread]]", "[[concepts/implied-volatility]]", "[[strategies/options/volatility-risk-premium]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Energy"
 industry: "Oil Equipment & Services"
 tags: [ticker, energy, oil-services, etf]
@@ -21,5 +21,14 @@ Decision: Sell OIH May 2026 390/370 put credit spread; risk <= 0.75% NAV; enter 
 - Timeframe: 4-6 weeks (May expiry)
 - Source: [[sources/brief-2026-04-10]]
 
+## 2026-04-10 (manual brief update)
+- OIH at $411, near $417 resistance. Put credit spread is correct structure and working.
+- **Watchlist:** If OIH pulls back to $400-405, consider adding 420/450 call spread (60-90 DTE) to express upside from sustained Hormuz disruption. Don't chase at current levels.
+- Oil context dramatically worse: WTI $117.63, Brent >$120, Hormuz crisis "largest oil supply disruption in history"
+- Source: [[sources/brief-2026-04-10-manual]]
+
+**See also:** [[bear-put-spread]] | [[implied-volatility]] | [[volatility-risk-premium]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-10-manual]] — trade update, call spread watchlist

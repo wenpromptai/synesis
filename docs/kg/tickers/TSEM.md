@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/ai-infrastructure]]"]
+related: ["[[themes/ai-infrastructure]]", "[[concepts/fcf-yield]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Technology"
 industry: "Semiconductors — Foundry"
 tags: [ticker, semiconductor, foundry]
@@ -18,6 +18,9 @@ Decision: No trade — if long, take profits $205-210 and/or hedge with OTM put
 - FCF thin given structurally high capex (~$100M+/q)
 - RSI ~70; pushing resistance ~$209 on low volume
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[fcf-yield]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

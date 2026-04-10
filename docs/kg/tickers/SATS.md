@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/capital-intensive-transitions]]"]
+related: ["[[themes/capital-intensive-transitions]]", "[[concepts/fcf-yield]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Communication Services"
 industry: "Satellite Communications"
 tags: [ticker, satellite, telecom]
@@ -18,6 +18,9 @@ Decision: No trade — skip (binary regulatory/closing risk)
 - AT&T/SpaceX spectrum monetizations could de-lever but path-dependent on FCC/DOJ
 - SI 27.2% — extreme
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[fcf-yield]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

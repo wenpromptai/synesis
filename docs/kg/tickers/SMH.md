@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/ai-infrastructure]]"]
+related: ["[[themes/ai-infrastructure]]", "[[strategies/options/bull-call-spread]]", "[[strategies/options/risk-reversal]]", "[[concepts/momentum]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Technology"
 industry: "Semiconductor ETF"
 tags: [ticker, semiconductor, etf]
@@ -20,6 +20,9 @@ Decision: Buy SMH Jun 2026 440/470 call spread + sell Jun 2026 400 put (risk rev
 - Catalyst: Semi earnings/AI capex updates; vol compression; dip-and-reclaim of $417 support
 - Timeframe: 6-10 weeks (June expiry)
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[bull-call-spread]] | [[risk-reversal]] | [[momentum]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

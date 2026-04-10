@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/stagflation-tail-risk]]"]
+related: ["[[themes/stagflation-tail-risk]]", "[[strategies/options/bear-put-spread]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Index"
 industry: "S&P 500"
 tags: [ticker, index]
@@ -19,6 +19,9 @@ Decision: No trade — keep market-neutral/hedged; add SPX put spread hedge
 - Stagflation tail risk + restrictive rates + VIX ~21 after spike = pure long-beta unattractive
 - Wait for CPI/Fed clarity
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[bear-put-spread]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

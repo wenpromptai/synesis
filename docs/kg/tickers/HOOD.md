@@ -1,8 +1,8 @@
 ---
 up: []
-related: ["[[themes/insider-selling-clusters]]"]
+related: ["[[themes/insider-selling-clusters]]", "[[strategies/options/bull-call-spread]]", "[[strategies/options/earnings-options-systematic]]"]
 created: 2026-04-10
-type: ticker
+type: "ticker"
 sector: "Financials"
 industry: "Capital Markets / Fintech"
 tags: [ticker, fintech, brokerage]
@@ -21,6 +21,9 @@ Decision: Buy HOOD 65/80 call spread, May 17 2026 (debit); risk 0.50-1.00% NAV
 - Catalyst: Q1 2026 earnings ~Apr 28; product expansion/crypto/derivatives guidance
 - Timeframe: 2-6 weeks (hold through earnings)
 - Source: [[sources/brief-2026-04-10]]
+
+
+**See also:** [[bull-call-spread]] | [[earnings-options-systematic]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

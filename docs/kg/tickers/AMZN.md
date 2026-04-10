@@ -22,5 +22,13 @@ Decision: Buy AMZN May 2026 225/250 call spread + sell May 2026 210 put (risk re
 - Key risk: Macro risk-off compresses multiples; assignment on 210 put if AMZN < 218
 - Source: [[sources/brief-2026-04-10]]
 
+## 2026-04-10 (manual brief update)
+- **STRONG +5.6%** to $233.65 — call spread solidly ITM (spot $233 vs 225/250 strikes)
+- $25B Mississippi datacenter announcement + broad AI capex positive sentiment drove the move
+- **Action:** Hold; consider taking partial profit at 60-70% of max value if AMZN reaches $240+
+- CoreWeave/Meta $35B deal validates hyperscaler AI capex thesis for AMZN's AWS/AI story
+- Source: [[sources/brief-2026-04-10-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-10-manual]] — trade update (+5.6%, partial profit guidance)
