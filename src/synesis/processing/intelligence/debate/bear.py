@@ -32,7 +32,7 @@ from synesis.processing.intelligence.models import TickerDebate
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 3
+_WEB_SEARCH_CAP = 1
 
 SYSTEM_PROMPT = """\
 You are a senior Bear Researcher at a multi-strategy hedge fund. Your job is \
@@ -69,8 +69,10 @@ using specifics from the analyst data. Cite actual numbers — don't be vague.
 - `key_evidence`: 3-6 bullet points of your strongest bearish data points.
 
 ## Tools
-- `web_search(query, recency)` — find risks the analysts missed. Budget: \
-{web_search_cap} calls. Be specific with queries.
+- `web_search(query, recency)` — search for anything that strengthens your \
+bear case: analyst downgrades, competitive threats, regulatory actions, \
+insider selling, earnings misses, or risks the analysts missed. Budget: \
+{web_search_cap} calls.
 - `web_read(url)` — read full article content (~4000 chars). Unlimited.
 
 ## Rules

@@ -1,0 +1,25 @@
+---
+up: []
+related: ["[[themes/insider-selling-clusters]]"]
+created: 2026-04-10
+type: ticker
+sector: "Financials"
+industry: "Crypto / Stablecoin"
+tags: [ticker, crypto, fintech]
+---
+
+# CRCL — Circle (USDC)
+
+**As of 2026-04-10 | Regime: transitioning**
+Decision: Buy CRCL May 2026 85/105 call spread; risk 1.0% NAV; take profit 70-80% max; cut if CRCL < $78
+
+## 2026-04-10
+- Bear: Primarily a rate/USDC-balance carry trade (~96% of rev from reserve income Q3'25); negative ROE/NI; noisy cash conversion; insider selling cluster
+- Bull: Washed-out tape, one-sided positioning (put/call 27; ~10% short); IV < realized — reflex rally potential
+- Defined-risk call spread for upside convexity on squeeze/legislative catalysts
+- Catalyst: Stablecoin legislative progress; exchange/listing announcements; next earnings
+- Timeframe: 4-8 weeks (May expiry)
+- Source: [[sources/brief-2026-04-10]]
+
+> [!quote]- Sources
+> - [[sources/brief-2026-04-10]] — initial observation

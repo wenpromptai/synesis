@@ -22,6 +22,8 @@ docs/kg/
 ├── _compile_log.md        # Append-only audit trail of compilation operations
 ├── raw/                   # Source documents (PDFs, articles, web clips)
 │   └── synesis_briefs/    # Auto-saved pipeline briefs (YYYY-MM-DD.md)
+├── tickers/               # Per-ticker research files (living research dossiers)
+├── themes/                # Cross-cutting risk/opportunity themes linking multiple tickers
 ├── sources/               # Extracted summaries from raw/ documents
 ├── maps/                  # Maps of Content (MOCs) — topic indexes
 │   └── home.md            # Root MOC linking to all maps
@@ -32,31 +34,45 @@ docs/kg/
 
 ## Node Types
 
-### 1. Concept Node (`concepts/`)
+### 1. Ticker Node (`tickers/`)
+Living research dossier per stock. Accumulates observations across pipeline briefs over time.
+- **Purpose:** Track thesis evolution, key financials, risks, catalysts, and trade history for a specific ticker. Each observation is dated with its source filing/brief.
+- **Temporal:** Every data point cites its source date (e.g., "FY2025 10-K", "2026-04-10 brief"). Older observations are kept — they show thesis evolution.
+- **Density:** Links to themes, strategies used, source briefs, and related tickers
+- **Template:** See TEMPLATES.md § Ticker Node
+
+### 2. Theme Node (`themes/`)
+Cross-cutting risk or opportunity that links multiple tickers. One ticker can belong to many themes; one theme links many tickers.
+- **Purpose:** Answer "which tickers share this exposure?" and track how a theme evolves over time. Examples: AI infrastructure demand, China exposure, customer concentration, geopolitical energy risk, stagflation.
+- **Temporal:** Each ticker's exposure is dated. Themes accumulate observations across briefs.
+- **Density:** Links to all exposed tickers + source briefs
+- **Template:** See TEMPLATES.md § Theme Node
+
+### 3. Concept Node (`concepts/`)
 One atomic idea. Title = the concept name (noun/phrase, not a sentence).
 - **Purpose:** Define a single concept with links to related concepts and strategies that use it
 - **Density:** ~5-10 wikilinks per node
 - **Template:** See TEMPLATES.md § Concept Node
 
-### 2. Strategy Node (`strategies/`)
+### 4. Strategy Node (`strategies/`)
 A structured trading playbook. Includes mechanics, construction, risk, data requirements.
 - **Purpose:** Actionable strategy with clear entry/exit rules and links to underlying concepts
 - **Density:** ~8-15 wikilinks per node
 - **Template:** See TEMPLATES.md § Strategy Node
 
-### 3. Source Node (`sources/`)
+### 5. Source Node (`sources/`)
 Extracted summary from a raw document. Links to concepts and strategies it informs.
 - **Purpose:** Bridge between raw sources and the compiled wiki
 - **Density:** ~10-20 wikilinks per node (every concept/strategy mentioned gets linked)
 - **Template:** See TEMPLATES.md § Source Node
 
-### 4. Map Node (`maps/`)
+### 6. Map Node (`maps/`)
 MOC that gathers related nodes into a navigable index.
 - **Purpose:** Topic-level entry point; gather → collide → navigate
 - **Density:** Links to all nodes in its domain
 - **Template:** See TEMPLATES.md § Map Node
 
-### 5. Connection Node (`sources/connections/`)
+### 7. Connection Node (`sources/connections/`)
 A non-obvious relationship between 2+ existing nodes discovered during compilation or linting.
 - **Purpose:** Capture insights that don't belong to any single concept or strategy — the "aha" links
 - **Example:** "Calendar spreads outperform in pre-earnings + low IV rank environments"
@@ -154,7 +170,7 @@ Each entry is one line in a table, grouped by type:
 **Rules:**
 - **One-liner:** max ~80 chars — enough for the LLM to judge relevance without reading the full node
 - **Updated:** last date the node was created or significantly modified
-- **Sort order:** strategies → concepts → sources → connections
+- **Sort order:** tickers → themes → strategies → concepts → sources → connections
 - **Every node** in `docs/kg/` must appear here. `/kg-lint` check #6 enforces this.
 
 ---
@@ -176,9 +192,20 @@ All nodes MUST have:
 up: []                       # Hierarchical parent (if any)
 related: ["[[Node]]"]         # Conceptually related nodes
 created: YYYY-MM-DD
-type: concept | strategy | source | connection
+type: ticker | theme | concept | strategy | source | connection
 tags: [domain-tags]
 ---
+```
+
+Ticker nodes additionally have:
+```yaml
+sector: "Technology"               # GICS sector
+industry: "Semiconductors"         # GICS industry
+```
+
+Theme nodes additionally have:
+```yaml
+theme_type: risk | opportunity | macro | sector | geopolitical
 ```
 
 Strategy nodes additionally have:

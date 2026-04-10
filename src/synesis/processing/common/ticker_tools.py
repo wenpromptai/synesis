@@ -17,7 +17,7 @@ from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_TICKERS_FILE = Path(__file__).resolve().parents[4] / "data" / "us_tickers.json"
+_TICKERS_FILE = Path.cwd() / "data" / "us_tickers.json"
 
 # In-memory cache of the ticker file (loaded once on first call)
 _ticker_cache: dict[str, str] | None = None

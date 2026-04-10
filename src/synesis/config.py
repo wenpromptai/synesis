@@ -79,10 +79,13 @@ class Settings(CacheTTLSettings, BaseSettings):
         description="Bull/bear debate rounds per ticker (0=parallel/no debate, 1+=sequential rounds)",
     )
     trader_mode: Literal["per_ticker", "portfolio"] = Field(
-        default="per_ticker",
+        default="portfolio",
         description="Trader evaluation mode: 'per_ticker' or 'portfolio'",
     )
-
+    kg_briefs_dir: str = Field(
+        default="docs/kg/raw/synesis_briefs",
+        description="Directory for saving intelligence brief markdown files (relative to cwd or absolute)",
+    )
     # Discord (notifications)
     discord_webhook_url: SecretStr | None = Field(
         default=None,
@@ -192,31 +195,9 @@ class Settings(CacheTTLSettings, BaseSettings):
     )
 
     # Web Search APIs (for LLM tool use)
-    # Priority: Brave (primary, 2000 req/month) → Exa keys (fallback). SearXNG for ticker searches only.
+    # Brave (primary, 2000 req/month free tier). SearXNG for ticker searches only.
     searxng_url: str | None = Field(default="http://localhost:8080")
-    exa_api_key: SecretStr | None = Field(default=None)
-    exa_wenprompt_api_key: SecretStr | None = Field(default=None, alias="EXA_WENPROMPT_API_KEY")
-    exa_wenpromptai_api_key: SecretStr | None = Field(default=None, alias="EXA_WENPROMPTAI_API_KEY")
-    exa_wangwhpt_api_key: SecretStr | None = Field(default=None, alias="EXA_WANGWHPT_API_KEY")
     brave_api_key: SecretStr | None = Field(default=None)
-
-    @property
-    def exa_api_keys(self) -> list[str]:
-        """All configured Exa API keys, deduplicated and in order."""
-        keys = []
-        seen: set[str] = set()
-        for field in [
-            self.exa_api_key,
-            self.exa_wenprompt_api_key,
-            self.exa_wenpromptai_api_key,
-            self.exa_wangwhpt_api_key,
-        ]:
-            if field:
-                v = field.get_secret_value()
-                if v not in seen:
-                    seen.add(v)
-                    keys.append(v)
-        return keys
 
     # Stock Price Data (Finnhub)
     finnhub_api_key: SecretStr | None = Field(

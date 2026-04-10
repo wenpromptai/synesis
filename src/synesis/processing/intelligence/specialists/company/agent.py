@@ -9,6 +9,7 @@ Three-phase pipeline per ticker:
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -78,7 +79,7 @@ async def _gather_edgar_filings(
     ticker: str,
     crawler: Crawl4AICrawlerProvider | None,
 ) -> dict[str, Any]:
-    """Fetch latest 10-K and 10-Q filing content."""
+    """Fetch latest 10-K, 10-Q, and recent material 8-K filings."""
     filings_10k = await edgar.get_filings(ticker, form_types=["10-K"], limit=1)
     filings_10q = await edgar.get_filings(ticker, form_types=["10-Q"], limit=1)
 
@@ -95,11 +96,24 @@ async def _gather_edgar_filings(
         filing_10q_meta = filings_10q[0]
         content_10q = await edgar.get_filing_content(filings_10q[0].url, crawler=crawler)
 
+    # Fetch recent material 8-K events (last 5, material items only)
+    material_8k_items = ["1.01", "1.02", "2.01", "2.02", "5.02", "7.01", "8.01"]
+    try:
+        events_8k = await edgar.get_8k_events(
+            ticker, items=material_8k_items, limit=5, crawler=crawler
+        )
+    except Exception:
+        logger.warning(
+            "8-K event fetch failed — proceeding without 8-K data", ticker=ticker, exc_info=True
+        )
+        events_8k = []
+
     return {
         "content_10k": content_10k,
         "content_10q": content_10q,
         "filing_10k": filing_10k_meta,
         "filing_10q": filing_10q_meta,
+        "events_8k": events_8k,
     }
 
 
@@ -265,41 +279,64 @@ def _build_insider_signal(insider_data: dict[str, Any]) -> InsiderSignal:
 # ── Phase 3: LLM Synthesis ──────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a fundamental research analyst. You produce deep company analysis from SEC filings,
-financial data, and insider activity.
+You extract qualitative intelligence from SEC filings, financial data, and insider \
+activity — the kind of information NOT available from financial data APIs. Your \
+output feeds directly into bull/bear researchers who will form the investment \
+thesis — your job is to give them clean, structured, fact-rich context to work \
+with. Always preserve specifics: revenue percentages, customer names, filing \
+dates, guidance figures, and regulatory details.
 
 Today's date: {current_date}
 
-## Your Analytical Framework
+## What You're Extracting (in priority order)
 
-1. **EARNINGS QUALITY** (most important)
-   - Cash flow from operations vs reported net income — is the company converting profit to cash?
-   - Revenue recognition patterns: is growth real or pulled forward?
-   - Non-GAAP vs GAAP divergence: are adjustments growing over time?
+1. **GROWTH CATALYSTS & FORWARD NARRATIVE** (highest value)
+   - Product/technology pipeline and transition timeline (e.g., 800G→1.6T→CPO)
+   - AI demand signals, TAM expansion, management revenue/margin projections
+   - Forward guidance from earnings 8-K or MD&A
+   - New markets, sovereign AI, physical AI, or other emerging revenue streams
+   - Capex plans and manufacturing capacity ramp
 
-2. **FINANCIAL STRENGTH**
-   - Pre-computed scores are provided. Interpret what they mean in context.
-   - Piotroski F-Score: 7-9 strong, 4-6 moderate, 0-3 weak
-   - Highlight what's improving vs deteriorating quarter-over-quarter.
+2. **CUSTOMER & SUPPLIER CONCENTRATION** (critical risk signal)
+   - Extract exact percentages: "Customer A = 22% of revenue"
+   - Name customers when disclosed (common in small/mid-cap filings)
+   - Supply chain single-source dependencies (e.g., sole foundry for advanced nodes)
+   - Note if concentration is increasing or decreasing vs prior period
 
-3. **INSIDER ACTIVITY** (unique edge)
-   - Compare insider buying/selling patterns against financial trends.
-   - C-suite buying during price weakness = strong signal of management confidence.
-   - C-suite selling during growth claims = potential red flag — why are they selling?
-   - Cluster activity (3+ insiders within 14 days) = coordinated action worth flagging.
+3. **COMPETITIVE POSITION & MOAT**
+   - What protects this business? (ecosystem lock-in, IP, scale, vertical integration)
+   - Who does management name as competitive threats?
+   - Market share context if disclosed
+   - Technology differentiation vs commoditized products
 
-4. **BUSINESS QUALITY FROM FILINGS**
-   - Extract geographic exposure and concentration risk from 10-K.
-   - Customer/supplier concentration — who are they dependent on?
-   - Competitive moat: what protects this business?
-   - Compare MD&A narrative tone against actual financial numbers — are they consistent?
-   - Newer filings weighted more heavily than older ones.
+4. **GEOGRAPHIC EXPOSURE & REGULATORY RISKS**
+   - Revenue breakdown by region with dollar amounts and percentages
+   - Caveats that modify geographic data (e.g., billing location vs end-customer)
+   - Export controls, tariffs, sanctions — specific to this company
+   - Active litigation, regulatory proceedings (EU DMA, DOJ antitrust, etc.)
+
+5. **FINANCIAL HEALTH & EARNINGS QUALITY**
+   - Pre-computed scores are provided (Piotroski F-Score: 7-9 strong, 4-6 moderate, 0-3 weak)
+   - Cash flow from operations vs reported net income — is profit real?
+   - Non-GAAP vs GAAP divergence trends
+   - Quarter-over-quarter improvement or deterioration
+
+6. **INSIDER ACTIVITY**
+   - Compare insider buying/selling against financial trends and management narrative
+   - C-suite buying during weakness = management confidence signal
+   - C-suite selling during growth claims = potential red flag
+   - Cluster activity (3+ insiders within 14 days) = coordinated action
+
+7. **MATERIAL 8-K EVENTS**
+   - Material agreements, M&A, earnings results, officer changes, Reg FD disclosures
+   - What happened, when, and the key details (dollar amounts, parties, dates)
 
 ## Guidelines
-- NEVER fabricate financial data. If unavailable, say "not available".
-- Always cite which filing period (Q1 2025, FY 2024) data comes from.
+- NEVER fabricate data. If unavailable, say "not available".
+- Always cite which filing period (Q1 2025, FY 2024) or 8-K date data comes from.
 - Cross-reference at least 2 data points before making claims.
-- If insider activity contradicts financial trends, highlight this prominently.
+- If insider activity contradicts financial trends or management narrative, flag prominently.
+- Focus on what the FILINGS reveal that financial data APIs do NOT provide.
 """
 
 
@@ -311,11 +348,114 @@ class _LLMAnalysisOutput(BaseModel):
     risk_assessment: str
     geographic_exposure: str
     key_customers_suppliers: str
+    growth_catalysts: str
+    competitive_position: str
     insider_vs_financials: str
     disclosure_consistency: str
     primary_thesis: str
     key_risks: list[str]
     monitoring_triggers: list[str]
+
+
+def _extract_filing_sections(content: str, form_type: str) -> str:
+    """Extract high-value sections from SEC filing text.
+
+    10-K: Item 1A (Risk Factors, 40K), Item 7 (MD&A, 40K), Item 1 (Business, 20K)
+    10-Q: Part I Item 2 (MD&A, 40K), Part II Item 1A (Risk Factors, 20K)
+
+    All matching sections are extracted and concatenated.
+    Falls back to first 50K chars if no section headers found.
+    """
+    if form_type == "10-K":
+        section_patterns = [
+            (r"(?i)(?:ITEM\s*1A[\.\s\-—:]+RISK\s*FACTORS)", "Risk Factors", 40_000),
+            (r"(?i)(?:ITEM\s*7[\.\s\-—:]+MANAGEMENT.S\s*DISCUSSION)", "MD&A", 40_000),
+            (r"(?i)(?:ITEM\s*1[\.\s\-—:]+BUSINESS(?!\s*COMBINATION))", "Business", 20_000),
+        ]
+    else:
+        section_patterns = [
+            (
+                r"(?i)(?:(?:PART\s*I\s*,?\s*)?ITEM\s*2[\.\s\-—:]+MANAGEMENT.S\s*DISCUSSION)",
+                "MD&A",
+                40_000,
+            ),
+            (
+                r"(?i)(?:(?:PART\s*II\s*,?\s*)?ITEM\s*1A[\.\s\-—:]+RISK\s*FACTORS)",
+                "Risk Factors",
+                20_000,
+            ),
+        ]
+
+    # Pattern to detect start of any ITEM section (used to find section boundaries)
+    item_boundary = re.compile(r"(?i)\n\s*(?:PART\s*[IV]+\s*[\.,]?\s*)?ITEM\s*\d+[A-Z]?[\.\s\-—:]")
+
+    extracted_parts: list[str] = []
+    for pattern, label, max_chars in section_patterns:
+        match = re.search(pattern, content)
+        if not match:
+            continue
+        start = match.start()
+        # Find next ITEM header after this section's content starts
+        rest = content[match.end() :]
+        end_match = item_boundary.search(rest)
+        if end_match:
+            section_text = content[start : match.end() + end_match.start()]
+        else:
+            section_text = content[start:]
+
+        if len(section_text) > max_chars:
+            section_text = section_text[:max_chars] + "\n[... section truncated ...]"
+        extracted_parts.append(f"### {label}\n{section_text}")
+
+    if not extracted_parts:
+        logger.info(
+            "No ITEM headers found in filing — using raw truncation fallback",
+            form_type=form_type,
+            content_len=len(content),
+        )
+        truncated = content[:50_000]
+        if len(content) > 50_000:
+            truncated += "\n[... truncated for length ...]"
+        return truncated
+
+    return "\n\n".join(extracted_parts)
+
+
+def _format_quarterly_summary(quarterly: "QuarterlyFinancials") -> str:
+    """Format a compact quarterly summary instead of full JSON dump.
+
+    Shows key metrics per quarter: Revenue, EPS, Operating Income, FCF.
+    """
+    lines: list[str] = []
+
+    for i, inc in enumerate(quarterly.income[:4]):
+        period = str(inc.period)
+        parts = [f"**{period}**"]
+
+        if inc.total_revenue is not None:
+            parts.append(f"Rev=${inc.total_revenue / 1e9:.2f}B")
+        if inc.basic_eps is not None:
+            parts.append(f"EPS=${inc.basic_eps:.2f}")
+        if inc.operating_income is not None:
+            parts.append(f"OpInc=${inc.operating_income / 1e9:.2f}B")
+        if inc.net_income is not None:
+            parts.append(f"NI=${inc.net_income / 1e9:.2f}B")
+        if inc.gross_profit is not None and inc.total_revenue:
+            parts.append(f"GM={inc.gross_profit / inc.total_revenue:.1%}")
+
+        # Match cash flow by quarter index
+        if i < len(quarterly.cash_flow):
+            cf = quarterly.cash_flow[i]
+            if cf.free_cash_flow is not None:
+                parts.append(f"FCF=${cf.free_cash_flow / 1e9:.2f}B")
+            if cf.operating_cash_flow is not None:
+                parts.append(f"OpCF=${cf.operating_cash_flow / 1e9:.2f}B")
+            if cf.stock_based_compensation is not None:
+                parts.append(f"SBC=${cf.stock_based_compensation / 1e9:.2f}B")
+
+        lines.append("- " + ", ".join(parts))
+
+    return "\n".join(lines) if lines else "No quarterly data available."
 
 
 def _build_user_prompt(
@@ -343,9 +483,8 @@ def _build_user_prompt(
     sections.append("\n## Pre-Computed Financial Health")
     sections.append(financial_health.model_dump_json(indent=2))
 
-    # Include full quarterly financials for LLM to analyze trends
-    sections.append("\n## Quarterly Financial Statements")
-    sections.append(quarterly.model_dump_json(indent=2))
+    sections.append("\n## Quarterly Financial Summary (last 4 quarters)")
+    sections.append(_format_quarterly_summary(quarterly))
 
     sections.append("\n## Insider Activity")
     sections.append(insider_signal.model_dump_json(indent=2))
@@ -365,10 +504,7 @@ def _build_user_prompt(
             f"10-K (filed {meta.filed_date}, period ending {meta.report_date})" if meta else "10-K"
         )
         sections.append(f"\n## Latest Annual Filing: {label}")
-        content = filing_data["content_10k"]
-        if len(content) > 300000:
-            content = content[:300000] + "\n\n[... truncated for length ...]"
-        sections.append(content)
+        sections.append(_extract_filing_sections(filing_data["content_10k"], "10-K"))
 
     if filing_data.get("content_10q"):
         meta = filing_data.get("filing_10q")
@@ -376,20 +512,41 @@ def _build_user_prompt(
             f"10-Q (filed {meta.filed_date}, period ending {meta.report_date})" if meta else "10-Q"
         )
         sections.append(f"\n## Latest Quarterly Filing: {label}")
-        content = filing_data["content_10q"]
-        if len(content) > 200000:
-            content = content[:200000] + "\n\n[... truncated for length ...]"
-        sections.append(content)
+        sections.append(_extract_filing_sections(filing_data["content_10q"], "10-Q"))
+
+    # Material 8-K events (most time-sensitive filings)
+    events_8k = filing_data.get("events_8k", [])
+    if events_8k:
+        sections.append("\n## Recent Material 8-K Events")
+        for event in events_8k:
+            items_str = ", ".join(event.item_descriptions) if event.item_descriptions else "Other"
+            sections.append(f"\n### 8-K ({event.filed_date}) — {items_str}")
+            if event.content:
+                # Truncate 8-K content to keep context manageable
+                content = event.content
+                if len(content) > 10_000:
+                    content = content[:10_000] + "\n[... truncated ...]"
+                sections.append(content)
 
     sections.append(
         "\n## Instructions\n"
-        "Produce a thorough company analysis covering: business_summary (what they do, "
-        "competitive position), earnings_quality (cash conversion, revenue recognition), "
-        "risk_assessment (key risks from filings), geographic_exposure, "
-        "key_customers_suppliers (concentration risks), insider_vs_financials "
-        "(do insider actions align with the numbers?), disclosure_consistency "
-        "(does MD&A match reality?), primary_thesis (one-paragraph key finding), "
-        "key_risks (top 3), and monitoring_triggers (what to watch next)."
+        "Produce a thorough company analysis. For each field:\n"
+        "- **business_summary**: What they do, market position, key products/services\n"
+        "- **earnings_quality**: Cash conversion, revenue recognition, GAAP vs non-GAAP\n"
+        "- **risk_assessment**: Key risks from filings (regulatory, geopolitical, operational)\n"
+        "- **geographic_exposure**: Revenue by region with % and caveats\n"
+        "- **key_customers_suppliers**: Concentration % (e.g., 'Customer A = 22% of revenue'), "
+        "supply chain dependencies\n"
+        "- **growth_catalysts**: Product pipeline, AI/tech demand signals, forward guidance, "
+        "TAM expansion, management projections, upcoming catalysts\n"
+        "- **competitive_position**: Moat (ecosystem, IP, scale), competitive threats, "
+        "market share context\n"
+        "- **insider_vs_financials**: Do insider actions align with management narrative?\n"
+        "- **disclosure_consistency**: Does MD&A match reality? Any red flags in tone?\n"
+        "- **primary_thesis**: One-paragraph key finding for an investment analyst\n"
+        "- **key_risks**: Top 3 risks\n"
+        "- **monitoring_triggers**: What to watch next (earnings, regulatory deadlines, "
+        "product launches, order announcements)"
     )
 
     return "\n".join(sections)
@@ -417,7 +574,7 @@ async def analyze_company(
 
     # yfinance is required — drives Phase 2 scoring
     if isinstance(results[0], BaseException):
-        logger.error("yfinance fetch failed — cannot proceed", ticker=ticker, error=str(results[0]))
+        logger.error("yfinance fetch failed — cannot proceed", ticker=ticker, exc_info=results[0])
         raise results[0]
     yf_data = results[0]
 
@@ -433,13 +590,14 @@ async def analyze_company(
         "content_10q": None,
         "filing_10k": None,
         "filing_10q": None,
+        "events_8k": [],
     }
 
     if isinstance(results[1], BaseException):
         logger.warning(
             "EDGAR insider fetch failed — proceeding without insider data",
             ticker=ticker,
-            error=str(results[1]),
+            exc_info=results[1],
         )
         insider_data = _empty_insider
     else:
@@ -449,7 +607,7 @@ async def analyze_company(
         logger.warning(
             "EDGAR filing fetch failed — proceeding without filing prose",
             ticker=ticker,
-            error=str(results[2]),
+            exc_info=results[2],
         )
         filing_data = _empty_filing
     else:
@@ -500,7 +658,7 @@ async def analyze_company(
 
     # Phase 3: LLM synthesis
     agent = Agent(
-        model=create_model(tier="vsmart"),
+        model=create_model(smart=True),
         output_type=_LLMAnalysisOutput,
         system_prompt=SYSTEM_PROMPT.format(current_date=deps.current_date),
     )
@@ -555,6 +713,8 @@ async def analyze_company(
         risk_assessment=llm_output.risk_assessment,
         geographic_exposure=llm_output.geographic_exposure,
         key_customers_suppliers=llm_output.key_customers_suppliers,
+        growth_catalysts=llm_output.growth_catalysts,
+        competitive_position=llm_output.competitive_position,
         insider_vs_financials=llm_output.insider_vs_financials,
         disclosure_consistency=llm_output.disclosure_consistency,
         primary_thesis=llm_output.primary_thesis,

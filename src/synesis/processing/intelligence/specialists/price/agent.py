@@ -219,14 +219,16 @@ def _derive_options_metrics(
 # ── Phase 3: LLM Synthesis ──────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are an expert technical analyst and options strategist.
+You summarize pre-computed technical indicators and options metrics into clear, \
+fact-rich narratives. Your output feeds directly into bull/bear researchers who \
+will form the investment thesis — your job is to describe what the data shows \
+with specific numbers, not what to trade.
 
 Today's date: {current_date}
 
 ## Your Job
 
-You receive pre-computed technical indicators and options metrics for a specific ticker.
-Produce two narratives:
+Produce two factual narratives from the pre-computed data provided:
 
 1. **technical_narrative**: 3-5 sentences on the price/technical picture.
    - Synthesize trend (EMA cross, ADX), momentum (RSI, MACD), volatility (BB width, ATR%),
@@ -239,7 +241,7 @@ Produce two narratives:
    - Note the skew (put IV / call IV) and put/call volume ratio.
    - If any metrics are null, note what's available and interpret that.
 
-Cite specific numbers. Focus on what the data shows, not what to trade.
+Cite specific numbers. Describe what the data shows, not what to trade.
 """
 
 
@@ -301,7 +303,7 @@ async def analyze_price(ticker: str, deps: PriceDeps) -> PriceAnalysis:
 
     # Phase 3: LLM synthesis — only produces narratives
     agent: Agent[None, _PriceNarratives] = Agent(
-        model=create_model(tier="vsmart"),
+        model=create_model(smart=True),
         output_type=_PriceNarratives,
         system_prompt=SYSTEM_PROMPT.format(current_date=deps.current_date),
     )

@@ -45,10 +45,18 @@ async def _bull_debate_node(state: DebateState) -> dict[str, Any]:
     ticker = state["ticker"]
     round_num = state["round"]
     logger.info("BullResearcher debate round starting", ticker=ticker, round=round_num)
-    current = date.fromisoformat(state["current_date"])
-    result = await research_bull(dict(state), current, debate_history=state["debate_history"])
-    logger.info("BullResearcher debate round complete", ticker=ticker, round=round_num)
-    return {"debate_history": [result.model_dump(mode="json")]}
+    try:
+        current = date.fromisoformat(state["current_date"])
+        result = await research_bull(dict(state), current, debate_history=state["debate_history"])
+        logger.info("BullResearcher debate round complete", ticker=ticker, round=round_num)
+        return {"debate_history": [result.model_dump(mode="json")]}
+    except Exception:
+        logger.exception("BullResearcher debate round failed", ticker=ticker, round=round_num)
+        return {
+            "debate_history": [
+                {"ticker": ticker, "role": "bull", "round": round_num, "error": True}
+            ]
+        }
 
 
 async def _bear_debate_node(state: DebateState) -> dict[str, Any]:
@@ -56,13 +64,22 @@ async def _bear_debate_node(state: DebateState) -> dict[str, Any]:
     ticker = state["ticker"]
     round_num = state["round"]
     logger.info("BearResearcher debate round starting", ticker=ticker, round=round_num)
-    current = date.fromisoformat(state["current_date"])
-    result = await research_bear(dict(state), current, debate_history=state["debate_history"])
-    logger.info("BearResearcher debate round complete", ticker=ticker, round=round_num)
-    return {
-        "debate_history": [result.model_dump(mode="json")],
-        "round": state["round"] + 1,
-    }
+    try:
+        current = date.fromisoformat(state["current_date"])
+        result = await research_bear(dict(state), current, debate_history=state["debate_history"])
+        logger.info("BearResearcher debate round complete", ticker=ticker, round=round_num)
+        return {
+            "debate_history": [result.model_dump(mode="json")],
+            "round": state["round"] + 1,
+        }
+    except Exception:
+        logger.exception("BearResearcher debate round failed", ticker=ticker, round=round_num)
+        return {
+            "debate_history": [
+                {"ticker": ticker, "role": "bear", "round": round_num, "error": True}
+            ],
+            "round": state["round"] + 1,
+        }
 
 
 def _should_continue(state: DebateState) -> str:

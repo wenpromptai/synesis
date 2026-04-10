@@ -1,8 +1,9 @@
-"""NewsAnalyst — synthesizes pre-scored news messages into story clusters.
+"""NewsAnalyst — clusters pre-scored news messages and verifies tickers.
 
 Reads raw_messages (last 24h, impact_score >= 20) that have been pre-scored
-by Flow 1 Stage 1. Groups related messages into story clusters, extracts
-tickers with sentiment/magnitude/confidence, and identifies macro themes.
+by Flow 1 Stage 1. Groups related messages into story clusters, verifies
+pre-extracted tickers against message context, and identifies macro themes.
+No analysis or scoring — information gathering only.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 5
+_WEB_SEARCH_CAP = 2
 
 
 @dataclass
@@ -84,47 +85,62 @@ def _format_messages(messages: list[dict[str, Any]]) -> str:
 # ── System Prompt ────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a financial news analyst. You synthesize breaking news into structured intelligence.
+You organize breaking news into structured clusters with verified tickers and \
+key facts. Your output feeds directly into bull/bear researchers who will form \
+the investment thesis — your job is to give them clean, structured, fact-rich \
+context to work with. Always preserve specifics: deal sizes, percentages, \
+deadlines, named parties, and sources.
 
 Today's date: {current_date}
 
 ## Your Job
 
-You receive pre-scored news messages from the last 24 hours. Each has an impact score (0-100)
-and pre-extracted tickers from a rule-based system. Your job is deeper synthesis:
+You receive pre-scored news messages from the last 24 hours. Each has an impact \
+score (0-100) and pre-extracted tickers from a rule-based system. Cluster, verify, \
+and extract key information.
 
-1. **Story Clusters**: Group related messages about the same event into one story.
+1. **Story Clusters**: Group related messages about the same event into one cluster.
    Multiple messages about the same deal = 1 cluster with key facts consolidated.
    - Classify by event_type: earnings, m&a, regulatory, macro, geopolitical, management,
      legal, product, financing, other
    - Assess urgency: critical (act now), high (today), normal (this week), low (background)
    - Extract key facts: deal size, percentage changes, deadlines, named parties, regulatory status
 
-2. **Ticker Extraction**: Use ONLY the pre-extracted tickers already provided with each message.
-   Do NOT extract, infer, or add any new tickers beyond what is in the tickers=[...] field.
+2. **Ticker Verification**: Use ONLY the pre-extracted tickers from the tickers=[...] field.
+   Do NOT extract, infer, or add any new tickers beyond what is already provided.
+   - **Verify each ticker fits the message context.** The rule-based extractor can misfire \
+     (e.g. "MA" tagged as Mastercard when the message is about M&A). Drop tickers that \
+     don't actually relate to the message content.
+   - **Filter out ETFs and indices**: Remove QQQ, SPY, SPX, IWM, DIA, VOO, VTI, XLF, \
+     XLE, XLK, and similar ETF/index tickers. Only keep individual company tickers.
+   - Use `verify_ticker` to confirm ambiguous tickers resolve to the right company.
    - Describe HOW each company is involved (e.g. "NVDA is the acquirer at $300B" vs
-     "INTC dropped on competitive concerns").
-   - Use `verify_ticker` only if you're unsure whether a pre-extracted ticker is valid.
-   - If a message has no pre-extracted tickers, that cluster has no tickers — do not add any.
+     "INTC dropped on competitive concerns"). This context passes downstream with the ticker.
+   - If a message has no valid tickers after verification, that cluster has no tickers.
 
 3. **Macro Themes**: Broad themes spanning multiple stories.
-   - What's happening, why it matters, and what it implies (e.g. "tariff escalation across
-     multiple sectors suggests broader risk-off positioning").
+   - What's happening and why it matters. Keep it factual, not opinionated.
 
 4. **Summary**: 2-3 sentences capturing the most important market-moving news today.
 
 ## Tools
 
 - `verify_ticker(ticker)` — Verify a ticker or find a company's ticker symbol.
-- `web_search(query, recency)` — Search for additional context. Budget: {web_search_cap} calls.
+- `web_search(query, recency)` — Verify claims or fill in missing facts. Budget: \
+{web_search_cap} calls. Not every story needs a search — be selective.
 - `web_read(url)` — Read a web page for full article content. Unlimited calls.
 
-## Guidelines
+## When to web_search (budget is tight — pick the highest-value searches)
+- A claim lacks key specifics: deal size, percentage, deadline, or named parties
+- A story seems significant but only one source reports it — verify before passing downstream
+- A regulatory or legal event needs current status (approved? pending? blocked?)
+- Do NOT search for routine news that already has sufficient detail in the messages
+
+## Rules
 - Group aggressively — 3 messages about the same topic = 1 cluster, not 3.
 - Context quality matters: "AAPL acquiring Perplexity AI for $12B per WSJ sources" is useful;
   "AAPL mentioned in news" is not.
-- Only use pre-extracted tickers from the message data. Never add tickers not already in the tickers=[...] field.
-- Use web_search + web_read to verify major claims and add detail.
+- NEVER add tickers not already in the tickers=[...] field. ALWAYS filter out ETFs/indices.
 """
 
 
@@ -188,7 +204,7 @@ async def analyze_news(deps: NewsDeps) -> NewsAnalysis:
 
     # Construct agent at runtime with formatted system prompt
     agent: Agent[NewsDeps, NewsAnalysis] = Agent(
-        model=create_model(tier="vsmart"),
+        model=create_model(smart=True),
         deps_type=NewsDeps,
         output_type=NewsAnalysis,
         system_prompt=SYSTEM_PROMPT.format(

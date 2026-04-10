@@ -32,6 +32,8 @@ Execute these checks in order, reporting findings for each:
 ### 4. Missing Frontmatter
 - For each `.md` file (exclude `_index.md`), check YAML frontmatter exists and contains:
   - Required: `type`, `created`, `up`
+  - Ticker nodes also need: `sector`, `industry`
+  - Theme nodes also need: `theme_type`
   - Strategy nodes also need: `category`, `complexity`
 - **Report:** List of files with missing required fields
 

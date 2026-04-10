@@ -157,7 +157,7 @@ def _format_single_company(c: dict[str, Any]) -> list[str]:
     for rf in c.get("red_flags", []):
         lines.append(f"[{rf.get('severity', '?')}] {rf.get('flag', '')}: {rf.get('evidence', '')}")
 
-    # ── Qualitative Insights (from 10-K/10-Q) ──
+    # ── Qualitative Insights (from 10-K/10-Q/8-K) ──
     if c.get("business_summary"):
         lines.append(f"Business: {c['business_summary']}")
     if c.get("earnings_quality"):
@@ -168,6 +168,10 @@ def _format_single_company(c: dict[str, Any]) -> list[str]:
         lines.append(f"Geographic Exposure: {c['geographic_exposure']}")
     if c.get("key_customers_suppliers"):
         lines.append(f"Key Customers/Suppliers: {c['key_customers_suppliers']}")
+    if c.get("growth_catalysts"):
+        lines.append(f"Growth Catalysts: {c['growth_catalysts']}")
+    if c.get("competitive_position"):
+        lines.append(f"Competitive Position: {c['competitive_position']}")
 
     # ── Cross-Referenced Insights ──
     if c.get("insider_vs_financials"):
@@ -289,6 +293,8 @@ def format_debate_history(history: list[dict[str, Any]]) -> str:
         return ""
     lines = ["## Prior Debate"]
     for arg in history:
+        if arg.get("error"):
+            continue
         role = arg.get("role", "?").upper()
         lines.append(f"\n### {role} (Round {arg.get('round', '?')})")
         lines.append(arg.get("argument", ""))
@@ -297,6 +303,46 @@ def format_debate_history(history: list[dict[str, Any]]) -> str:
             lines.append("Key evidence:")
             for e in evidence:
                 lines.append(f"- {e}")
+    return "\n".join(lines)
+
+
+def format_debate_summary_for_ticker(state: dict[str, Any], ticker: str) -> str:
+    """Format debate for the Trader — last round's full argument + key_evidence per side.
+
+    Only the final round for each side is included (the most refined take).
+    Earlier rounds are discarded to keep context manageable.
+    """
+    bull_analyses = state.get("bull_analyses", [])
+    bear_analyses = state.get("bear_analyses", [])
+
+    bull_items = sorted(
+        [b for b in bull_analyses if b.get("ticker") == ticker and not b.get("error")],
+        key=lambda x: x.get("round", 0),
+    )
+    bear_items = sorted(
+        [b for b in bear_analyses if b.get("ticker") == ticker and not b.get("error")],
+        key=lambda x: x.get("round", 0),
+    )
+
+    if not bull_items and not bear_items:
+        return f"## Debate: {ticker}\n[No debate available — analysis failed or missing]"
+
+    lines = [f"## Debate: {ticker}"]
+
+    if bull_items:
+        last_bull = bull_items[-1]
+        lines.append(f"\n### BULL (Round {last_bull.get('round', '?')})")
+        lines.append(last_bull.get("argument") or "[argument not available]")
+        for e in last_bull.get("key_evidence", []):
+            lines.append(f"- {e}")
+
+    if bear_items:
+        last_bear = bear_items[-1]
+        lines.append(f"\n### BEAR (Round {last_bear.get('round', '?')})")
+        lines.append(last_bear.get("argument") or "[argument not available]")
+        for e in last_bear.get("key_evidence", []):
+            lines.append(f"- {e}")
+
     return "\n".join(lines)
 
 

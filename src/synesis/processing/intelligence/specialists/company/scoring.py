@@ -66,39 +66,6 @@ def compute_piotroski_f(
     return sum(valid)
 
 
-def compute_beneish_m(
-    dsri: float | None,
-    gmi: float | None,
-    aqi: float | None,
-    sgi: float | None,
-    depi: float | None,
-    sgai: float | None,
-    lvgi: float | None,
-    tata: float | None,
-) -> float | None:
-    """Compute Beneish M-Score for earnings manipulation detection.
-
-    M > -1.78 suggests likely manipulation.
-    Requires 2 years of financial data to compute input indices.
-    Returns None if any component is None.
-    """
-    components = [dsri, gmi, aqi, sgi, depi, sgai, lvgi, tata]
-    if any(c is None for c in components):
-        return None
-
-    return (
-        -4.84
-        + 0.920 * dsri  # type: ignore[operator]
-        + 0.528 * gmi  # type: ignore[operator]
-        + 0.404 * aqi  # type: ignore[operator]
-        + 0.892 * sgi  # type: ignore[operator]
-        + 0.115 * depi  # type: ignore[operator]
-        - 0.172 * sgai  # type: ignore[operator]
-        + 4.679 * tata  # type: ignore[operator]
-        - 0.327 * lvgi  # type: ignore[operator]
-    )
-
-
 def detect_insider_cluster(
     transactions: list[dict[str, Any]],
     window_days: int = 14,

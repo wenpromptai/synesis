@@ -11,10 +11,7 @@ import orjson
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.notifications.discord import send_discord
-from synesis.processing.common.web_search import (
-    SearchProvidersExhaustedError,
-    search_market_impact,
-)
+from synesis.processing.common.web_search import search_market_impact
 from synesis.processing.market.analyze import analyze_market_brief, identify_context_gaps
 from synesis.processing.market.discord_format import (
     format_analysis_embeds,
@@ -90,9 +87,6 @@ async def _search_one(query: str) -> list[dict[str, Any]]:
     """Run a single web search query, returning [] on failure."""
     try:
         return await search_market_impact(query, count=3, recency="day")
-    except SearchProvidersExhaustedError:
-        logger.warning("Web search unavailable", query=query)
-        return []
     except Exception:
         logger.warning("Web search failed", query=query, exc_info=True)
         return []

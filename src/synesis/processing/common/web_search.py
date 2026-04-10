@@ -1,8 +1,8 @@
 """Web search utility for market impact analysis.
 
-Provides web search with fallback chain: Brave -> Exa.
-Brave (2000 req/month refreshing) is primary. Exa (1000/key, finite reserve)
-is fallback.
+Provides web search via Brave Search API (2000 req/month free tier).
+Circuit breaker trips after 3 consecutive failures — all subsequent calls
+return empty results for the rest of the process lifetime.
 
 Crawl4AI page reading is handled separately by the Stage 2 LLM's web_read tool —
 the LLM decides which URLs to read in full after reviewing search results.
@@ -25,20 +25,17 @@ from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Fixed API URLs (external public APIs)
-EXA_API_URL = "https://api.exa.ai/search"
+# Fixed API URL
 BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
 
 # Brave rate limiter — module-level singleton shared across all processors.
-# Enforces brave_min_interval (default 1.5s) between calls to stay within Brave's 1 req/s limit.
-_brave_lock = asyncio.Lock()
+_brave_lock: asyncio.Lock | None = None
 _brave_last_call: float = 0.0
 
-
-class SearchProvidersExhaustedError(Exception):
-    """Raised when all search providers fail or are not configured."""
-
-    pass
+# Circuit breaker — trips after _BRAVE_CB_THRESHOLD consecutive failures.
+_BRAVE_CB_THRESHOLD = 3
+_brave_fail_count: int = 0
+_brave_tripped: bool = False
 
 
 # Timeouts
@@ -56,10 +53,9 @@ async def search_market_impact(
     count: int = 5,
     recency: Recency = "day",
 ) -> list[dict[str, Any]]:
-    """Search for market impact info with fallback chain: Brave -> Exa.
+    """Search for market impact info via Brave Search.
 
-    Brave results: top 2 URLs crawled via Crawl4AI in parallel (~2000 chars each),
-    results 3+ keep bare snippets. Exa fallback: bare snippets only, no crawling.
+    Returns empty list if the circuit breaker has tripped (quota/rate exhausted).
 
     Args:
         query: Search query (e.g., "Fed rate cut stocks affected")
@@ -69,35 +65,27 @@ async def search_market_impact(
     Returns:
         List of dicts with 'title', 'snippet', and 'url' keys
     """
+    if _brave_tripped:
+        logger.info("Brave circuit breaker tripped — skipping search", query=query)
+        return []
+
     settings = get_settings()
 
-    # 1. Brave — 2000 req/month (refreshing), primary provider
-    if settings.brave_api_key:
-        try:
-            results = await _search_brave(
-                query, count, settings.brave_api_key.get_secret_value(), recency
-            )
-            if results:
-                logger.debug("Brave search successful", query=query, results=len(results))
-                return results
-        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-            logger.warning("Brave search failed, trying Exa", error=str(e))
+    if not settings.brave_api_key:
+        logger.info("Brave API key not configured — skipping search")
+        return []
 
-    # 2. Exa keys — finite reserve (1000/key, no monthly refresh), cycle through all
-    for i, exa_key in enumerate(settings.exa_api_keys):
-        try:
-            results = await _search_exa(query, count, exa_key, recency)
-            if results:
-                logger.debug("Exa search successful", query=query, results=len(results))
-                return results
-        except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError, KeyError) as e:
-            logger.warning("Exa key failed, trying next", key_index=i, error=str(e))
+    try:
+        results = await _search_brave(
+            query, count, settings.brave_api_key.get_secret_value(), recency
+        )
+        if results:
+            logger.debug("Brave search successful", query=query, results=len(results))
+            return results
+    except (httpx.HTTPError, httpx.RequestError, json.JSONDecodeError) as e:
+        logger.warning("Brave search failed", error=str(e))
 
-    logger.error("All search providers failed or not configured", query=query)
-    raise SearchProvidersExhaustedError(
-        "All search providers failed or not configured. "
-        "Configure at least one of: BRAVE_API_KEY or EXA_API_KEY"
-    )
+    return []
 
 
 def _get_date_range(recency: Recency) -> tuple[date | None, date]:
@@ -179,53 +167,19 @@ async def read_web_page(url: str, max_chars: int = _READ_MAX_CHARS) -> str:
         await crawler.close()
 
 
-async def _search_exa(
-    query: str, count: int, api_key: str, recency: Recency
-) -> list[dict[str, Any]]:
-    """Search using Exa API (neural search, great for financial content)."""
-    payload: dict[str, Any] = {
-        "query": query,
-        "numResults": count,
-        "type": "neural",
-        "useAutoprompt": True,
-        "contents": {"text": {"maxCharacters": 300}},
-    }
-
-    # Add date filter for recent results
-    if recency != "none":
-        start_date, _ = _get_date_range(recency)
-        if start_date:
-            payload["startPublishedDate"] = start_date.isoformat()
-
-    async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
-        response = await client.post(
-            EXA_API_URL,
-            headers={"x-api-key": api_key, "Content-Type": "application/json"},
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        return [
-            {
-                "title": r.get("title", ""),
-                "snippet": r.get("text", "")[:300],
-                "url": r.get("url", ""),
-                "published_date": r.get("publishedDate", ""),
-            }
-            for r in data.get("results", [])
-        ]
-
-
 async def _search_brave(
     query: str, count: int, api_key: str, recency: Recency
 ) -> list[dict[str, Any]]:
     """Search using Brave Search API.
 
-    Rate-limited by the module-level _brave_lock singleton using
-    settings.brave_min_interval (default 1.5s) between calls.
+    Rate-limited via lazy-initialized asyncio.Lock + settings.brave_min_interval.
+    Circuit breaker trips after _BRAVE_CB_THRESHOLD consecutive failures.
     """
-    global _brave_last_call
+    global _brave_lock, _brave_last_call, _brave_fail_count, _brave_tripped
+
+    if _brave_lock is None:
+        _brave_lock = asyncio.Lock()
+
     min_interval = get_settings().brave_min_interval
     async with _brave_lock:
         elapsed = time.monotonic() - _brave_last_call
@@ -249,7 +203,20 @@ async def _search_brave(
             },
             params=params,
         )
+        if response.status_code == 429:
+            _brave_fail_count += 1
+            if _brave_fail_count >= _BRAVE_CB_THRESHOLD:
+                _brave_tripped = True
+                logger.warning(
+                    "Brave circuit breaker tripped — disabling web search for this process",
+                    consecutive_failures=_brave_fail_count,
+                )
+            response.raise_for_status()
+
         response.raise_for_status()
+
+        # Success (2xx) — reset failure counter
+        _brave_fail_count = 0
         data = response.json()
 
         return [

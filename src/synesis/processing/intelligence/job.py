@@ -132,10 +132,14 @@ def _save_brief_to_kg(brief: dict[str, Any]) -> None:
         return
 
     try:
-        kg_dir = Path(__file__).resolve().parents[4] / "docs" / "kg" / "raw" / "synesis_briefs"
+        settings = get_settings()
+        kg_dir = Path(settings.kg_briefs_dir)
+        if not kg_dir.is_absolute():
+            project_root = Path.cwd()
+            kg_dir = project_root / kg_dir
         kg_dir.mkdir(parents=True, exist_ok=True)
         brief_path = kg_dir / f"{brief_date}.md"
         brief_path.write_text(format_brief_as_markdown(brief), encoding="utf-8")
         logger.info("Brief saved to KG", path=str(brief_path))
     except Exception:
-        logger.error("Failed to save brief to KG", exc_info=True)
+        logger.error("Failed to save brief to KG", brief_date=brief_date, exc_info=True)

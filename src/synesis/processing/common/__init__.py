@@ -11,14 +11,12 @@ from synesis.processing.common.ticker_tools import verify_ticker
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.common.web_search import (
     Recency,
-    SearchProvidersExhaustedError,
     format_search_results,
     search_market_impact,
 )
 
 __all__ = [
     "Recency",
-    "SearchProvidersExhaustedError",
     "WatchlistManager",
     "create_model",
     "format_search_results",

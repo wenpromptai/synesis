@@ -12,6 +12,60 @@ All node types can include source citations when updated during compilation. Add
 
 ---
 
+## Ticker Node
+
+Per-stock research dossier. Structure is up to the LLM — adapt to what's useful for each ticker.
+
+**Required frontmatter:** `type: ticker`, `created`, `sector`, `industry`
+
+**Hard rules:**
+- Date every observation, financial figure, and relationship with its source (e.g., "Rev $130.5B (FY2025 10-K)", "Digicomm 53% of revenue (FY2025 10-K)")
+- Never delete old observations — they show thesis evolution
+- Link to themes and source briefs
+
+**Minimal example:**
+```markdown
+---
+up: []
+related: []
+created: 2026-04-10
+type: ticker
+sector: "Technology"
+industry: "Semiconductors"
+tags: [ticker]
+---
+
+# NVDA — NVIDIA Corporation
+```
+
+---
+
+## Theme Node
+
+Cross-cutting risk, opportunity, or factor linking multiple tickers. Themes are emergent — discovered from patterns, not predefined.
+
+**Required frontmatter:** `type: theme`, `created`, `theme_type`
+
+**Hard rules:**
+- Each ticker's exposure must be dated (e.g., "as of FY2025 10-K")
+- Accumulate observations over time — don't overwrite, append
+
+**Minimal example:**
+```markdown
+---
+up: []
+related: []
+created: 2026-04-10
+type: theme
+theme_type: risk
+tags: [theme]
+---
+
+# Customer Concentration Risk
+```
+
+---
+
 ## Concept Node
 
 ```markdown

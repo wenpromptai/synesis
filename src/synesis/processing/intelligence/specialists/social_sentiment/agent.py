@@ -1,7 +1,8 @@
-"""SocialSentimentAnalyst — analyzes Twitter/X feeds for trading signals and macro themes.
+"""SocialSentimentAnalyst — extracts explicit tickers and macro themes from Twitter/X.
 
-Reads raw tweets from the last 24h, applies account bias/credibility weighting,
-uses web tools to verify context, and outputs ticker mentions + macro themes.
+Reads raw tweets from the last 24h, extracts only explicitly mentioned tickers,
+verifies them against tweet context, and identifies macro themes.
+No analysis or scoring — information gathering only.
 """
 
 from __future__ import annotations
@@ -15,12 +16,6 @@ from pydantic_ai import Agent, RunContext
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
 from synesis.processing.common.ticker_tools import verify_ticker
-from synesis.processing.common.web_search import (
-    Recency,
-    format_search_results,
-    read_web_page,
-    search_market_impact,
-)
 from synesis.processing.intelligence.models import SocialSentimentAnalysis
 from synesis.processing.intelligence.specialists.social_sentiment.x_accounts import (
     get_profile,
@@ -31,8 +26,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 5
-
 
 @dataclass
 class SocialSentimentDeps:
@@ -40,7 +33,6 @@ class SocialSentimentDeps:
 
     db: Database
     current_date: date = field(default_factory=lambda: datetime.now(UTC).date())
-    web_search_calls: int = 0
 
 
 # ── Data Gathering ───────────────────────────────────────────────
@@ -100,42 +92,43 @@ def _format_tweets_by_account(tweets: list[dict[str, Any]]) -> str:
 # ── System Prompt ────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a financial analyst extracting key intelligence from curated Twitter/X accounts.
+You extract key intelligence from curated Twitter/X financial accounts. Your output \
+feeds directly into bull/bear researchers who will form the investment thesis — \
+your job is to give them clean, structured, fact-rich context to work with. \
+Always preserve specifics: dollar amounts, percentages, dates, names, and sources.
 
 Today's date: {current_date}
 
 ## Your Job
 
-Extract the most valuable information from the tweets provided:
+Extract key information from the tweets provided.
 
-1. **Ticker Mentions**: Only tickers explicitly mentioned by name or cashtag in the tweets.
-   - Do NOT infer or guess tickers that are not explicitly written in the post.
-     For example, a tweet about "oil stocks are red" should NOT produce XOM, CVX, etc.
-     unless those tickers are actually named in the tweet.
-   - What was said, by whom, and the context (e.g. "heavy call buying ahead of earnings",
+1. **Ticker Mentions**: Only tickers EXPLICITLY mentioned by name or cashtag ($NVDA) \
+in the tweets.
+   - Do NOT infer or guess tickers. A tweet about "oil stocks are red" should NOT \
+     produce XOM, CVX, etc. unless those tickers are actually named in the tweet.
+   - Do NOT include ETFs or indices (QQQ, SPY, SPX, IWM, DIA, VOO, etc.).
+   - For each ticker, extract the CONTEXT of why it was mentioned — this context \
+     passes downstream with the ticker. (e.g. "heavy call buying ahead of earnings", \
      "fraud allegations in accounting", "record revenue guidance").
-   - Note the account's expertise and any known bias (e.g. short-seller — still include
+   - Note the account's expertise and any known bias (e.g. short-seller — still include \
      the mention but note the bias).
-   - If multiple independent accounts mention the same ticker, highlight the convergence.
+   - If multiple independent accounts mention the same ticker, note the convergence.
 
 2. **Macro Themes**: Broad market themes without specific tickers.
-   - The theme, who's discussing it, and the reasoning (e.g. "risk-off rotation —
-     @elerianm and @lizannsonders both flagging defensive positioning").
+   - The theme, who's discussing it, and the key reasoning. Keep it factual.
 
-3. **Summary**: 2-3 sentences capturing the overall mood and key takeaways.
+3. **Summary**: 2-3 sentences capturing the key takeaways.
 
 ## Tools
 
 - `verify_ticker(ticker)` — Verify a ticker exists or find a company's ticker symbol.
-- `web_search(query, recency)` — Search for context on developing stories. Budget: {web_search_cap} calls.
-- `web_read(url)` — Read a web page for full article content. Unlimited calls.
 
-## Guidelines
-- Include ALL tickers mentioned.
-- Context quality matters: "NVDA heavy call buying ahead of earnings" is useful;
-  "NVDA mentioned" is not.
-- Highlight when accounts with different expertise areas converge on the same ticker or theme.
-- Use web_search to verify significant claims and add context.
+## Rules
+- ONLY extract explicitly mentioned tickers. NEVER infer additional tickers.
+- NEVER include ETFs/indices (QQQ, SPY, IWM, DIA, VOO, VTI, XLF, XLE, XLK, etc.).
+- Context quality matters: "NVDA heavy call buying ahead of earnings" is useful; \
+"NVDA mentioned" is not.
 """
 
 
@@ -145,29 +138,6 @@ Extract the most valuable information from the tweets provided:
 async def _tool_verify_ticker(ctx: RunContext[SocialSentimentDeps], ticker: str) -> str:
     """Verify if a ticker symbol exists."""
     return await verify_ticker(ticker)
-
-
-async def _tool_web_search(
-    ctx: RunContext[SocialSentimentDeps],
-    query: str,
-    recency: str = "day",
-) -> str:
-    """Search the web for market context. Budget: limited calls."""
-    if ctx.deps.web_search_calls >= _WEB_SEARCH_CAP:
-        return f"Web search budget exhausted ({_WEB_SEARCH_CAP} calls used)."
-    ctx.deps.web_search_calls += 1
-
-    valid_recencies = ("day", "week", "month", "year", "none")
-    recency_val: Recency = recency if recency in valid_recencies else "day"  # type: ignore[assignment]
-    results = await search_market_impact(query, recency=recency_val)
-    if not results:
-        return "No search results found."
-    return format_search_results(results)
-
-
-async def _tool_web_read(ctx: RunContext[SocialSentimentDeps], url: str) -> str:
-    """Read a web page for full article content."""
-    return await read_web_page(url)
 
 
 # ── Public API ───────────────────────────────────────────────────
@@ -198,14 +168,13 @@ async def analyze_social_sentiment(deps: SocialSentimentDeps) -> SocialSentiment
 
     # Construct agent at runtime with formatted system prompt
     agent: Agent[SocialSentimentDeps, SocialSentimentAnalysis] = Agent(
-        model=create_model(tier="vsmart"),
+        model=create_model(smart=True),
         deps_type=SocialSentimentDeps,
         output_type=SocialSentimentAnalysis,
         system_prompt=SYSTEM_PROMPT.format(
             current_date=deps.current_date,
-            web_search_cap=_WEB_SEARCH_CAP,
         ),
-        tools=[_tool_verify_ticker, _tool_web_search, _tool_web_read],
+        tools=[_tool_verify_ticker],
     )
 
     try:

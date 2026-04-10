@@ -238,7 +238,7 @@ def build_intelligence_graph(
 
         tickers = state.get("target_tickers", [])
         if not tickers:
-            logger.info("No tickers — skipping debate + trader, going to compiler")
+            logger.info("No priority tickers — skipping debate + trader, going to compiler")
             return ["compiler"]
 
         rounds = get_settings().debate_rounds
@@ -399,7 +399,7 @@ def build_intelligence_graph(
             )
             return {"brief": brief}
         except Exception:
-            logger.exception("Compiler failed")
+            logger.exception("Compiler failed", date=state.get("current_date"))
             return {"brief": {}}
 
     # ── Build Graph ──────────────────────────────────────────────

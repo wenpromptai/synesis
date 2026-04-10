@@ -1,7 +1,8 @@
 """Trader — the sole decision maker in the intelligence pipeline.
 
-Receives macro regime + full debate history and produces TradeIdea outputs.
-Supports per-ticker and portfolio modes.
+Receives macro regime + debate arguments and produces TradeIdea outputs.
+Per-ticker mode receives full debate history; portfolio mode receives
+compressed summaries (last round only). Supports both modes.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from synesis.processing.common.web_search import (
 )
 from synesis.processing.intelligence.context import (
     format_debate_history,
+    format_debate_summary_for_ticker,
     format_macro_context,
 )
 from synesis.processing.intelligence.models import TraderOutput
@@ -39,10 +41,10 @@ Today's date: {current_date}
 
 ## Context
 
-Below you will find the macro regime assessment plus the full bull/bear \
-debate history for {scope_description}. The researchers have already \
-synthesized all analyst data (fundamentals, technicals, sentiment, news) \
-into their arguments with specific figures — work from their analysis.
+Below you will find the macro regime assessment plus the bull/bear debate \
+arguments for {scope_description}. The researchers have already synthesized \
+all analyst data (fundamentals, technicals, sentiment, news) into their \
+arguments with specific figures — work from their analysis.
 
 ## Your Job
 
@@ -60,7 +62,9 @@ and current IV when choosing between shares and options.
 {mode_instructions}
 
 ## Tools
-- `web_search(query, recency)` — verify a specific claim. Budget: \
+- `web_search(query, recency)` — search for anything that informs your \
+trading decision: current prices, recent earnings, breaking news, options \
+flow, analyst targets, or verify claims from the debate. Budget: \
 {web_search_cap} calls.
 - `web_read(url)` — read full article content (~4000 chars). Unlimited.
 
@@ -154,11 +158,15 @@ def _build_per_ticker_prompt(state: dict[str, Any], ticker: str) -> str:
 
 
 def _build_portfolio_prompt(state: dict[str, Any], tickers: list[str]) -> str:
-    """Build the user prompt for portfolio mode."""
+    """Build the user prompt for portfolio mode.
+
+    Uses compressed debate summaries (last round's argument + key_evidence
+    per side, earlier rounds discarded) to keep context manageable.
+    """
     parts = [format_macro_context(state)]
     for ticker in tickers:
         parts.append(f"---\n\n## Ticker: {ticker}")
-        parts.append(_format_debate_for_ticker(state, ticker))
+        parts.append(format_debate_summary_for_ticker(state, ticker))
     return "\n\n".join(parts)
 
 
@@ -216,8 +224,9 @@ async def analyze_trade_portfolio(
 ) -> TraderOutput:
     """Run Trader for all tickers at once (portfolio mode).
 
-    Receives macro context + full debate history for all tickers in one call.
-    Can produce pair/relative value trades with multi-ticker TradeIdeas.
+    Receives macro context + compressed debate summaries for all tickers
+    in one call. Can produce pair/relative value trades with multi-ticker
+    TradeIdeas.
     """
     logger.info("Starting Trader (portfolio)", tickers=tickers)
 

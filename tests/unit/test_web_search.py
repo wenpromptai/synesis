@@ -6,13 +6,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+import synesis.processing.common.web_search as ws_module
 from synesis.processing.common.web_search import (
-    SearchProvidersExhaustedError,
     _extract_article_content,
     _get_date_range,
     format_search_results,
     search_market_impact,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_circuit_breaker():
+    """Reset circuit breaker state between tests."""
+    ws_module._brave_tripped = False
+    ws_module._brave_fail_count = 0
+    ws_module._brave_last_call = 0.0
+    ws_module._brave_lock = None
+    yield
+    ws_module._brave_tripped = False
+    ws_module._brave_fail_count = 0
+    ws_module._brave_last_call = 0.0
+    ws_module._brave_lock = None
 
 
 class TestGetDateRange:
@@ -154,8 +168,9 @@ class TestSearchMarketImpact:
 
     @pytest.mark.anyio
     async def test_brave_success(self) -> None:
-        """Brave is the primary provider and returns results with enrichment skipped."""
+        """Brave returns results successfully."""
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "web": {
                 "results": [
@@ -189,83 +204,109 @@ class TestSearchMarketImpact:
         assert results[0]["title"] == "Brave Result"
 
     @pytest.mark.anyio
-    async def test_brave_fails_falls_back_to_exa(self) -> None:
-        """When Brave fails, Exa is tried next."""
-        mock_exa_response = MagicMock()
-        mock_exa_response.json.return_value = {
-            "results": [{"title": "Exa Result", "text": "Content", "url": "https://exa.ai"}]
-        }
-        mock_exa_response.raise_for_status = MagicMock()
+    async def test_brave_failure_returns_empty(self) -> None:
+        """When Brave fails, empty list is returned."""
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.brave_api_key = MagicMock()
+            settings.brave_api_key.get_secret_value.return_value = "brave-key"
+            settings.brave_min_interval = 0.0
+            mock_settings.return_value = settings
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(side_effect=httpx.RequestError("Brave down"))
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock(return_value=None)
+                mock_client_cls.return_value = mock_client
+
+                results = await search_market_impact("test query")
+
+        assert results == []
+
+    @pytest.mark.anyio
+    async def test_no_brave_key_returns_empty(self) -> None:
+        """When brave_api_key is not configured, returns empty list."""
+        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.brave_api_key = None
+            mock_settings.return_value = settings
+
+            results = await search_market_impact("test query")
+
+        assert results == []
+
+    @pytest.mark.anyio
+    async def test_circuit_breaker_trips_after_threshold(self) -> None:
+        """Circuit breaker trips after 3 consecutive 429 responses."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("429", request=MagicMock(), response=mock_response)
+        )
 
         with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             settings = MagicMock()
             settings.brave_api_key = MagicMock()
             settings.brave_api_key.get_secret_value.return_value = "brave-key"
             settings.brave_min_interval = 0.0
-            settings.exa_api_keys = ["exa-key"]
             mock_settings.return_value = settings
 
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
-                mock_client.get = AsyncMock(side_effect=httpx.RequestError("Brave down"))
-                mock_client.post = AsyncMock(return_value=mock_exa_response)
+                mock_client.get = AsyncMock(return_value=mock_response)
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_cls.return_value = mock_client
 
+                # First 3 calls trip the breaker
+                for _ in range(3):
+                    results = await search_market_impact("test query")
+                    assert results == []
+
+                assert ws_module._brave_tripped is True
+
+                # 4th call skips Brave entirely (no HTTP call)
+                mock_client.get.reset_mock()
                 results = await search_market_impact("test query")
-
-        assert len(results) == 1
-        assert results[0]["title"] == "Exa Result"
-
-    @pytest.mark.anyio
-    async def test_all_providers_exhausted(self) -> None:
-        """Exception when all providers fail."""
-        with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
-            settings = MagicMock()
-            settings.brave_api_key = None
-            settings.exa_api_keys = []
-            mock_settings.return_value = settings
-
-            with pytest.raises(SearchProvidersExhaustedError):
-                await search_market_impact("test query")
+                assert results == []
+                mock_client.get.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_exa_only_when_no_brave(self) -> None:
-        """When brave_api_key is None, Exa is tried directly."""
-        mock_exa_response = MagicMock()
-        mock_exa_response.json.return_value = {
-            "results": [{"title": "Exa Result", "text": "Content", "url": "https://exa.ai"}]
+    async def test_circuit_breaker_resets_on_success(self) -> None:
+        """Successful call resets the failure counter."""
+        mock_429 = MagicMock()
+        mock_429.status_code = 429
+        mock_429.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("429", request=MagicMock(), response=mock_429)
+        )
+
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.json.return_value = {
+            "web": {"results": [{"title": "OK", "description": "d", "url": "u"}]}
         }
-        mock_exa_response.raise_for_status = MagicMock()
+        mock_200.raise_for_status = MagicMock()
 
         with patch("synesis.processing.common.web_search.get_settings") as mock_settings:
             settings = MagicMock()
-            settings.brave_api_key = None
-            settings.exa_api_keys = ["exa-key"]
+            settings.brave_api_key = MagicMock()
+            settings.brave_api_key.get_secret_value.return_value = "brave-key"
+            settings.brave_min_interval = 0.0
             mock_settings.return_value = settings
 
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
-                mock_client.post = AsyncMock(return_value=mock_exa_response)
+                # 2 failures then a success
+                mock_client.get = AsyncMock(side_effect=[mock_429, mock_429, mock_200])
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_cls.return_value = mock_client
 
-                results = await search_market_impact("test query")
+                await search_market_impact("q1")  # fail 1
+                await search_market_impact("q2")  # fail 2
+                results = await search_market_impact("q3")  # success
 
-        assert results[0]["title"] == "Exa Result"
-
-
-class TestSearchProvidersExhaustedError:
-    """Tests for SearchProvidersExhaustedError."""
-
-    def test_error_message(self) -> None:
-        """Test error has descriptive message."""
-        error = SearchProvidersExhaustedError("All providers failed")
-        assert "All providers failed" in str(error)
-
-    def test_is_exception(self) -> None:
-        """Test error is an Exception."""
-        error = SearchProvidersExhaustedError("Test")
-        assert isinstance(error, Exception)
+                assert ws_module._brave_fail_count == 0
+                assert ws_module._brave_tripped is False
+                assert len(results) == 1

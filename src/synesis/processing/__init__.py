@@ -9,7 +9,6 @@ from synesis.processing.common.llm import create_model
 from synesis.processing.common.watchlist import WatchlistManager
 from synesis.processing.common.web_search import (
     Recency,
-    SearchProvidersExhaustedError,
     format_search_results,
     search_market_impact,
 )
@@ -47,7 +46,6 @@ __all__ = [
     "WatchlistManager",
     # Common utilities
     "Recency",
-    "SearchProvidersExhaustedError",
     "create_model",
     "format_search_results",
     "search_market_impact",

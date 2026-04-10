@@ -140,6 +140,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("macro_strategist_enabled", "MACRO_STRATEGIST_ENABLED", "true", True),
     ("debate_rounds", "DEBATE_ROUNDS", "2", 2),
     ("trader_mode", "TRADER_MODE", "portfolio", "portfolio"),
+    ("kg_briefs_dir", "KG_BRIEFS_DIR", "docs/kg/raw/synesis_briefs", "docs/kg/raw/synesis_briefs"),
     # --- Discord notifications ---
     (
         "discord_webhook_url",
@@ -208,15 +209,6 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ),
     # --- Web search ---
     ("searxng_url", "SEARXNG_URL", "http://search.local:8080", "http://search.local:8080"),
-    ("exa_api_key", "EXA_API_KEY", "exa123", "exa123"),  # SecretStr
-    ("exa_wenprompt_api_key", "EXA_WENPROMPT_API_KEY", "exa_wp_key", "exa_wp_key"),  # SecretStr
-    (
-        "exa_wenpromptai_api_key",
-        "EXA_WENPROMPTAI_API_KEY",
-        "exa_wpai_key",
-        "exa_wpai_key",
-    ),  # SecretStr
-    ("exa_wangwhpt_api_key", "EXA_WANGWHPT_API_KEY", "exa_ww_key", "exa_ww_key"),  # SecretStr
     ("brave_api_key", "BRAVE_API_KEY", "brave456", "brave456"),  # SecretStr
     # --- Finnhub ---
     ("finnhub_api_key", "FINNHUB_API_KEY", "fhkey", "fhkey"),  # SecretStr
@@ -292,10 +284,6 @@ _SECRET_FIELDS = {
     "polymarket_private_key",
     "anthropic_api_key",
     "openai_api_key",
-    "exa_api_key",
-    "exa_wenprompt_api_key",
-    "exa_wenpromptai_api_key",
-    "exa_wangwhpt_api_key",
     "brave_api_key",
     "finnhub_api_key",
     "fred_api_key",

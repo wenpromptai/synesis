@@ -161,6 +161,7 @@ See `docs/ARCHITECTURE.md` for full graph topology, state schema, and agent inve
 LLM-compiled investment knowledge base viewed in Obsidian. Raw sources (pipeline briefs, PDFs, articles) are compiled into interlinked concept, strategy, source, and connection nodes.
 
 **Slash commands:**
+- `/daily-brief` — Claude Code-powered intelligence brief. Pulls news/social from DB, researches tickers via local API + web search, forms bull/bear views, produces trade ideas. Complements the automated pipeline with free-form, deeper analysis. Output saved to `docs/kg/raw/synesis_briefs/`.
 - `/kg-compile` — Process uncompiled raw files in `docs/kg/raw/` into KG nodes. The LLM reads the schema + current KG state + raw source and decides what to extract/update/create. Run after new raw sources accumulate.
 - `/kg-lint` — Health checks (broken links, orphans, sparse nodes, missing frontmatter, stale index) + intelligence checks (connection discovery, missing node candidates, content staleness, research suggestions). Run periodically to maintain KG quality and discover growth opportunities.
 

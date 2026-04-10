@@ -116,12 +116,14 @@ class CompanyAnalysis(BaseModel):
     insider_signal: InsiderSignal
     red_flags: list[RedFlag] = Field(default_factory=list)
 
-    # Qualitative (LLM from 10-K/10-Q prose)
+    # Qualitative (LLM from 10-K/10-Q/8-K prose)
     business_summary: str = ""
     earnings_quality: str = ""
     risk_assessment: str = ""
     geographic_exposure: str = ""
     key_customers_suppliers: str = ""
+    growth_catalysts: str = ""
+    competitive_position: str = ""
 
     # Cross-referenced insights
     insider_vs_financials: str = ""

@@ -139,7 +139,7 @@ async def refresh_tickers_job() -> None:
         logger.warning("FINNHUB_API_KEY not configured, skipping ticker refresh")
         return
 
-    tickers_file = Path(__file__).resolve().parents[2] / "data" / "us_tickers.json"
+    tickers_file = Path.cwd() / "data" / "us_tickers.json"
     api_key = settings.finnhub_api_key.get_secret_value()
 
     try:

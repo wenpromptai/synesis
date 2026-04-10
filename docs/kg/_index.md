@@ -9,10 +9,67 @@ tags: [index, meta]
 > [!abstract]
 > Master index of all nodes. The LLM reads this first to understand what exists before any KG operation. Updated on each compilation pass.
 
-**Last updated:** 2026-04-09 | **Total nodes:** 46
+**Last updated:** 2026-04-10 | **Total nodes:** 103
 
 | Node | Type | One-liner | Updated |
 |------|------|-----------|---------|
+| [[tickers/AAOI]] | ticker | Applied Optoelectronics — 800G/1.6T optics, extreme concentration | 2026-04-10 |
+| [[tickers/AAPL]] | ticker | Apple — premium valuation, regulatory overhang on Services | 2026-04-10 |
+| [[tickers/AEHR]] | ticker | Aehr Test — momentum-driven, poor fundamentals, SI ~15% | 2026-04-10 |
+| [[tickers/AMKR]] | ticker | Amkor — advanced packaging capex ramp, negative FCF ahead | 2026-04-10 |
+| [[tickers/AMZN]] | ticker | Amazon — AWS/AI + ads; risk reversal structure | 2026-04-10 |
+| [[tickers/ARM]] | ticker | Arm Holdings — CPU/IP licensing for AI-edge compute | 2026-04-10 |
+| [[tickers/AVGO]] | ticker | Broadcom — custom ASIC + networking; distributor concentration | 2026-04-10 |
+| [[tickers/CAT]] | ticker | Caterpillar — energy/infrastructure; call spread | 2026-04-10 |
+| [[tickers/CEG]] | ticker | Constellation Energy — nuclear/AI power; merchant risk | 2026-04-10 |
+| [[tickers/COHR]] | ticker | Coherent — datacenter optics; WC deterioration ~5 quarters | 2026-04-10 |
+| [[tickers/CRCL]] | ticker | Circle (USDC) — rate carry trade; call spread on squeeze | 2026-04-10 |
+| [[tickers/CVX]] | ticker | Chevron — geopolitical energy hedge; shares with tight stop | 2026-04-10 |
+| [[tickers/DRAM]] | ticker | Memory sector exposure | 2026-04-10 |
+| [[tickers/FN]] | ticker | Fabrinet — optics; put spread (bearish) on WC/concentration | 2026-04-10 |
+| [[tickers/FRCOF]] | ticker | Fast Retailing — extended post guide-up, data quality issues | 2026-04-10 |
+| [[tickers/GOOG]] | ticker | Alphabet Class C — Cloud/Search; call spread (bullish) | 2026-04-10 |
+| [[tickers/GOOGL]] | ticker | Alphabet Class A — put spread (bearish) on capex/ROI risk | 2026-04-10 |
+| [[tickers/HIMS]] | ticker | Hims & Hers — telehealth/DTC | 2026-04-10 |
+| [[tickers/HOOD]] | ticker | Robinhood — call spread into earnings; high beta 2.46 | 2026-04-10 |
+| [[tickers/IBIT]] | ticker | iShares Bitcoin Trust — BTC beta; no trade, need breakout | 2026-04-10 |
+| [[tickers/INTC]] | ticker | Intel — call credit spread (bearish) on overextension | 2026-04-10 |
+| [[tickers/IREN]] | ticker | Iris Energy — AI datacenter; extreme dilution, negative FCF | 2026-04-10 |
+| [[tickers/JBL]] | ticker | Jabil — electronic manufacturing services | 2026-04-10 |
+| [[tickers/LITE]] | ticker | Lumentum — optics; extreme leverage D/E 392, EV/EBITDA ~247x | 2026-04-10 |
+| [[tickers/LPTH]] | ticker | LightPath — specialty optics; insider selling overhang | 2026-04-10 |
+| [[tickers/META]] | ticker | Meta — ads + AI; risk reversal (bullish) | 2026-04-10 |
+| [[tickers/MP]] | ticker | MP Materials — rare earth; negative FCF, strategic scarcity | 2026-04-10 |
+| [[tickers/MRVL]] | ticker | Marvell — AI interconnect; call spread | 2026-04-10 |
+| [[tickers/MSFT]] | ticker | Microsoft — referenced as AAOI/IREN counterparty | 2026-04-10 |
+| [[tickers/MU]] | ticker | Micron — HBM memory; WC deterioration at peak margins | 2026-04-10 |
+| [[tickers/NEE]] | ticker | NextEra — put credit spread; premium valuation, negative FCF | 2026-04-10 |
+| [[tickers/NVDA]] | ticker | NVIDIA — AI compute; call spread in fragile macro | 2026-04-10 |
+| [[tickers/OIH]] | ticker | Oil Services ETF — put credit spread; IV rich vs realized | 2026-04-10 |
+| [[tickers/POWL]] | ticker | Powell Industries — power infrastructure for datacenters | 2026-04-10 |
+| [[tickers/QQQ]] | ticker | Nasdaq-100 ETF — put spread (bearish) on overextension | 2026-04-10 |
+| [[tickers/SATS]] | ticker | EchoStar/DISH — going-concern; binary regulatory risk | 2026-04-10 |
+| [[tickers/SMH]] | ticker | Semiconductor ETF — risk reversal; willing to own on dip | 2026-04-10 |
+| [[tickers/SMTC]] | ticker | Semtech — China 47%; impairment history; Piotroski 3/9 | 2026-04-10 |
+| [[tickers/SPX]] | ticker | S&P 500 — no trade; hedged stance | 2026-04-10 |
+| [[tickers/SPY]] | ticker | S&P 500 ETF — no trade; put spread hedge if needed | 2026-04-10 |
+| [[tickers/TSEM]] | ticker | Tower Semi — foundry; stretched, thin FCF | 2026-04-10 |
+| [[tickers/TSLA]] | ticker | Tesla — no trade; EV/EBITDA ~120, rev declining, capex rising | 2026-04-10 |
+| [[tickers/TSM]] | ticker | TSMC — foundry; call spread through earnings | 2026-04-10 |
+| [[tickers/VECO]] | ticker | Veeco — semiconductor equipment; Axcelis M&A overhang | 2026-04-10 |
+| [[tickers/VPG]] | ticker | Vishay Precision — Israel manufacturing 30%; low margins | 2026-04-10 |
+| [[tickers/XLE]] | ticker | Energy ETF — highest sector tilt +0.7 | 2026-04-10 |
+| [[tickers/XLU]] | ticker | Utilities ETF — stretched near resistance; yields headwind | 2026-04-10 |
+| [[themes/ai-infrastructure]] | theme | Multi-year hyperscaler capex cycle for AI compute/networking | 2026-04-10 |
+| [[themes/customer-concentration]] | theme | Revenue dependency on few customers — earnings fragility | 2026-04-10 |
+| [[themes/working-capital-deterioration]] | theme | Rising AR/inventory absorbing cash; cycle turn indicator | 2026-04-10 |
+| [[themes/geopolitical-energy-risk]] | theme | Hormuz/shipping disruption keeping oil bid | 2026-04-10 |
+| [[themes/stagflation-tail-risk]] | theme | Simultaneous inflation + growth deceleration risk | 2026-04-10 |
+| [[themes/insider-selling-clusters]] | theme | Coordinated C-suite selling with near-zero buys | 2026-04-10 |
+| [[themes/optical-photonics-supply-chain]] | theme | Datacenter optics stack — shared concentration/WC risks | 2026-04-10 |
+| [[themes/capital-intensive-transitions]] | theme | Negative FCF funded by dilution/debt during capex ramps | 2026-04-10 |
+| [[sources/brief-2026-04-10]] | source | Intelligence brief — transitioning regime, 40 trade ideas | 2026-04-10 |
+| [[sources/connections/ai-optics-concentration-wcap]] | connection | AAOI+FN+COHR+LITE share concentration + WC deterioration | 2026-04-10 |
 | [[covered-call]] | strategy | Long stock + short OTM call for income | 2026-04-07 |
 | [[covered-put]] | strategy | Short stock + short OTM put for income | 2026-04-07 |
 | [[short-strangle]] | strategy | Short OTM put + call, undefined risk, high premium | 2026-04-07 |

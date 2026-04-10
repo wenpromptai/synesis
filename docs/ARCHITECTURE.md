@@ -90,7 +90,7 @@ Two PydanticAI agents run in parallel, scanning the last 24h of ingested data.
 Source: `specialists/social_sentiment/agent.py`
 
 - **Input**: Raw tweets from DB, grouped by account with profile context from `x_accounts.py` (bias, focus areas)
-- **Tools**: `verify_ticker`, `web_search` (5 calls), `web_read`
+- **Tools**: `verify_ticker`
 - **Output**: `SocialSentimentAnalysis` — `ticker_mentions[]`, `macro_themes[]`, `summary`
 - **Model**: `SocialSentimentAnalysis` in `models.py`
 
@@ -99,7 +99,7 @@ Source: `specialists/social_sentiment/agent.py`
 Source: `specialists/news/agent.py`
 
 - **Input**: Pre-scored `raw_messages` from DB (`impact_score >= 20`)
-- **Tools**: `verify_ticker`, `web_search` (5 calls), `web_read`
+- **Tools**: `verify_ticker`, `web_search` (2 calls), `web_read`
 - **Output**: `NewsAnalysis` — `story_clusters[]` (event_type, urgency, key_facts, tickers), `macro_themes[]`, `summary`
 - **Models**: `NewsStoryCluster`, `NewsAnalysis`, `NewsEventType` enum — all in `models.py`
 
@@ -126,9 +126,9 @@ Three-phase pipeline — only Phase 3 uses LLM:
 
 | Phase                  | What                                                                                                                                                                                                   | Source                        |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
-| 1. Data Gather         | `asyncio.gather`: yfinance fundamentals + quarterly financials, SEC EDGAR insider txns + sentiment + Form 144 + late filing alerts, 10-K/10-Q text                                                     | yfinance, SEC EDGAR, Crawl4AI |
-| 2. Deterministic Score | Piotroski F-Score (9 signals from quarterly data), Beneish M-Score, InsiderSignal (MSPR, buy/sell counts, cluster detection, C-suite activity), RedFlag detection (late filings, cash flow divergence) | Phase 1 data                  |
-| 3. LLM Synthesis       | business_summary, earnings_quality, risk_assessment, geographic_exposure, key_customers_suppliers, insider_vs_financials, disclosure_consistency, primary_thesis, key_risks, monitoring_triggers       | Phase 1+2 as prompt context   |
+| 1. Data Gather         | `asyncio.gather`: yfinance fundamentals + quarterly financials, SEC EDGAR insider txns + sentiment + Form 144 + late filing alerts, 10-K/10-Q text, 8-K events                                        | yfinance, SEC EDGAR, Crawl4AI |
+| 2. Deterministic Score | Piotroski F-Score (9 signals from quarterly data), InsiderSignal (MSPR, buy/sell counts, cluster detection, C-suite activity), RedFlag detection (late filings, cash flow divergence)                  | Phase 1 data                  |
+| 3. LLM Synthesis       | business_summary, earnings_quality, risk_assessment, geographic_exposure, key_customers_suppliers, growth_catalysts, competitive_position, insider_vs_financials, disclosure_consistency, primary_thesis, key_risks, monitoring_triggers | Phase 1+2 as prompt context   |
 
 **Output**: `CompanyAnalysis` — merges Phase 2 deterministic fields + Phase 3 LLM fields.
 
@@ -231,14 +231,14 @@ Macro context is **not** passed to debate agents — reserved for the Trader.
 
 Source: `debate/bull.py`
 
-- **Tools**: `web_search` (3 calls — `_WEB_SEARCH_CAP`), `web_read`
+- **Tools**: `web_search` (1 call — `_WEB_SEARCH_CAP`), `web_read`
 - **Output**: `TickerDebate(role="bull")` — argument, key_evidence, round number
 
 #### BearResearcher
 
 Source: `debate/bear.py`
 
-- **Tools**: `web_search` (3 calls — `_WEB_SEARCH_CAP`), `web_read`
+- **Tools**: `web_search` (1 call — `_WEB_SEARCH_CAP`), `web_read`
 - **Output**: `TickerDebate(role="bear")` — argument, key_evidence, round number
 
 ## Trader Gate + Routing
@@ -322,13 +322,13 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 
 | Agent                    | Model Tier | Tools                               | Web Budget  | Output Type               |
 | ------------------------ | ---------- | ----------------------------------- | ----------- | ------------------------- |
-| SocialSentimentAnalyst   | vsmart     | verify_ticker, web_search, web_read | 5           | `SocialSentimentAnalysis` |
-| NewsAnalyst              | vsmart     | verify_ticker, web_search, web_read | 5           | `NewsAnalysis`            |
+| SocialSentimentAnalyst   | smart      | verify_ticker                       | 0           | `SocialSentimentAnalysis` |
+| NewsAnalyst              | smart      | verify_ticker, web_search, web_read | 2           | `NewsAnalysis`            |
 | CompanyAnalyst (Phase 3) | vsmart     | none (deterministic Phase 1-2)      | 0           | `CompanyAnalysis`         |
 | PriceAnalyst (Phase 3)   | vsmart     | none (deterministic Phase 1-2)      | 0           | `PriceAnalysis`           |
 | MacroStrategist          | vsmart     | web_search, web_read, get_fred_data | 2           | `MacroView`               |
-| BullResearcher           | vsmart     | web_search, web_read                | 3 per round | `TickerDebate`            |
-| BearResearcher           | vsmart     | web_search, web_read                | 3 per round | `TickerDebate`            |
+| BullResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
+| BearResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
 | Trader                   | vsmart     | web_search, web_read                | 3           | `TraderOutput`            |
 
 ## Key Design Decisions
@@ -347,7 +347,7 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 
 7. **Two sync barriers** — `l2_join` separates Layer 2 from debate; `trader_gate` separates debate from Trader. Both use `defer=True` to wait for all upstream fan-out nodes.
 
-8. **Web search budgets** — hard caps per agent per round prevent runaway API costs (Layer 1: 5 each, Debate: 3 per round per side, Macro: 2, Trader: 3).
+8. **Web search budgets** — hard caps per agent per round prevent runaway API costs (News: 2, Debate: 1 per round per side, Macro: 2, Trader: 3). Social has no web search. Brave circuit breaker trips after 3 consecutive 429s, disabling web search for the rest of the process.
 
 9. **Graceful degradation** — EDGAR failures don't block CompanyAnalyst; Massive failures don't block PriceAnalyst; FRED failures don't block MacroStrategist. Layer 1 failures return `{"error": True}` for downstream visibility.
 

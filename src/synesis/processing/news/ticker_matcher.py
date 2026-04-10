@@ -35,7 +35,7 @@ logger = get_logger(__name__)
 _TICKERS_FILE = Path(
     os.environ.get(
         "TICKERS_FILE",
-        str(Path(__file__).resolve().parents[4] / "data" / "us_tickers.json"),
+        str(Path.cwd() / "data" / "us_tickers.json"),
     )
 )
 

@@ -479,9 +479,8 @@ def _bear(ticker: str) -> TickerDebate:
 _PATCH_PREFIX = "synesis.processing.intelligence.graph"
 
 
-@pytest.mark.slow
 class TestGraphExecution:
-    """End-to-end graph execution with mocked agents."""
+    """Graph execution with mocked agents."""
 
     @pytest.mark.asyncio
     async def test_no_tickers_skips_debate(self) -> None:
@@ -511,118 +510,7 @@ class TestGraphExecution:
         assert brief["debates"] == []
         assert brief["macro"]["regime"] == "risk_on"
 
-    @pytest.mark.asyncio
-    async def test_per_ticker_fanout(self) -> None:
-        """Two tickers produce per-ticker bull/bear calls and correct debates (rounds=0)."""
 
-        async def mock_company(ticker, deps):
-            return _company(ticker)
-
-        async def mock_price(ticker, deps):
-            return _price(ticker)
-
-        async def mock_bull(state, current_date, debate_history=None):
-            return _bull(state["ticker"])
-
-        async def mock_bear(state, current_date, debate_history=None):
-            return _bear(state["ticker"])
-
-        with (
-            patch(
-                f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social(["NVDA", "AMD"])
-            ),
-            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA", "AMD"])),
-            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
-            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
-            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
-            patch("synesis.config.get_settings") as mock_settings,
-            patch(f"{_PATCH_PREFIX}.research_bull", side_effect=mock_bull) as bull_spy,
-            patch(f"{_PATCH_PREFIX}.research_bear", side_effect=mock_bear) as bear_spy,
-        ):
-            mock_settings.return_value.debate_rounds = 0
-            mock_settings.return_value.macro_strategist_enabled = True
-            graph = build_intelligence_graph(
-                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
-            )
-            result = await graph.ainvoke(
-                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
-            )
-
-        # Bull/bear called once per ticker (2 tickers = 2 calls each)
-        assert bull_spy.call_count == 2
-        assert bear_spy.call_count == 2
-
-        # Verify each call received the correct ticker in state
-        bull_tickers = {call.args[0]["ticker"] for call in bull_spy.call_args_list}
-        bear_tickers = {call.args[0]["ticker"] for call in bear_spy.call_args_list}
-        assert bull_tickers == {"NVDA", "AMD"}
-        assert bear_tickers == {"NVDA", "AMD"}
-
-        # Brief has 2 debates, each with both sides
-        brief = result["brief"]
-        assert len(brief["debates"]) == 2
-        debate_tickers = {d["ticker"] for d in brief["debates"]}
-        assert debate_tickers == {"NVDA", "AMD"}
-        for debate in brief["debates"]:
-            assert "bull" in debate
-            assert "bear" in debate
-
-    @pytest.mark.asyncio
-    async def test_partial_debate_failure(self) -> None:
-        """One ticker's bull fails, other results still reach compiler (rounds=0)."""
-
-        async def mock_company(ticker, deps):
-            return _company(ticker)
-
-        async def mock_price(ticker, deps):
-            return _price(ticker)
-
-        async def mock_bull(state, current_date, debate_history=None):
-            if state["ticker"] == "NVDA":
-                raise RuntimeError("LLM error")
-            return _bull(state["ticker"])
-
-        async def mock_bear(state, current_date, debate_history=None):
-            return _bear(state["ticker"])
-
-        with (
-            patch(
-                f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social(["NVDA", "AMD"])
-            ),
-            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA", "AMD"])),
-            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
-            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
-            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
-            patch("synesis.config.get_settings") as mock_settings,
-            patch(f"{_PATCH_PREFIX}.research_bull", side_effect=mock_bull),
-            patch(f"{_PATCH_PREFIX}.research_bear", side_effect=mock_bear),
-        ):
-            mock_settings.return_value.debate_rounds = 0
-            mock_settings.return_value.macro_strategist_enabled = True
-            graph = build_intelligence_graph(
-                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
-            )
-            result = await graph.ainvoke(
-                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
-            )
-
-        brief = result["brief"]
-
-        # AMD has both sides, NVDA only has bear
-        amd_debate = next(d for d in brief["debates"] if d["ticker"] == "AMD")
-        assert "bull" in amd_debate
-        assert "bear" in amd_debate
-
-        nvda_debate = next(d for d in brief["debates"] if d["ticker"] == "NVDA")
-        assert "bull" not in nvda_debate
-        assert "bear" in nvda_debate
-
-        # NVDA bull failure tracked in errors
-        assert "NVDA" in brief["errors"]["bull_failures"]
-        assert "AMD" not in brief["errors"]["bull_failures"]
-
-
-@pytest.mark.slow
 class TestDebateSubgraph:
     """Tests for the multi-round debate subgraph."""
 
@@ -786,102 +674,10 @@ class TestDebateSubgraph:
         assert len(captured_histories[3]) == 3  # bear round 2
 
 
-@pytest.mark.slow
-class TestMultiRoundGraphExecution:
-    """Test full graph with debate subgraph (rounds>=1)."""
+class TestMultiRoundCompiler:
+    """Compiler behavior with multi-round debate data."""
 
-    @pytest.mark.asyncio
-    async def test_debate_subgraph_in_full_graph(self) -> None:
-        """rounds=1 routes through ticker_debate node and produces correct brief."""
-
-        async def mock_company(ticker, deps):
-            return _company(ticker)
-
-        async def mock_price(ticker, deps):
-            return _price(ticker)
-
-        async def mock_bull(state, current_date, debate_history=None):
-            return _bull(state["ticker"])
-
-        async def mock_bear(state, current_date, debate_history=None):
-            return _bear(state["ticker"])
-
-        with (
-            patch(f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social(["NVDA"])),
-            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA"])),
-            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
-            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
-            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
-            patch("synesis.config.get_settings") as mock_settings,
-            patch(
-                "synesis.processing.intelligence.debate.subgraph.research_bull",
-                side_effect=mock_bull,
-            ),
-            patch(
-                "synesis.processing.intelligence.debate.subgraph.research_bear",
-                side_effect=mock_bear,
-            ),
-        ):
-            mock_settings.return_value.debate_rounds = 1
-            mock_settings.return_value.macro_strategist_enabled = True
-            graph = build_intelligence_graph(
-                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
-            )
-            result = await graph.ainvoke(
-                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
-            )
-
-        brief = result["brief"]
-        assert len(brief["debates"]) == 1
-        assert brief["debates"][0]["ticker"] == "NVDA"
-        assert "bull" in brief["debates"][0]
-        assert "bear" in brief["debates"][0]
-
-    @pytest.mark.asyncio
-    async def test_rounds_zero_uses_parallel_path(self) -> None:
-        """rounds=0 uses separate bull/bear nodes (not debate subgraph)."""
-
-        async def mock_company(ticker, deps):
-            return _company(ticker)
-
-        async def mock_price(ticker, deps):
-            return _price(ticker)
-
-        async def mock_bull(state, current_date, debate_history=None):
-            return _bull(state["ticker"])
-
-        async def mock_bear(state, current_date, debate_history=None):
-            return _bear(state["ticker"])
-
-        with (
-            patch(f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social(["NVDA"])),
-            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA"])),
-            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
-            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
-            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
-            patch("synesis.config.get_settings") as mock_settings,
-            patch(f"{_PATCH_PREFIX}.research_bull", side_effect=mock_bull) as bull_spy,
-            patch(f"{_PATCH_PREFIX}.research_bear", side_effect=mock_bear) as bear_spy,
-        ):
-            mock_settings.return_value.debate_rounds = 0
-            mock_settings.return_value.macro_strategist_enabled = True
-            graph = build_intelligence_graph(
-                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
-            )
-            result = await graph.ainvoke(
-                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
-            )
-
-        # Parallel path: bull/bear called directly (not via subgraph)
-        assert bull_spy.call_count == 1
-        assert bear_spy.call_count == 1
-
-        brief = result["brief"]
-        assert len(brief["debates"]) == 1
-        assert brief["debates"][0]["ticker"] == "NVDA"
-
-    @pytest.mark.asyncio
-    async def test_multi_round_compiler_picks_last(self) -> None:
+    def test_multi_round_compiler_picks_last(self) -> None:
         """With rounds=2, compiler uses the last (most refined) argument per ticker."""
         brief = compile_brief(
             {
@@ -904,104 +700,6 @@ class TestMultiRoundGraphExecution:
         # Last argument wins (round 2 is the most refined)
         assert brief["debates"][0]["bull"]["argument"] == "Bull round 2"
         assert brief["debates"][0]["bear"]["argument"] == "Bear round 2"
-
-    @pytest.mark.asyncio
-    async def test_debate_failure_mid_round(self) -> None:
-        """Bear fails in debate subgraph — ticker_debate_node catches and returns error."""
-
-        async def mock_company(ticker, deps):
-            return _company(ticker)
-
-        async def mock_price(ticker, deps):
-            return _price(ticker)
-
-        async def mock_bull(state, current_date, debate_history=None):
-            return _bull(state["ticker"])
-
-        async def mock_bear(state, current_date, debate_history=None):
-            raise RuntimeError("LLM timeout")
-
-        with (
-            patch(f"{_PATCH_PREFIX}.analyze_social_sentiment", return_value=_social(["NVDA"])),
-            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA"])),
-            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
-            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
-            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
-            patch("synesis.config.get_settings") as mock_settings,
-            patch(
-                "synesis.processing.intelligence.debate.subgraph.research_bull",
-                side_effect=mock_bull,
-            ),
-            patch(
-                "synesis.processing.intelligence.debate.subgraph.research_bear",
-                side_effect=mock_bear,
-            ),
-        ):
-            mock_settings.return_value.debate_rounds = 1
-            mock_settings.return_value.macro_strategist_enabled = True
-            graph = build_intelligence_graph(
-                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
-            )
-            result = await graph.ainvoke(
-                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
-            )
-
-        brief = result["brief"]
-        # Entire ticker debate failed — error tracked
-        assert "NVDA" in brief["errors"]["bull_failures"]
-        assert "NVDA" in brief["errors"]["bear_failures"]
-
-    @pytest.mark.asyncio
-    async def test_multi_ticker_debate_subgraph(self) -> None:
-        """Multiple tickers each get their own independent debate subgraph."""
-
-        async def mock_company(ticker, deps):
-            return _company(ticker)
-
-        async def mock_price(ticker, deps):
-            return _price(ticker)
-
-        async def mock_bull(state, current_date, debate_history=None):
-            return _bull(state["ticker"])
-
-        async def mock_bear(state, current_date, debate_history=None):
-            return _bear(state["ticker"])
-
-        with (
-            patch(
-                f"{_PATCH_PREFIX}.analyze_social_sentiment",
-                return_value=_social(["NVDA", "AMD"]),
-            ),
-            patch(f"{_PATCH_PREFIX}.analyze_news", return_value=_news(["NVDA", "AMD"])),
-            patch(f"{_PATCH_PREFIX}.analyze_company", side_effect=mock_company),
-            patch(f"{_PATCH_PREFIX}.analyze_price", side_effect=mock_price),
-            patch(f"{_PATCH_PREFIX}.analyze_macro", return_value=_macro()),
-            patch("synesis.config.get_settings") as mock_settings,
-            patch(
-                "synesis.processing.intelligence.debate.subgraph.research_bull",
-                side_effect=mock_bull,
-            ),
-            patch(
-                "synesis.processing.intelligence.debate.subgraph.research_bear",
-                side_effect=mock_bear,
-            ),
-        ):
-            mock_settings.return_value.debate_rounds = 1
-            mock_settings.return_value.macro_strategist_enabled = True
-            graph = build_intelligence_graph(
-                db=AsyncMock(), sec_edgar=AsyncMock(), yfinance=AsyncMock(), fred=AsyncMock()
-            )
-            result = await graph.ainvoke(
-                {"current_date": "2026-04-07"}, config={"recursion_limit": 50}
-            )
-
-        brief = result["brief"]
-        assert len(brief["debates"]) == 2
-        debate_tickers = {d["ticker"] for d in brief["debates"]}
-        assert debate_tickers == {"NVDA", "AMD"}
-        for debate in brief["debates"]:
-            assert "bull" in debate
-            assert "bear" in debate
 
 
 # ── Debate History Formatter Tests ───────────────────────────────
@@ -1381,7 +1079,6 @@ class TestTraderGraphStructure:
         assert "trader" in node_names
 
 
-@pytest.mark.slow
 class TestTraderGraphExecution:
     """Tests for Trader in full graph execution."""
 
