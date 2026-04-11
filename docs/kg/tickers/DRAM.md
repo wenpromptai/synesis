@@ -17,5 +17,7 @@ Decision: No trade (details in debate section of brief)
 - Analyzed in brief
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[concepts/momentum|momentum]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

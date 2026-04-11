@@ -17,5 +17,7 @@ Decision: No trade (details in debate section of brief)
 - Analyzed in brief
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[themes/customer-concentration|customer concentration]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/geopolitical-energy-risk]]", "[[themes/capital-intensive-transitions]]"]
+related: ["[[themes/geopolitical-energy-risk]]", "[[themes/capital-intensive-transitions]]", "[[themes/consumer-sentiment-collapse]]"]
 created: 2026-04-10
 type: theme
 theme_type: macro
@@ -52,6 +52,17 @@ Dominated all positioning decisions. Brief strongly favored defined-risk options
 
 **Key risk:** If April/May PCE prints show 3.5%+ core, regime shifts to risk_off. Sentiment downgraded from +0.15 to +0.10 and trending lower.
 
+## 2026-04-11 (manual brief) — STATUS: TESTING / POTENTIAL DOWNGRADE
+
+Core CPI printed **below expectations** (2.6% YoY vs 2.7% est, +0.2% MoM vs 0.3% est) — underlying inflation ex-energy is cooling. VIX collapsed from 25.78 (4/7) to 19.49. Ceasefire Day 3 has dropped oil from $117 to $95.
+
+**However, energy inflation surged:** Energy CPI +10.9% MoM (largest since Sept 2005), gasoline +21.2% MoM (largest on record since 1967). Headline CPI 3.3% vs core 2.6% = pure energy-driven divergence.
+
+**Updated assessment:** If ceasefire holds and oil drops to $80-85, stagflation base case could downgrade back to tail risk. If ceasefire collapses, oil spikes back above $100 and stagflation re-intensifies. Binary on Iran/Hormuz resolution.
+
+See also: [[themes/consumer-sentiment-collapse]] — UMich record low 47.6 reinforces the demand-destruction leg of stagflation.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime driver
 > - [[sources/brief-2026-04-10-manual]] — upgraded to base case with hard macro data
+> - [[sources/brief-2026-04-11-manual]] — core CPI miss, ceasefire testing the thesis

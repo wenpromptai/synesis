@@ -21,5 +21,7 @@ Decision: Buy FN Jun 2026 580/520 put debit spread (bearish)
 - Take profit if FN trades $540-560 or spread > 70% max
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]] | [[strategies/options/bear-put-spread|bear put spread]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

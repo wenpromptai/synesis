@@ -17,5 +17,7 @@ Decision: No trade (details in debate section of brief)
 - Analyzed in brief — bull/bear debate present
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[sources/connections/ai-compute-stack|AI compute stack]] | [[concepts/momentum|momentum]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

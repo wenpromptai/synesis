@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/ai-infrastructure]]", "[[themes/customer-concentration]]", "[[concepts/co-packaged-optics]]", "[[concepts/indium-phosphide-substrates]]", "[[concepts/silicon-photonics]]"]
+related: ["[[themes/ai-infrastructure]]", "[[themes/customer-concentration]]", "[[concepts/co-packaged-optics]]", "[[concepts/indium-phosphide-substrates]]", "[[concepts/silicon-photonics]]", "[[themes/photonics-supercycle]]"]
 created: 2026-04-10
 type: theme
 theme_type: sector

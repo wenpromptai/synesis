@@ -20,5 +20,7 @@ Decision: No trade — pass
 - Would reconsider on meaningful pullback or clear AI ASIC/networking visibility
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[sources/connections/ai-compute-stack|AI compute stack]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

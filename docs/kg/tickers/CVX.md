@@ -29,8 +29,18 @@ Decision: Buy CVX shares with tight risk stop; add on close above 21-day EMA; st
 - Oil thesis (Hormuz, $100+ WTI) intact but CVX-specific headwinds are real — position size should reflect near-stop entry
 - Source: [[sources/brief-2026-04-10-manual]]
 
+## 2026-04-11 (manual brief) — EXIT
+- Spot $188.55 (-0.95%). **Broke below $190 stop identified in prior briefs.**
+- Q1 headwinds compounding: $2.7-3.7B adverse timing/WC effects + $350-400M legal charge + 6% production drop (Kazakhstan + Middle East)
+- Ceasefire (Day 3) took oil from $117 to $95 — further downside to $80-85 if Hormuz reopens
+- War premium that supported CVX is being repriced
+- **Decision: EXIT position.** Close and reassess after Q1 report (May 1).
+- Insiders: MSPR -1.0 | 2 sells | $17.6M sold | Zero buys
+- Source: [[sources/brief-2026-04-11-manual]]
+
 **See also:** [[earnings-options-systematic]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — trade update (at stop, tighten to $189)
+> - [[sources/brief-2026-04-11-manual]] — EXIT, broke $190 stop

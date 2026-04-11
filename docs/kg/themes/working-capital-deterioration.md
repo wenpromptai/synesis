@@ -25,5 +25,7 @@ Companies showing revenue growth alongside deteriorating cash conversion — ris
 ## 2026-04-10
 Widespread across semiconductor/optics names during the AI capex ramp. In hardware cycles, AR and inventory builds during growth can mask cash burn — any demand pause converts "growth" into write-downs.
 
+**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — observed across multiple names

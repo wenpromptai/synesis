@@ -20,5 +20,7 @@ Decision: No trade — pass
 - RSI ~69; BB %B >1; weak ADX ~17; SI ~16%
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[themes/photonics-supercycle|photonics supercycle]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

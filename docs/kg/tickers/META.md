@@ -31,8 +31,26 @@ Decision: Buy META Jun 2026 620/700 call spread + sell Jun 2026 540 put (risk re
 - See also: [[themes/ai-infrastructure-financing-risk]] — CoreWeave systemic risk
 - Source: [[sources/brief-2026-04-10-manual]]
 
+## 2026-04-11 (manual brief)
+- Spot $629.86 (+0.23%). Recovery from $520.26 low (3/27) to $629.86 (+21%). CoreWeave deal spike on 4/8 ($592->$629) consolidating. RV 30d: 52.8%.
+- $21B expanded CoreWeave deal (total $35B through 2032). GB300 + Vera Rubin infrastructure. Diversifying from AWS/Azure.
+- Insiders: MSPR -1.0 | 19 sells | $3.96M sold | Zero buys (low $ value relative to market cap)
+- Market reacted -2% to the $21B deal announcement — skeptical of spend magnitude
+- **Decision: Pass, wait for Q1 earnings.** $35B CoreWeave = massive capex burden. Unclear when ROI materializes.
+- Source: [[sources/brief-2026-04-11-manual]]
+
+## 2026-04-11 (automated pipeline)
+- Pipeline debate: bull case stronger. FY2025 revenue $200.97B (+22%), NI $60.46B, net margin 30.1%, GM 82%, OpM 41.3%.
+- FCF $23.43B. EV/EBITDA 15.7. ROE 30.2%. DAP 3.58B (Dec 2025). Short interest 1.1%.
+- Fresh bullish 8/21 EMA cross (1 day ago). RSI 57.1. OBV rising. ATM IV 44.1% < RV 52.8% — options underpriced.
+- **Pipeline trade:** Buy META 2-3 month call spread (ATM / +5-7% OTM). Stop if < $622. Target ~1.5x return on premium.
+- Bear: $21B CoreWeave = multi-year cost commitment, not monetization catalyst. Piotroski 5/9. D/E 39.16 (net cash negative). Insider selling pattern (COO Olivan weekly sales).
+- Source: [[sources/brief-2026-04-11]]
+
 **See also:** [[bull-call-spread]] | [[risk-reversal]] | [[momentum]] | [[fcf-yield]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — CoreWeave $35B deal, deepened analysis
+> - [[sources/brief-2026-04-11-manual]] — pass, wait Q1 earnings
+> - [[sources/brief-2026-04-11]] — pipeline call spread trade, full debate

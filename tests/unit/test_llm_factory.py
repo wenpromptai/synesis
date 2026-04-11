@@ -2,9 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 
-from synesis.processing.common.llm import create_model
+import pytest
+
+from synesis.processing.common.llm import create_model, is_native_openai
 
 
 class TestCreateModel:
@@ -55,7 +57,7 @@ class TestCreateModel:
         assert isinstance(result, OpenAIChatModel)
 
     def test_openai_model_without_base_url(self) -> None:
-        """Test creating OpenAI model without custom base URL."""
+        """Test native OpenAI (no base URL) returns OpenAIResponsesModel."""
         with patch("synesis.processing.common.llm.get_settings") as mock_settings:
             settings = MagicMock()
             settings.llm_provider = "openai"
@@ -68,7 +70,23 @@ class TestCreateModel:
 
             result = create_model(smart=False)
 
-        assert isinstance(result, OpenAIChatModel)
+        assert isinstance(result, OpenAIResponsesModel)
+
+    def test_openai_model_with_native_base_url(self) -> None:
+        """Test explicit OpenAI base URL still returns OpenAIResponsesModel."""
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.llm_provider = "openai"
+            settings.llm_model = "gpt-4o-mini"
+            settings.llm_model_smart = "gpt-4o"
+            settings.openai_api_key = MagicMock()
+            settings.openai_api_key.get_secret_value.return_value = "test-key"
+            settings.openai_base_url = "https://api.openai.com/v1"
+            mock_settings.return_value = settings
+
+            result = create_model(smart=False)
+
+        assert isinstance(result, OpenAIResponsesModel)
 
     def test_openai_model_smart_flag(self) -> None:
         """Test that smart flag selects correct model."""
@@ -82,13 +100,13 @@ class TestCreateModel:
             settings.openai_base_url = None
             mock_settings.return_value = settings
 
-            # Regular model
+            # Regular model (native OpenAI → ResponsesModel)
             result_regular = create_model(smart=False)
-            assert isinstance(result_regular, OpenAIChatModel)
+            assert isinstance(result_regular, OpenAIResponsesModel)
 
-            # Smart model
+            # Smart model (native OpenAI → ResponsesModel)
             result_smart = create_model(smart=True)
-            assert isinstance(result_smart, OpenAIChatModel)
+            assert isinstance(result_smart, OpenAIResponsesModel)
 
     def test_openai_model_no_api_key_raises(self) -> None:
         """Test creating OpenAI model without API key raises error."""
@@ -104,7 +122,31 @@ class TestCreateModel:
             mock_settings.return_value = settings
 
             # OpenAI client validates API key at creation time
-            import pytest
-
             with pytest.raises(openai.OpenAIError, match="api_key"):
                 create_model(smart=False)
+
+
+class TestIsNativeOpenAI:
+    """Tests for is_native_openai helper."""
+
+    @pytest.mark.parametrize(
+        ("provider", "base_url", "expected"),
+        [
+            ("openai", None, True),
+            ("openai", "", True),
+            ("openai", "https://api.openai.com/v1", True),
+            ("openai", "https://api.openai.com/v1/", True),
+            ("openai", "https://api.z.ai/api/coding/paas/v4", False),
+            ("openai", "https://custom.proxy.com/v1", False),
+            ("anthropic", None, False),
+            ("anthropic", "https://api.openai.com/v1", False),
+        ],
+    )
+    def test_is_native_openai(self, provider: str, base_url: str | None, expected: bool) -> None:
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.llm_provider = provider
+            settings.openai_base_url = base_url
+            mock_settings.return_value = settings
+
+            assert is_native_openai() is expected

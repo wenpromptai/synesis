@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/optical-photonics-supply-chain]]", "[[themes/working-capital-deterioration]]", "[[themes/capital-intensive-transitions]]"]
+related: ["[[themes/optical-photonics-supply-chain]]", "[[themes/working-capital-deterioration]]", "[[themes/capital-intensive-transitions]]", "[[themes/photonics-supercycle]]", "[[themes/ai-infrastructure]]"]
 created: 2026-04-10
 type: ticker
 sector: "Technology"
@@ -20,5 +20,22 @@ Decision: No trade — skip (if long, trim/hedge with OTM put)
 - 30D RV ~109%; SI ~18% — downside gaps on refi/guide/pushout headline most probable asymmetric move
 - Source: [[sources/brief-2026-04-10]]
 
+## 2026-04-11 (manual brief) — PASS, WAIT PULLBACK
+- Spot $897.30 (+0.35%). Massive range — $573 low to $960 high in 3 months. Consolidating near highs. RV 30d: 108.9%.
+- **Manufacturing capacity sold out through 2028.** $400M+ OCS backlog. **NVIDIA $2B strategic investment** (March 2026) to lock in laser supply.
+- **EML bottleneck — 36% projected supply shortfall.** 1.6T lanes demand outpacing most aggressive forecasts.
+- Insiders: MSPR -1.0 | 18 sells | $5.8M sold | Zero buys
+- Bull: NVIDIA-backed supply lock-in. Unmatched demand visibility (2028). EML bottleneck = pricing power. Critical AI infrastructure layer.
+- Bear: D/E 392, EV/EBITDA ~247x. RV 109%. Seeking Alpha: "too many reasons to stay away." Insider selling despite incredible fundamentals.
+- **Decision: Pass, wait for pullback to $750-800.** The thesis gets better the lower the price goes.
+- Source: [[sources/brief-2026-04-11-manual]]
+
+## 2026-04-11 (automated pipeline)
+- Debate: bull on photonics supercycle, AI cluster buildouts, sticky design-wins. Bear on missing financials (no margin, no bookings, no guidance), export controls, supply chain fragility, information vacuum.
+- No trade from pipeline — data gaps, no confirmation demand translating to profitability
+- Source: [[sources/brief-2026-04-11]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-11-manual]] — backlog 2028, NVDA $2B, EML shortage, pullback entry
+> - [[sources/brief-2026-04-11]] — debate, data gap concerns

@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/ai-infrastructure]]", "[[themes/optical-photonics-supply-chain]]", "[[themes/customer-concentration]]", "[[themes/working-capital-deterioration]]", "[[themes/capital-intensive-transitions]]", "[[themes/insider-selling-clusters]]"]
+related: ["[[themes/ai-infrastructure]]", "[[themes/optical-photonics-supply-chain]]", "[[themes/customer-concentration]]", "[[themes/working-capital-deterioration]]", "[[themes/capital-intensive-transitions]]", "[[themes/insider-selling-clusters]]", "[[themes/photonics-supercycle]]"]
 created: 2026-04-10
 type: ticker
 sector: "Technology"
@@ -24,5 +24,24 @@ Decision: No trade — pass
 - Bear case stronger: cash-consuming, dilutive, narrow customer set in fragile macro
 - Source: [[sources/brief-2026-04-10]]
 
+## 2026-04-11 (manual brief) — AVOID
+- Spot $150.60 (+12.98%). **Parabolic — from $78.57 (3/31) to $150.60 (+92% in 11 sessions).** Session range $128-$155. RV 30d: 174.8% (highest of all names). Volume 21.8M.
+- $124M hyperscale 800G order expansion. $200M 1.6T volume order. Targeting **$1B rev** and $120M non-GAAP OP in 2026. Largest 800G/1.6T capacity in America. Vertically integrated (fab own InP lasers).
+- LITE spillover demand beneficiary. See [[themes/photonics-supercycle]].
+- Insiders: MSPR -1.0 | 16 sells | $29M sold at $95-113 | Zero buys — **every insider sold well below current price**
+- 247WallSt PT $108.18 — stock 40% above their target. Zacks PS 6.68x.
+- **Decision: AVOID.** Not a portfolio manager's trade at $150. Retail momentum/squeeze name.
+- Source: [[sources/brief-2026-04-11-manual]]
+
+## 2026-04-11 (automated pipeline)
+- Debate: bull case on AI datacenter bandwidth upgrade cycle, backlog/order fill extending into 2028, supply-constrained demand
+- Bear: backlog claim is single social post with low verifiability. No disclosed backlog numbers, no customer concentration data, no earnings-quality metrics. "Backlog" can be non-binding forecasts. Capacity additions carry execution risk.
+- No trade from pipeline — data/visibility gaps, event risk
+- Source: [[sources/brief-2026-04-11]]
+
+**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-11-manual]] — parabolic move, $1B target, avoid
+> - [[sources/brief-2026-04-11]] — debate, backlog verifiability concern

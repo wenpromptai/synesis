@@ -12,9 +12,10 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.builtin_tools import WebSearchTool
 
 from synesis.core.logging import get_logger
-from synesis.processing.common.llm import create_model
+from synesis.processing.common.llm import create_model, is_native_openai, native_search_docs
 from synesis.processing.common.web_search import (
     Recency,
     format_search_results,
@@ -28,7 +29,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 2
+_WEB_SEARCH_CAP = 3
+
+
+_NATIVE_SEARCH_DESC = (
+    "look up breaking economic events, policy changes, or verify FRED data context"
+)
 
 # Key FRED series for macro regime assessment
 _FRED_SERIES = {
@@ -164,9 +170,9 @@ Today's date: {current_date}
 
 ## Tools
 
-- `web_search(query, recency)` — Search the web for context. Budget: {web_search_cap} calls.
-  Use specific queries: "Fed rate decision outlook April 2026", not generic "macro outlook".
-  Recency: "day", "week", "month", "year", "none".
+{native_search_docs}\
+- `web_search(query, recency)` — Search via Brave API with explicit \
+recency filter (day/week/month/year). Budget: {web_search_cap} calls.
 - `web_read(url)` — Read a web page for full article content (~4000 chars). Unlimited calls.
   Use after web_search to read high-quality links that can strengthen your assessment.
 - `get_fred_data(series_id)` — Fetch a FRED economic data series (last 5 observations).
@@ -242,6 +248,7 @@ async def analyze_macro(
     user_prompt = f"{fred_context}\n\n{themes_context}"
 
     # Construct agent
+    native = is_native_openai()
     agent: Agent[MacroStrategistDeps, MacroView] = Agent(
         model=create_model(tier="vsmart"),
         deps_type=MacroStrategistDeps,
@@ -249,8 +256,12 @@ async def analyze_macro(
         system_prompt=SYSTEM_PROMPT.format(
             current_date=deps.current_date,
             web_search_cap=_WEB_SEARCH_CAP,
+            native_search_docs=native_search_docs(_WEB_SEARCH_CAP, _NATIVE_SEARCH_DESC)
+            if native
+            else "",
         ),
         tools=[_tool_web_search, _tool_web_read, _tool_get_fred_data],
+        builtin_tools=[WebSearchTool(max_uses=_WEB_SEARCH_CAP)] if native else [],
     )
 
     try:

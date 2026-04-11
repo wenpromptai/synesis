@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/optical-photonics-supply-chain]]", "[[themes/capital-intensive-transitions]]"]
+related: ["[[themes/optical-photonics-supply-chain]]", "[[themes/capital-intensive-transitions]]", "[[themes/photonics-supercycle]]", "[[themes/ai-infrastructure-financing-risk]]"]
 created: 2026-04-10
 type: theme
 theme_type: opportunity
@@ -36,5 +36,29 @@ Multi-year hyperscaler capex cycle driving demand for GPUs, networking, custom s
 ## 2026-04-10 (transitioning regime, sentiment +0.15)
 Hyperscaler capex still accelerating despite fragile macro. Power/grid bottleneck constraining buildout pace. Sector tilt: utilities/grid infrastructure +0.3. Most AI-exposed names traded at premium multiples with stretched technicals — brief favored defined-risk options structures over outright equity.
 
+## 2026-04-11 — INTENSIFYING
+
+AI infrastructure theme continues to strengthen with hard commitment data:
+
+- **CoreWeave/Meta $21B deal** uses GB300 + Vera Rubin — validates GPU demand through 2032
+- **NVDA $2B Lumentum investment** — locking in laser/optics supply for AI networking
+- **LITE manufacturing sold out through 2028** — $400M+ OCS backlog
+- **AAOI targeting $1B revenue** — $124M 800G order expansion, $200M 1.6T orders
+- **EML supply shortfall 36%** — edge-emitting laser bottleneck constraining photonics ramp
+
+New tickers added this compilation:
+| Ticker | Exposure | As Of |
+|--------|----------|-------|
+| [[tickers/AMD]] | AI GPU challenger — MI400/MI450, data center >60% growth | 2026-04-11 |
+| [[tickers/ASML]] | EUV lithography monopoly — capex leading indicator | 2026-04-11 |
+
+Sector tilt updated to **+0.5** (manual brief, up from +0.3) on CoreWeave/Meta validation.
+
+Pipeline brief sector tilt: Quality Growth / Mega-cap Tech +0.3, Industrials / Electrification +0.2.
+
+See also: [[themes/photonics-supercycle]] (new theme) for optics-specific demand acceleration. | [[sources/connections/ai-compute-stack|AI compute stack]] (NVDA+AVGO+TSM+MRVL+ARM supply chain connection).
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-11-manual]] — CoreWeave validation, NVDA Lumentum, LITE backlog
+> - [[sources/brief-2026-04-11]] — pipeline sector tilts, debates

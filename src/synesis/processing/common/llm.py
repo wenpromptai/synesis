@@ -6,13 +6,30 @@ Supports:
 """
 
 from pydantic_ai.models import Model
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+_OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+
+def is_native_openai() -> bool:
+    """True when the configured provider is OpenAI's own API (not a proxy)."""
+    settings = get_settings()
+    base = (settings.openai_base_url or "").rstrip("/")
+    return settings.llm_provider == "openai" and (not base or base == _OPENAI_BASE_URL)
+
+
+def native_search_docs(cap: int, description: str) -> str:
+    """Format the native web search prompt block for OpenAI Responses API agents."""
+    return (
+        f"- **Native web search** — you have built-in web search to {description}. "
+        f"Budget: {cap} searches.\n"
+    )
 
 
 def create_model(smart: bool = False, tier: str | None = None) -> str | Model:
@@ -26,7 +43,9 @@ def create_model(smart: bool = False, tier: str | None = None) -> str | Model:
 
     Returns:
         Model string for Anthropic (e.g., "anthropic:claude-3-5-haiku-20241022")
-        or OpenAIChatModel instance for OpenAI-compatible APIs.
+        or OpenAI model instance for OpenAI-compatible APIs. Returns
+        OpenAIResponsesModel (supports WebSearchTool) when on native OpenAI,
+        OpenAIChatModel otherwise.
     """
     settings = get_settings()
     if tier == "vsmart":
@@ -60,4 +79,6 @@ def create_model(smart: bool = False, tier: str | None = None) -> str | Model:
         provider = OpenAIProvider(api_key=api_key)
         logger.debug("Using OpenAI model", model=model_name, smart=smart)
 
+    if is_native_openai():
+        return OpenAIResponsesModel(model_name, provider=provider)
     return OpenAIChatModel(model_name, provider=provider)

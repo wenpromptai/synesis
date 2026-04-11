@@ -28,7 +28,7 @@ Decision: Buy CRCL May 2026 85/105 call spread; risk 1.0% NAV; take profit 70-80
 - **Action:** CUT the call spread. Don't hold a losing defined-risk trade when the thesis is against you. Cut if CRCL closes below $82.
 - Source: [[sources/brief-2026-04-10-manual]]
 
-**See also:** [[bull-call-spread]] | [[implied-volatility]] | [[earnings-options-systematic]]
+**See also:** [[bull-call-spread]] | [[implied-volatility]] | [[earnings-options-systematic]] | [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

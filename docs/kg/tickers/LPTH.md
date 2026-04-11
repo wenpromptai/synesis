@@ -19,5 +19,7 @@ Decision: No trade — pass
 - North Run distributing >~2M shares across $11.7-$12.3 — persistent supply overhang
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

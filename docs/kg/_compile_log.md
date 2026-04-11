@@ -36,3 +36,13 @@ Append-only audit trail of `/kg-compile` operations.
 - **Nodes created:** themes/ai-infrastructure-financing-risk.md
 - **Source node:** sources/brief-2026-04-10-manual.md
 - **Index updated:** 114 → 116 nodes
+
+## 2026-04-11 — Dual Brief Compilation (Manual + Pipeline)
+- **Sources:** raw/synesis_briefs/2026-04-11-manual.md, raw/synesis_briefs/2026-04-11.md
+- **Tickers created (7):** tickers/AMD.md, tickers/ASML.md, tickers/BX.md, tickers/C.md, tickers/GS.md, tickers/MS.md, tickers/NFLX.md
+- **Themes created (2):** themes/consumer-sentiment-collapse.md, themes/photonics-supercycle.md
+- **Source nodes created (2):** sources/brief-2026-04-11.md, sources/brief-2026-04-11-manual.md
+- **Tickers updated (9):** tickers/NVDA.md, tickers/GOOG.md, tickers/CVX.md (EXIT), tickers/MU.md, tickers/AAOI.md, tickers/LITE.md, tickers/META.md, tickers/TSM.md, tickers/TSEM.md, tickers/TSLA.md
+- **Themes updated (5):** themes/stagflation-tail-risk.md (testing), themes/ai-infrastructure.md (intensifying), themes/geopolitical-energy-risk.md (de-escalating), themes/insider-selling-clusters.md (universal), themes/optical-photonics-supply-chain.md (related link)
+- **Index updated:** 116 → 127 nodes
+- **Key changes:** AMD new ticker with bull call spread; CVX exited (broke stop); 3 new manual trades (NVDA/AMD/GOOG bull call spreads); 5 pipeline trades (ASML/TSM pair, NVDA put hedge, META call spread, BX put spread, C put spread); consumer sentiment record low; photonics supercycle theme

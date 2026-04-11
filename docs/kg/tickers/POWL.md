@@ -17,5 +17,7 @@ Decision: No trade (details in debate section of brief)
 - Analyzed in brief — power infrastructure for datacenters
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[themes/capital-intensive-transitions|capital-intensive transitions]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

@@ -19,5 +19,7 @@ Decision: Not directly traded in this brief; sector tilt +0.7
 - Risk: rapid de-escalation unwinds risk premium
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[themes/stagflation-tail-risk|stagflation tail risk]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — sector tilt reference

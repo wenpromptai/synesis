@@ -17,5 +17,7 @@ Decision: No trade (details in debate section of brief)
 - Referenced as AAOI customer (28.8% of rev, FY2025 10-K) and IREN counterparty ($9.7B agreement)
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[themes/customer-concentration|customer concentration]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

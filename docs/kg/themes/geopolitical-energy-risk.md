@@ -30,6 +30,22 @@ Oil above $100/bbl — **WTI hit $117.63, Brent spot above $120** (2026-04-08, C
 - OIH put credit spread working; watchlist for OIH 420/450 call spread if pullback to $400-405
 - Double inflation hit: tariff pass-through + Hormuz disruption → core goods inflation already surging pre-shock
 
+## 2026-04-11 (manual brief) — DE-ESCALATING (FRAGILE)
+
+Ceasefire (Day 3) has dropped oil from $117 to $95, but Hormuz **remains effectively blocked** — ships still being prevented from crossing.
+
+**Ceasefire fragility signals:**
+- Iran's parliamentary speaker accused US of breaching agreement on three counts (Israel strikes on Lebanon, drone in Iranian airspace, uranium enrichment denial)
+- IRGC Commander Vahidi seeking to curb authority of negotiators
+- Hassett claims Hormuz can be opened within two months
+- Japan releasing SPR (20 days consumption in May). India importing record Russian crude (1.98M b/d)
+- Trump threatening military action if talks fail
+
+**CVX broke $190 stop and exited** — CVX-specific Q1 headwinds (timing/WC, legal charge, production drop) compounded ceasefire de-escalation. Energy sector tilt reduced to **+0.5** (from +0.8).
+
+**Binary outcome:** Ceasefire collapse = oil back above $100 = immediate risk-off. Ceasefire holds = oil to $80-85 = energy premium evaporates.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime analysis
 > - [[sources/brief-2026-04-10-manual]] — oil price specifics, crisis escalation
+> - [[sources/brief-2026-04-11-manual]] — ceasefire Day 3, Hormuz still blocked, CVX exit

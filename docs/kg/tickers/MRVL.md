@@ -28,7 +28,7 @@ Decision: Buy MRVL 110/130 call spread, 60-90 DTE; risk 0.40-0.60% NAV
 - **Action:** Hold MRVL 110/130 call spread. Stop unchanged at MRVL <$107 or spread -50%.
 - Source: [[sources/brief-2026-04-10-manual]]
 
-**See also:** [[bull-call-spread]] | [[momentum]] | [[earnings-options-systematic]]
+**See also:** [[bull-call-spread]] | [[momentum]] | [[earnings-options-systematic]] | [[sources/connections/ai-compute-stack|AI compute stack]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

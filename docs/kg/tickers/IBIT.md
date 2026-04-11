@@ -19,5 +19,7 @@ Decision: No trade — stand aside; if needed, use collar/put hedge
 - Need confirmed technical breakout with volume or clear macro risk-on signal before adding BTC exposure
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[strategies/options/protective-put|protective put]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation

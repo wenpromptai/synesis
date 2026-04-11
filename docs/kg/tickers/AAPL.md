@@ -21,5 +21,7 @@ Decision: No trade — skip
 - Low BB-width squeeze on light volume near resistance — asymmetry unattractive
 - Source: [[sources/brief-2026-04-10]]
 
+**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]] | [[concepts/implied-volatility|implied volatility]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
