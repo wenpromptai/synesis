@@ -26,7 +26,20 @@ Decision: No trade — debate only, no trade idea from pipeline
 - Named as BX $2B data center IPO underwriter
 - Source: [[sources/brief-2026-04-11]]
 
-**See also:** [[concepts/implied-volatility|implied volatility]] | [[concepts/fcf-yield|FCF yield]]
+## 2026-04-12 (manual brief) — BULL CALL SPREAD INTO EARNINGS
+- Spot $907.80. Reports Monday Apr 13 pre-market.
+- Technicals: RSI 76.2 (overbought), BB%B 0.97, 20d range $782.21 - $907.80 (+16.1%). ATR 2.9%. RV 30d: 32.9%.
+- Consensus: EPS $16.14 (+14.3% YoY), Rev $17.01B (+12.9%). ECM surge + trading desk strength. Beat 4 consecutive quarters.
+- **Insider signal remains strongest in coverage universe:** MSPR +1.0, 19 buys ($3.4M), zero sells.
+- Fed probing private credit exposure (Bloomberg) — could mean more business flowing to regulated banks.
+- **Trade:** Buy GS Apr 24 $900/$940 bull call spread. Small size (premium <= 0.3% NAV).
+- Catalyst: Monday pre-market earnings. ECM revenue, trading desk commentary.
+- Timeframe: 1 week
+- Key risk: Overbought into event. Iran deal failure dampens risk appetite. Any guidance caution on geopolitical uncertainty = hard reversal. Defined risk.
+- Source: [[sources/brief-2026-04-12-manual]]
+
+**See also:** [[concepts/implied-volatility|implied volatility]] | [[concepts/fcf-yield|FCF yield]] | [[bull-call-spread]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11]] — debate analysis
+> - [[sources/brief-2026-04-12-manual]] — Apr 24 $900/$940 call spread, earnings preview

@@ -29,5 +29,10 @@ Decision: No trade — debate only, no trade idea from pipeline
 
 **See also:** [[concepts/implied-volatility|implied volatility]] | [[concepts/fcf-yield|FCF yield]]
 
+## 2026-04-12 (manual brief) — NO TRADE
+- MSPR 0.0 (zero activity). No clear edge into earnings.
+- Source: [[sources/brief-2026-04-12-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11]] — debate analysis
+> - [[sources/brief-2026-04-12-manual]] — no trade, no edge

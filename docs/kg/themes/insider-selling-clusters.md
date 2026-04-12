@@ -52,7 +52,36 @@ Notable exception: [[tickers/GS]] — MSPR **+1.0**, 19 insider buys, zero sells
 
 **See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
 
+## 2026-04-12 — EXPANDING (NEW NAMES)
+
+New additions to the cluster:
+| Ticker | MSPR | Sells | $ Sold | As Of |
+|--------|------|-------|--------|-------|
+| [[tickers/NFLX]] | -1.0 | 4 | $43M | 2026-04-12 |
+| [[tickers/BAC]] | -0.997 | 8 | $21M | 2026-04-12 |
+| [[tickers/COHR]] | -1.0 | 9 | $4.9M | 2026-04-12 |
+
+GS remains the sole exception: MSPR +1.0, 19 buys, zero sells. TSM also showing insider buying (MSPR +1.0, 5 buys).
+
+## 2026-04-12 — PIPELINE BRIEF (ALL 11 DEBATED TICKERS)
+
+Pipeline debated 11 tickers — insider selling clusters flagged in 8 of them:
+| Ticker | Cluster | Evidence | As Of |
+|--------|---------|----------|-------|
+| [[tickers/AAOI]] | 5 insiders | 10 Form 144s, directors/officers Mar 2026 | 2026-04-12 pipeline |
+| [[tickers/COHR]] | 5 insiders | CFO Luther + 4 others, Feb-Mar 2026 | 2026-04-12 pipeline |
+| [[tickers/LITE]] | 3 insiders | Ali Wajid $681-698, Wupen Yuen $538 | 2026-04-12 pipeline |
+| [[tickers/NVDA]] | 3 insiders | CFO Kress + Director Stevens, 2026-03-20 | 2026-04-12 pipeline |
+| [[tickers/OKLO]] | 3 insiders | DeWitte 40K shares, Cochran 40K @ $50.50 (2026-04-01) | 2026-04-12 pipeline |
+| [[tickers/PLTR]] | 4 insiders | Thiel 1.9M+ shares @ $143-147 (2026-03-02) | 2026-04-12 pipeline |
+| [[tickers/SMR]] | 5 insiders | COO/CFO/CTO + director @ $12.22-12.64 (Mar 2026) | 2026-04-12 pipeline |
+| [[tickers/SNDK]] | 1 director | 3,500 shares @ $627.53 (2026-02-25) | 2026-04-12 pipeline |
+
+Notably, AMZN and INTC had zero insider activity. NBIS had no insider data (company analysis failed).
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — observed across 6+ names
 > - [[sources/brief-2026-04-11-manual]] — universal cluster, detailed $ amounts
 > - [[sources/brief-2026-04-11]] — financial sector clusters (C, MS, GS exception)
+> - [[sources/brief-2026-04-12-manual]] — NFLX $43M, BAC $21M, COHR $4.9M added
+> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — 8/11 debated tickers with clusters

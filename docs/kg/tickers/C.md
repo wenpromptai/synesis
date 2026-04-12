@@ -27,7 +27,17 @@ Decision: Buy C put spread into earnings (Apr 14)
 - Timeframe: 1-4 weeks
 - Source: [[sources/brief-2026-04-11]]
 
+## 2026-04-12 (manual brief) — REAFFIRM PUT SPREAD
+- Spot $124.39. Reports ~Apr 15.
+- Technicals: RSI 74.1, BB%B 0.98. 20d range $105.69 - $124.92 (**+17.7% run, most extreme of banks**). ATR 3.1%. RV 30d: 36.7% (highest among banks).
+- Consensus: EPS $2.63 (+34% YoY) — **highest bar of all banks**
+- MSPR 0.0 (neutral) — unchanged
+- **Reaffirm:** Buy C May 16 $124/$117 bear put spread. Small size (premium <= 0.25% NAV).
+- Thesis: Most overbought + highest earnings bar + weakest fundamentals (ROE 6.8%) of the banks.
+- Source: [[sources/brief-2026-04-12-manual]]
+
 **See also:** [[strategies/options/bear-put-spread|bear put spread]] | [[strategies/options/earnings-options-systematic|earnings options systematic]] | [[concepts/implied-volatility|implied volatility]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11]] — debate analysis, trade idea
+> - [[sources/brief-2026-04-12-manual]] — reaffirm put spread, updated technicals

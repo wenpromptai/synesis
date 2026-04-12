@@ -215,10 +215,28 @@ async def analyze_trade_per_ticker(
     result = await agent.run(user_prompt, deps=deps)
     output = result.output
 
+    # Log trade ideas detail
+    if output.trade_ideas:
+        for idea in output.trade_ideas:
+            logger.info(
+                "Trader trade idea (per_ticker)",
+                ticker=ticker,
+                idea_tickers=idea.tickers,
+                structure=idea.trade_structure,
+                timeframe=idea.timeframe,
+            )
+    else:
+        logger.warning(
+            "Trader produced 0 ideas (per_ticker)",
+            ticker=ticker,
+            web_searches_used=deps.web_search_calls,
+        )
+
     logger.info(
         "Trader complete (per_ticker)",
         ticker=ticker,
         ideas=len(output.trade_ideas),
+        web_searches_used=deps.web_search_calls,
     )
 
     for idea in output.trade_ideas:
@@ -265,9 +283,34 @@ async def analyze_trade_portfolio(
     result = await agent.run(user_prompt, deps=deps)
     output = result.output
 
+    # Log trade ideas detail
+    if output.trade_ideas:
+        for idea in output.trade_ideas:
+            logger.info(
+                "Trader trade idea (portfolio)",
+                idea_tickers=idea.tickers,
+                structure=idea.trade_structure,
+                timeframe=idea.timeframe,
+            )
+    else:
+        logger.warning(
+            "Trader produced 0 ideas (portfolio)",
+            tickers=tickers,
+            web_searches_used=deps.web_search_calls,
+        )
+
+    if output.portfolio_note:
+        logger.info(
+            "Trader portfolio note",
+            note_length=len(output.portfolio_note),
+            note_preview=output.portfolio_note[:200],
+        )
+
     logger.info(
         "Trader complete (portfolio)",
         ideas=len(output.trade_ideas),
+        web_searches_used=deps.web_search_calls,
+        has_portfolio_note=bool(output.portfolio_note),
     )
 
     for idea in output.trade_ideas:

@@ -48,6 +48,20 @@ Decision: Buy NVDA Jun 2026 185/205 call spread; entry at/under ~$9.00 debit
 - FCF $58.13B, OCF $102.7B (FY2026). EV/EBITDA 34.0. P/B 29.1. Piotroski 5/9.
 - Source: [[sources/brief-2026-04-11]]
 
+## 2026-04-12 (manual brief) — HOLD
+- Spot $188.63. RSI 68.2, BB%B 1.01. In the money on May $185 strike.
+- SpotGamma: calls "statistically cheap" + Iran deal upside as catalyst. But deal failed — upside catalyst gone.
+- Iran failure adds broad risk-off pressure that could weigh on tech Monday.
+- Insider selling unchanged: MSPR -1.0, 15 sells, $47M.
+- **Decision: Hold existing May 185/205 bull call spread. Do not add.**
+- Source: [[sources/brief-2026-04-12-manual]]
+
+## 2026-04-12 Pipeline Brief — No Trade (pass)
+- **Price:** $188.63 (+2.5%), RSI 61.6, z-score +2.01, fresh bullish EMA cross 2 days ago
+- **Bull:** Extraordinary AI cycle — rev growth 73.2%, gross margin 71.1%, op margin 65.0%, net margin 55.6%. FCF $58.13B, cash $62.56B vs debt $11.41B. CUDA/software ecosystem lock-in. Blackwell/Ultra product cadence
+- **Bear:** $4.6T market cap, P/B 29.1, EV/EBITDA 34.0. Customer concentration 61% from top 4 (22%+15%+13%+11%). $4.5B H20 inventory charge from export controls. Insider selling cluster (CFO Kress + Director Stevens on 2026-03-20). ADX only 19.1, weak trend
+- **Key data:** Revenue growth 73.2%, Gross margin 71.1%, EBITDA $133.23B, FCF $58.13B, Cash $62.56B, Debt $11.41B, Piotroski 5/9, Beta 2.33 (2026-04-12 brief)
+
 **See also:** [[bull-call-spread]] | [[sources/connections/ai-compute-stack|AI compute stack]]
 
 > [!quote]- Sources
@@ -55,3 +69,5 @@ Decision: Buy NVDA Jun 2026 185/205 call spread; entry at/under ~$9.00 debit
 > - [[sources/brief-2026-04-10-manual]] — CoreWeave/Rubin demand, trade update
 > - [[sources/brief-2026-04-11-manual]] — May 185/205 bull call spread, Vera Rubin, Lumentum $2B
 > - [[sources/brief-2026-04-11]] — pipeline debate, put spread hedge, customer concentration
+> - [[sources/brief-2026-04-12-manual]] — hold, SpotGamma cheap calls, Iran failure removes catalyst
+> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

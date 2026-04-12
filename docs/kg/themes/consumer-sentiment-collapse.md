@@ -42,5 +42,16 @@ The UMich number may be backward-looking — 98% of interviews were pre-ceasefir
 - Bank earnings (GS, JPM week of 4/13) for consumer credit quality
 - Fed response to inflation expectations unanchoring — NickTimiraos notes Fed wants to see energy prices coming down
 
+## 2026-04-12 — WORSENING (OIL SPIKE INCOMING)
+
+Iran deal failure means oil returns above $100 Monday. This directly hits the consumer:
+- UMich 47.6 was measured **before** deal failure — next read will be worse
+- Gasoline prices already at +21.2% MoM — reversal of ceasefire-driven easing
+- Fed can't cut to help consumers because inflation expectations (4.8%) are unanchoring
+- Bank earnings this week (GS Mon, JPM Tue, BAC/C Wed) will reveal Q1 consumer credit quality
+
+The market-vs-consumer disconnect flagged in prior brief is about to be tested. Bank earnings commentary on consumer delinquencies/reserves will be critical.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11-manual]] — UMich record low, inflation expectations, market disconnect analysis
+> - [[sources/brief-2026-04-12-manual]] — oil spike worsening, bank earnings as sentiment test

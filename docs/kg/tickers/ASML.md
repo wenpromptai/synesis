@@ -33,6 +33,13 @@ Decision: Long ASML / Short TSM equity pair (dollar-neutral)
 - Watchlist addition for monitoring AI capex cycle health
 - Source: [[sources/brief-2026-04-11-manual]]
 
+## 2026-04-12 (manual brief) — HOLD PAIR
+- Spot $1,478.28 (+2.05%). RV 30d: 52.3%.
+- Morgan Stanley note on TSM: ABF substrate and HBM supply are gating factors — not foundry capacity. This benefits ASML: equipment monopoly is more durable than TSM's revenue growth.
+- **Decision: Hold ASML/TSM pair.** Pair thesis intact.
+- Source: [[sources/brief-2026-04-12-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11]] — debate analysis, trade idea
 > - [[sources/brief-2026-04-11-manual]] — catalyst calendar, watchlist
+> - [[sources/brief-2026-04-12-manual]] — hold pair, MS ABF note favors ASML

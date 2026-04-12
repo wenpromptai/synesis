@@ -71,7 +71,7 @@ class CompanyInfo(BaseModel):
     sic: str  # SIC industry code
     sic_description: str
     category: str  # "Large accelerated filer", "Non-accelerated filer", etc.
-    fiscal_year_end: str  # Month-day, e.g., "0926" for Sept 26
+    fiscal_year_end: str | None = None  # Month-day, e.g., "0926" for Sept 26
     state_of_incorporation: str
     exchanges: list[str]  # ["Nasdaq", "NYSE"]
     tickers: list[str]  # All ticker symbols for the entity

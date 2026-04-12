@@ -9,7 +9,7 @@ tags: [index, meta]
 > [!abstract]
 > Master index of all nodes. The LLM reads this first to understand what exists before any KG operation. Updated on each compilation pass.
 
-**Last updated:** 2026-04-11 | **Total nodes:** 127
+**Last updated:** 2026-04-12 | **Total nodes:** 138
 
 | Node | Type | One-liner | Updated |
 |------|------|-----------|---------|
@@ -22,6 +22,7 @@ tags: [index, meta]
 | [[tickers/AXTI]] | ticker | AXT Inc — InP substrates (~35% share); China export risk; binary | 2026-04-10 |
 | [[tickers/ARM]] | ticker | Arm Holdings — CPU/IP licensing for AI-edge compute | 2026-04-10 |
 | [[tickers/ASML]] | ticker | ASML — EUV lithography monopoly, long leg of ASML/TSM pair | 2026-04-11 |
+| [[tickers/BAC]] | ticker | Bank of America — heavy insider selling ($21M), no trade into earnings | 2026-04-12 |
 | [[tickers/AVGO]] | ticker | Broadcom — custom ASIC + networking; distributor concentration | 2026-04-10 |
 | [[tickers/BX]] | ticker | Blackstone — alt asset mgr, data center IPO catalyst, put spread | 2026-04-11 |
 | [[tickers/C]] | ticker | Citigroup — put spread into earnings, ROE 6.8%, insider cluster | 2026-04-11 |
@@ -30,18 +31,19 @@ tags: [index, meta]
 | [[tickers/COHR]] | ticker | Coherent — datacenter optics; WC deterioration ~5 quarters | 2026-04-10 |
 | [[tickers/CRDO]] | ticker | Credo Technology — optical DSP for AI scale-out; margin compression | 2026-04-10 |
 | [[tickers/CRCL]] | ticker | Circle (USDC) — rate carry trade; call spread on squeeze | 2026-04-10 |
-| [[tickers/CVX]] | ticker | Chevron — EXIT, broke $190 stop, ceasefire de-escalation | 2026-04-11 |
+| [[tickers/CVX]] | ticker | Chevron — remain exited, XLE preferred, reassess May 1 | 2026-04-12 |
 | [[tickers/DRAM]] | ticker | Memory sector exposure | 2026-04-10 |
 | [[tickers/FN]] | ticker | Fabrinet — optics; put spread (bearish) on WC/concentration | 2026-04-10 |
 | [[tickers/FRCOF]] | ticker | Fast Retailing — extended post guide-up, data quality issues | 2026-04-10 |
 | [[tickers/GOOG]] | ticker | Alphabet Class C — May 310/340 call spread, zero insider selling | 2026-04-11 |
-| [[tickers/GS]] | ticker | Goldman Sachs — debate only, insider buys (MSPR +1.0), cash flow concern | 2026-04-11 |
+| [[tickers/GS]] | ticker | Goldman Sachs — Apr $900/$940 call spread, 19 insider buys, earnings Mon | 2026-04-12 |
 | [[tickers/GOOGL]] | ticker | Alphabet Class A — put spread (bearish) on capex/ROI risk | 2026-04-10 |
 | [[tickers/HIMS]] | ticker | Hims & Hers — telehealth/DTC | 2026-04-10 |
 | [[tickers/HOOD]] | ticker | Robinhood — call spread into earnings; high beta 2.46 | 2026-04-10 |
 | [[tickers/IBIT]] | ticker | iShares Bitcoin Trust — BTC beta; no trade, need breakout | 2026-04-10 |
 | [[tickers/INTC]] | ticker | Intel — call credit spread (bearish) on overextension | 2026-04-10 |
 | [[tickers/IREN]] | ticker | Iris Energy — AI datacenter; extreme dilution, negative FCF | 2026-04-10 |
+| [[tickers/JPM]] | ticker | JPMorgan — no trade, overbought into earnings, neutral insiders | 2026-04-12 |
 | [[tickers/JBL]] | ticker | Jabil — electronic manufacturing services | 2026-04-10 |
 | [[tickers/LITE]] | ticker | Lumentum — backlog 2028, NVDA $2B, pass wait pullback | 2026-04-11 |
 | [[tickers/LPTH]] | ticker | LightPath — specialty optics; insider selling overhang | 2026-04-10 |
@@ -53,13 +55,19 @@ tags: [index, meta]
 | [[tickers/MTSI]] | ticker | MACOM — analog/photonic semis; CPO-agnostic; DC segment +48% | 2026-04-10 |
 | [[tickers/MU]] | ticker | Micron — HBM memory; pass wait pullback $380-400 | 2026-04-11 |
 | [[tickers/NEE]] | ticker | NextEra — put credit spread; premium valuation, negative FCF | 2026-04-10 |
-| [[tickers/NFLX]] | ticker | Netflix — debate only, earnings week of 4/13, data gaps | 2026-04-11 |
-| [[tickers/NVDA]] | ticker | NVIDIA — May 185/205 bull call spread + pipeline put hedge | 2026-04-11 |
+| [[tickers/NBIS]] | ticker | Nebius — Israeli FPI, momentum-only, company analysis failed | 2026-04-12 |
+| [[tickers/NFLX]] | ticker | Netflix — bear put spread $103/$96, RSI 80.3, $43M insider selling | 2026-04-12 |
+| [[tickers/NVDA]] | ticker | NVIDIA — May 185/205 bull call spread + pipeline put hedge | 2026-04-12 |
 | [[tickers/OIH]] | ticker | Oil Services ETF — put credit spread; IV rich vs realized | 2026-04-10 |
+| [[tickers/OKLO]] | ticker | Oklo — pre-revenue nuclear, $1.23B cash, milestone-driven | 2026-04-12 |
+| [[tickers/QCOM]] | ticker | Qualcomm — CXMT China memory collaboration, watchlist, no trade | 2026-04-12 |
+| [[tickers/PLTR]] | ticker | Palantir — oversold software, 207x EV/EBITDA, Thiel selling | 2026-04-12 |
 | [[tickers/POWL]] | ticker | Powell Industries — power infrastructure for datacenters | 2026-04-10 |
 | [[tickers/QQQ]] | ticker | Nasdaq-100 ETF — put spread (bearish) on overextension | 2026-04-10 |
 | [[tickers/SATS]] | ticker | EchoStar/DISH — going-concern; binary regulatory risk | 2026-04-10 |
 | [[tickers/SMH]] | ticker | Semiconductor ETF — risk reversal; willing to own on dip | 2026-04-10 |
+| [[tickers/SMR]] | ticker | NuScale Power — pre-revenue SMR, $1.25B cash, strong downtrend | 2026-04-12 |
+| [[tickers/SNDK]] | ticker | Sandisk — NAND cyclical recovery, 61.2% rev growth, Kioxia JV | 2026-04-12 |
 | [[tickers/SMTC]] | ticker | Semtech — China 47%; impairment history; Piotroski 3/9 | 2026-04-10 |
 | [[tickers/SPX]] | ticker | S&P 500 — no trade; hedged stance | 2026-04-10 |
 | [[tickers/SPY]] | ticker | S&P 500 ETF — no trade; put spread hedge if needed | 2026-04-10 |
@@ -68,16 +76,17 @@ tags: [index, meta]
 | [[tickers/TSM]] | ticker | TSMC — foundry; short leg of ASML/TSM pair, Mar rev +45.2% | 2026-04-11 |
 | [[tickers/VECO]] | ticker | Veeco — semiconductor equipment; Axcelis M&A overhang | 2026-04-10 |
 | [[tickers/VPG]] | ticker | Vishay Precision — Israel manufacturing 30%; low margins | 2026-04-10 |
-| [[tickers/XLE]] | ticker | Energy ETF — highest sector tilt +0.7 | 2026-04-10 |
+| [[tickers/XLE]] | ticker | Energy ETF — May $57/$61 call spread, Iran deal failure catalyst | 2026-04-12 |
 | [[tickers/XLU]] | ticker | Utilities ETF — stretched near resistance; yields headwind | 2026-04-10 |
 | [[themes/ai-infrastructure]] | theme | Intensifying — CoreWeave $21B, NVDA $2B Lumentum, LITE 2028 | 2026-04-11 |
 | [[themes/customer-concentration]] | theme | Revenue dependency on few customers — earnings fragility | 2026-04-10 |
 | [[themes/working-capital-deterioration]] | theme | Rising AR/inventory absorbing cash; cycle turn indicator | 2026-04-10 |
-| [[themes/geopolitical-energy-risk]] | theme | De-escalating (fragile) — ceasefire Day 3, oil $117->$95 | 2026-04-11 |
-| [[themes/stagflation-tail-risk]] | theme | Stagflation base case testing — core CPI miss, ceasefire de-escalation | 2026-04-11 |
+| [[themes/geopolitical-energy-risk]] | theme | RE-ESCALATING — Iran deal failed, Vance no deal, oil spiking | 2026-04-12 |
+| [[themes/stagflation-tail-risk]] | theme | RE-INTENSIFYING — Iran deal failure, oil above $100 expected Mon | 2026-04-12 |
 | [[themes/ai-infrastructure-financing-risk]] | theme | CoreWeave systemic risk — $35B leveraged AI capex intermediary | 2026-04-11 |
-| [[themes/insider-selling-clusters]] | theme | Universal tech insider selling — every name MSPR -1.0 except GOOG | 2026-04-11 |
-| [[themes/consumer-sentiment-collapse]] | theme | UMich record low 47.6, 1Y inflation exp 4.8%, market disconnect | 2026-04-11 |
+| [[themes/insider-selling-clusters]] | theme | Expanding — NFLX $43M, BAC $21M added; GS+TSM only buyers | 2026-04-12 |
+| [[themes/consumer-sentiment-collapse]] | theme | Worsening — oil spike incoming, bank earnings test sentiment | 2026-04-12 |
+| [[themes/nuclear-energy-renaissance]] | theme | OKLO + SMR: pre-revenue nuclear for AI power demand, $2.5B cash | 2026-04-12 |
 | [[themes/photonics-supercycle]] | theme | LITE backlog 2028, AAOI $1B target, NVDA $2B Lumentum, EML shortage | 2026-04-11 |
 | [[themes/optical-photonics-supply-chain]] | theme | Datacenter optics stack — shared concentration/WC risks | 2026-04-10 |
 | [[themes/capital-intensive-transitions]] | theme | Negative FCF funded by dilution/debt during capex ramps | 2026-04-10 |
@@ -85,6 +94,8 @@ tags: [index, meta]
 | [[sources/brief-2026-04-10-manual]] | source | Manual brief — stagflation base case, CoreWeave $35B, trade updates | 2026-04-11 |
 | [[sources/brief-2026-04-11]] | source | Pipeline brief — transitioning +0.25, 5 trades, 15 debates | 2026-04-11 |
 | [[sources/brief-2026-04-11-manual]] | source | Manual brief — UMich record low, photonics supercycle, 3 bull call spreads | 2026-04-11 |
+| [[sources/brief-2026-04-12-manual]] | source | Manual brief — Iran deal failure, 4 trades (XLE/GS/NFLX/C), re-escalation | 2026-04-12 |
+| [[sources/brief-2026-04-12]] | source | Pipeline brief — transitioning regime, 0 trades, 11 debates, NBIS bug | 2026-04-12 |
 | [[sources/connections/ai-optics-concentration-wcap]] | connection | AAOI+FN+COHR+LITE share concentration + WC deterioration | 2026-04-10 |
 | [[sources/connections/cpo-adoption-curve-valuation]] | connection | CPO valuation faith gap — 2028 TAM priced in but volume 2027-2028 | 2026-04-10 |
 | [[sources/connections/insider-selling-cross-sector]] | connection | Cross-sector insider selling cluster — AAOI+AAPL+CRCL+FN+LPTH+SMTC | 2026-04-11 |

@@ -117,12 +117,14 @@ These go beyond structural health — they discover knowledge gaps and suggest h
 
 ---
 
-## Auto-Fix Option
+## Auto-Fix
 
-After reporting, ask the user if they want to auto-fix:
+After reporting, **fix all issues found** — do not ask, just fix:
 - Add missing nodes to `_index.md`
 - Remove phantom entries from `_index.md`
+- Enrich sparse nodes with additional `related` wikilinks to existing themes/concepts
 - Create stub concept nodes for broken links that appear 3+ times
 - Add bidirectional links where missing (from check #7)
+- Fix any other issues discovered during the lint
 
-Do NOT auto-fix without asking.
+After fixing, re-run the relevant checks to confirm zero issues remain. The lint should leave the KG clean.

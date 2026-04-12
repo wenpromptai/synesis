@@ -42,8 +42,15 @@ Decision: No trade — skip
 - No trade from pipeline — visibility gaps
 - Source: [[sources/brief-2026-04-11]]
 
+## 2026-04-12 (manual brief) — NO TRADE
+- Spot $420.59. Still above $380-400 buy zone.
+- Morgan Stanley: ABF substrate and HBM supply are "major gating factors" — supports MU pricing power thesis (HBM sold out).
+- **Decision: No trade.** Wait for pullback. HBM supply constraints supportive of long-term thesis.
+- Source: [[sources/brief-2026-04-12-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — deeper analysis, confirmed pass
 > - [[sources/brief-2026-04-11-manual]] — pullback entry at $380-400, Lynx PT $825
 > - [[sources/brief-2026-04-11]] — debate, no trade
+> - [[sources/brief-2026-04-12-manual]] — no trade, MS ABF/HBM gating note

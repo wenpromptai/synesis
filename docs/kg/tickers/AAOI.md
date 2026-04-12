@@ -39,9 +39,16 @@ Decision: No trade — pass
 - No trade from pipeline — data/visibility gaps, event risk
 - Source: [[sources/brief-2026-04-11]]
 
+## 2026-04-12 Pipeline Brief — No Trade (pass)
+- **Price:** $150.60 (+13.0%), RSI 71.8 (overbought), ADX 33.2, bullish EMA cross
+- **Bull:** Operating leverage inflection on 33.9% revenue growth and ~30% gross margins. Vertically integrated model appeals to hyperscalers. Short interest 13.7% provides squeeze fuel. Fwd EPS $3.20 implies move to profitability
+- **Bear:** Still structurally unprofitable — op margin -8.6%, FCF -$383.9M. Customer concentration extreme (Digicomm 53.1%, Microsoft 28.8% = 82% of revenue). Insider selling cluster (5 insiders, 10 Form 144s in March 2026). Overbought RSI 71.8 + z-score +2.55
+- **Key data:** Revenue $455.7M (FY2025), Gross margin ~30%, Net margin -8.4%, EV/EBITDA -422.5, Piotroski 4/9, Beta 3.22
+
 **See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-11-manual]] — parabolic move, $1B target, avoid
 > - [[sources/brief-2026-04-11]] — debate, backlog verifiability concern
+> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

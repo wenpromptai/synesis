@@ -46,3 +46,22 @@ Append-only audit trail of `/kg-compile` operations.
 - **Themes updated (5):** themes/stagflation-tail-risk.md (testing), themes/ai-infrastructure.md (intensifying), themes/geopolitical-energy-risk.md (de-escalating), themes/insider-selling-clusters.md (universal), themes/optical-photonics-supply-chain.md (related link)
 - **Index updated:** 116 → 127 nodes
 - **Key changes:** AMD new ticker with bull call spread; CVX exited (broke stop); 3 new manual trades (NVDA/AMD/GOOG bull call spreads); 5 pipeline trades (ASML/TSM pair, NVDA put hedge, META call spread, BX put spread, C put spread); consumer sentiment record low; photonics supercycle theme
+
+## 2026-04-12 — Manual Brief Compilation
+- **Source:** raw/synesis_briefs/2026-04-12-manual.md
+- **Tickers created (3):** tickers/JPM.md, tickers/BAC.md, tickers/QCOM.md
+- **Tickers updated (12):** tickers/XLE.md (new trade), tickers/GS.md (new trade), tickers/NFLX.md (new trade), tickers/C.md (reaffirm), tickers/NVDA.md (hold), tickers/META.md (hold), tickers/TSM.md (hold pair), tickers/ASML.md (hold pair), tickers/MS.md (no trade), tickers/MU.md (no trade), tickers/COHR.md (no trade), tickers/CVX.md (remain exited)
+- **Themes updated (4):** geopolitical-energy-risk (re-escalating), stagflation-tail-risk (re-intensifying), insider-selling-clusters (expanding), consumer-sentiment-collapse (worsening)
+- **Source node created:** sources/brief-2026-04-12-manual.md
+- **Index updated:** 127 → 131 nodes
+- **Key changes:** Iran deal failure = dominant signal. 4 new trades (XLE call spread, GS call spread, NFLX put spread, C put spread reaffirm). Regime sentiment downgraded to -0.05. Geopolitical energy risk re-escalating. Insider selling cluster expanded (NFLX $43M, BAC $21M, COHR $4.9M).
+
+## 2026-04-12 — Pipeline Brief Compilation
+- **Source:** raw/synesis_briefs/2026-04-12.md
+- **Tickers created (5):** tickers/NBIS.md, tickers/OKLO.md, tickers/PLTR.md, tickers/SMR.md, tickers/SNDK.md
+- **Tickers updated (6):** tickers/AAOI.md, tickers/AMZN.md, tickers/COHR.md, tickers/INTC.md, tickers/LITE.md, tickers/NVDA.md
+- **Themes created (1):** themes/nuclear-energy-renaissance.md (OKLO + SMR)
+- **Themes updated (1):** themes/insider-selling-clusters.md (8/11 tickers with clusters)
+- **Source node created:** sources/brief-2026-04-12.md
+- **Index updated:** 131 → 138 nodes
+- **Key changes:** First zero-trade-idea pipeline run. 11 tickers debated, Trader passed on all. NBIS company analysis failed (fiscal_year_end null bug — now fixed). Nuclear energy theme created for OKLO/SMR. Insider selling clusters in 8 of 11 debated names.

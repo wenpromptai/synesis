@@ -79,9 +79,21 @@ async def _gather_edgar_filings(
     ticker: str,
     crawler: Crawl4AICrawlerProvider | None,
 ) -> dict[str, Any]:
-    """Fetch latest 10-K, 10-Q, and recent material 8-K filings."""
+    """Fetch latest annual/quarterly filings and recent material 8-K/6-K filings.
+
+    Tries 10-K/10-Q first (domestic issuers). If neither is found, falls back
+    to 20-F/6-K (foreign private issuers like ADRs, Israeli/Dutch companies).
+    """
     filings_10k = await edgar.get_filings(ticker, form_types=["10-K"], limit=1)
     filings_10q = await edgar.get_filings(ticker, form_types=["10-Q"], limit=1)
+
+    is_foreign = not filings_10k and not filings_10q
+
+    # Foreign private issuer fallback: 20-F (annual) and 6-K (interim)
+    if is_foreign:
+        logger.info("No 10-K/10-Q found — trying 20-F/6-K (foreign issuer)", ticker=ticker)
+        filings_10k = await edgar.get_filings(ticker, form_types=["20-F"], limit=1)
+        filings_10q = await edgar.get_filings(ticker, form_types=["6-K"], limit=1)
 
     content_10k = None
     content_10q = None
@@ -95,6 +107,9 @@ async def _gather_edgar_filings(
     if filings_10q:
         filing_10q_meta = filings_10q[0]
         content_10q = await edgar.get_filing_content(filings_10q[0].url, crawler=crawler)
+
+    if not filing_10k_meta and not filing_10q_meta:
+        logger.warning("No annual or quarterly filings found", ticker=ticker)
 
     # Fetch recent material 8-K events (last 5, material items only)
     material_8k_items = ["1.01", "1.02", "2.01", "2.02", "5.02", "7.01", "8.01"]
@@ -113,6 +128,7 @@ async def _gather_edgar_filings(
         "content_10q": content_10q,
         "filing_10k": filing_10k_meta,
         "filing_10q": filing_10q_meta,
+        "is_foreign_issuer": is_foreign,
         "events_8k": events_8k,
     }
 
@@ -362,6 +378,9 @@ def _extract_filing_sections(content: str, form_type: str) -> str:
 
     10-K: Item 1A (Risk Factors, 40K), Item 7 (MD&A, 40K), Item 1 (Business, 20K)
     10-Q: Part I Item 2 (MD&A, 40K), Part II Item 1A (Risk Factors, 20K)
+    20-F: Item 3.D (Risk Factors, 40K), Item 5 (Operating/Financial Review, 40K),
+          Item 4 (Company Information, 20K)
+    6-K: No standard sections — uses raw truncation fallback.
 
     All matching sections are extracted and concatenated.
     Falls back to first 50K chars if no section headers found.
@@ -372,7 +391,21 @@ def _extract_filing_sections(content: str, form_type: str) -> str:
             (r"(?i)(?:ITEM\s*7[\.\s\-—:]+MANAGEMENT.S\s*DISCUSSION)", "MD&A", 40_000),
             (r"(?i)(?:ITEM\s*1[\.\s\-—:]+BUSINESS(?!\s*COMBINATION))", "Business", 20_000),
         ]
-    else:
+    elif form_type == "20-F":
+        section_patterns = [
+            (r"(?i)(?:ITEM\s*3\.?\s*D[\.\s\-—:]+RISK\s*FACTORS)", "Risk Factors", 40_000),
+            (
+                r"(?i)(?:ITEM\s*5[\.\s\-—:]+OPERATING\s*AND\s*FINANCIAL\s*REVIEW)",
+                "Operating & Financial Review",
+                40_000,
+            ),
+            (
+                r"(?i)(?:ITEM\s*4[\.\s\-—:]+INFORMATION\s*ON\s*THE\s*COMPANY)",
+                "Company Information",
+                20_000,
+            ),
+        ]
+    else:  # 10-Q, 6-K, other
         section_patterns = [
             (
                 r"(?i)(?:(?:PART\s*I\s*,?\s*)?ITEM\s*2[\.\s\-—:]+MANAGEMENT.S\s*DISCUSSION)",
@@ -498,21 +531,29 @@ def _build_user_prompt(
     else:
         sections.append("\n## Detected Red Flags\nNone detected.")
 
+    is_foreign = filing_data.get("is_foreign_issuer", False)
+    annual_form = "20-F" if is_foreign else "10-K"
+    quarterly_form = "6-K" if is_foreign else "10-Q"
+
     if filing_data.get("content_10k"):
         meta = filing_data.get("filing_10k")
         label = (
-            f"10-K (filed {meta.filed_date}, period ending {meta.report_date})" if meta else "10-K"
+            f"{annual_form} (filed {meta.filed_date}, period ending {meta.report_date})"
+            if meta
+            else annual_form
         )
         sections.append(f"\n## Latest Annual Filing: {label}")
-        sections.append(_extract_filing_sections(filing_data["content_10k"], "10-K"))
+        sections.append(_extract_filing_sections(filing_data["content_10k"], annual_form))
 
     if filing_data.get("content_10q"):
         meta = filing_data.get("filing_10q")
         label = (
-            f"10-Q (filed {meta.filed_date}, period ending {meta.report_date})" if meta else "10-Q"
+            f"{quarterly_form} (filed {meta.filed_date}, period ending {meta.report_date})"
+            if meta
+            else quarterly_form
         )
         sections.append(f"\n## Latest Quarterly Filing: {label}")
-        sections.append(_extract_filing_sections(filing_data["content_10q"], "10-Q"))
+        sections.append(_extract_filing_sections(filing_data["content_10q"], quarterly_form))
 
     # Material 8-K events (most time-sensitive filings)
     events_8k = filing_data.get("events_8k", [])
@@ -590,6 +631,7 @@ async def analyze_company(
         "content_10q": None,
         "filing_10k": None,
         "filing_10q": None,
+        "is_foreign_issuer": False,
         "events_8k": [],
     }
 
@@ -673,10 +715,12 @@ async def analyze_company(
     company_name = company_info.name if company_info else (fundamentals.name or ticker)
 
     filing_10k = filing_data.get("filing_10k")
+    is_foreign = filing_data.get("is_foreign_issuer", False)
     latest_filing = ""
     if filing_10k:
+        form_label = "20-F" if is_foreign else "10-K"
         year = filing_10k.report_date.year if filing_10k.report_date else "?"
-        latest_filing = f"10-K FY{year}, filed {filing_10k.filed_date}"
+        latest_filing = f"{form_label} FY{year}, filed {filing_10k.filed_date}"
 
     try:
         result = await agent.run(user_prompt)

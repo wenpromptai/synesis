@@ -40,7 +40,14 @@ Decision: Buy CVX shares with tight risk stop; add on close above 21-day EMA; st
 
 **See also:** [[earnings-options-systematic]]
 
+## 2026-04-12 (manual brief) — REMAIN EXITED
+- Iran deal failure could bring CVX back into play, but CVX-specific Q1 headwinds remain ($2.7-3.7B adverse timing/WC, $350-400M legal charge, 6% production drop).
+- Better to express energy long via [[tickers/XLE]] which avoids single-name risk.
+- **Reassess after Q1 report May 1.**
+- Source: [[sources/brief-2026-04-12-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — trade update (at stop, tighten to $189)
 > - [[sources/brief-2026-04-11-manual]] — EXIT, broke $190 stop
+> - [[sources/brief-2026-04-12-manual]] — remain exited, XLE preferred for energy exposure

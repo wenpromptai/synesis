@@ -62,7 +62,18 @@ Core CPI printed **below expectations** (2.6% YoY vs 2.7% est, +0.2% MoM vs 0.3%
 
 See also: [[themes/consumer-sentiment-collapse]] — UMich record low 47.6 reinforces the demand-destruction leg of stagflation.
 
+## 2026-04-12 (manual brief) — RE-INTENSIFYING
+
+Iran deal failure reverses ceasefire de-escalation. Oil likely back above $100 Monday. This revalidates the stagflation thesis:
+- **Energy CPI already +10.9% MoM** (gasoline +21.2% MoM, largest since 1967) — and that was BEFORE deal failure
+- Core CPI cooled (2.6% vs 2.7% est) but headline-core divergence will widen further with oil above $100
+- UMich sentiment at record low 47.6 + oil spike = further consumer deterioration
+- Fed in impossible position: inflation hot (energy), growth soft (GDP +0.5%), consumer crushed
+
+**Regime assessment:** If oil returns above $100, stagflation re-upgrades from "testing" to "base case." Sector tilts revert to crisis positioning (energy +0.7, consumer disc -0.5, small caps -0.5).
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime driver
 > - [[sources/brief-2026-04-10-manual]] — upgraded to base case with hard macro data
 > - [[sources/brief-2026-04-11-manual]] — core CPI miss, ceasefire testing the thesis
+> - [[sources/brief-2026-04-12-manual]] — re-intensifying, Iran deal failure, oil spike expected

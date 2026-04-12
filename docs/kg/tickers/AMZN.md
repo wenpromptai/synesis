@@ -29,6 +29,13 @@ Decision: Buy AMZN May 2026 225/250 call spread + sell May 2026 210 put (risk re
 - CoreWeave/Meta $35B deal validates hyperscaler AI capex thesis for AMZN's AWS/AI story
 - Source: [[sources/brief-2026-04-10-manual]]
 
+## 2026-04-12 Pipeline Brief — No Trade (pass)
+- **Price:** $238.38 (+2.0%), RSI 70.8 (overbought), z-score +2.78, bullish EMA cross 4 days ago
+- **Bull:** Multi-engine compounder — op margin 10.5%, net margin 10.8%, ROE 22.3%, FCF $23.79B. AWS AI demand accelerating. $123B cash, Piotroski 5/9
+- **Bear:** D/E 43.44, SBC $4.40B/quarter inflates operating cash flow. Current ratio only 1.05. Overbought technically with P/C 0.09 (crowded calls). IV 43.4% > RV 36.7%
+- **Key data:** Revenue growth 13.6%, EBITDA $145.73B, FCF $23.79B, Cash $123.03B, Debt $178.55B (2026-04-12 brief)
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — trade update (+5.6%, partial profit guidance)
+> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

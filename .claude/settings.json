@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit(docs/kg/**)",
+      "Write(docs/kg/**)"
+    ]
+  },
   "hooks": {
     "SessionStart": [],
     "UserPromptSubmit": [

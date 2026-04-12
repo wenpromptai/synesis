@@ -45,7 +45,25 @@ Ceasefire (Day 3) has dropped oil from $117 to $95, but Hormuz **remains effecti
 
 **Binary outcome:** Ceasefire collapse = oil back above $100 = immediate risk-off. Ceasefire holds = oil to $80-85 = energy premium evaporates.
 
+## 2026-04-12 (manual brief) — RE-ESCALATING
+
+**Iran-US talks collapsed.** VP Vance returned without a deal after 21-hour marathon in Islamabad. Key sticking point: Iran refused to commit to abandoning nuclear weapons. Trump hints at naval blockade.
+
+- Crude oil spiking on weekend CFD platforms after deal failure
+- IRGC Navy warned: "any military vessel crossing Strait of Hormuz will be met with harsh response"
+- Saudi pipeline restoration partially mitigates (~5M bbl/day bypass capacity)
+- Three supertankers crossed Hormuz Friday (~6M barrels) — testing waters
+- Vitol reorganized derivatives team after losses — energy vol hurting traders
+- US forces started mine clearance mission in Hormuz (CENTCOM)
+
+**Energy sector tilt upgraded to +0.7** (from +0.5 during ceasefire). Binary outcome reasserted:
+- Deal failure → oil back above $100 → energy wins, risk-off for equity
+- Surprise deal Sunday → oil drops → energy gives back, risk-on
+
+**New trade:** [[tickers/XLE]] May $57/$61 bull call spread — first direct energy trade. Technically oversold (RSI 41.8) into bullish catalyst. CVX remains exited — XLE avoids single-name risk.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime analysis
 > - [[sources/brief-2026-04-10-manual]] — oil price specifics, crisis escalation
 > - [[sources/brief-2026-04-11-manual]] — ceasefire Day 3, Hormuz still blocked, CVX exit
+> - [[sources/brief-2026-04-12-manual]] — re-escalating, Iran deal failure, XLE trade

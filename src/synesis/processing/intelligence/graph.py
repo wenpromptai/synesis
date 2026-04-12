@@ -373,6 +373,7 @@ def build_intelligence_graph(
                 "Trader complete",
                 mode=mode,
                 trade_ideas=len(result.trade_ideas),
+                portfolio_note_len=len(result.portfolio_note) if result.portfolio_note else 0,
             )
             out: dict[str, Any] = {
                 "trade_ideas": [idea.model_dump(mode="json") for idea in result.trade_ideas],
@@ -397,12 +398,6 @@ def build_intelligence_graph(
         """Assemble the final brief from all pipeline outputs."""
         try:
             brief = compile_brief(dict(state))
-            logger.info(
-                "Brief compiled",
-                tickers_analyzed=len(brief.get("tickers_analyzed", [])),
-                debates=len(brief.get("debates", [])),
-                trade_ideas=len(brief.get("trade_ideas", [])),
-            )
             return {"brief": brief}
         except Exception:
             logger.exception("Compiler failed", date=state.get("current_date"))

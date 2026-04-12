@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from synesis.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
     """Assemble an intelligence brief from pipeline state.
@@ -57,6 +61,26 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
         if ticker in bear_by_ticker:
             debate["bear"] = bear_by_ticker[ticker]
         debates.append(debate)
+
+    # Log compilation summary
+    error_trade_ideas = [t for t in trade_ideas_raw if t.get("error")]
+    logger.info(
+        "Brief compiled",
+        tickers_analyzed=len(valid_companies),
+        debates=len(debates),
+        trade_ideas=len(valid_trade_ideas),
+        trade_idea_errors=len(error_trade_ideas),
+        has_portfolio_note=bool(portfolio_note),
+        company_failures=[c["ticker"] for c in companies if c.get("error") and "ticker" in c],
+        price_failures=[p["ticker"] for p in prices if p.get("error") and "ticker" in p],
+    )
+    if not valid_trade_ideas:
+        logger.warning(
+            "Brief has 0 trade ideas",
+            raw_trade_ideas=len(trade_ideas_raw),
+            errored_trade_ideas=len(error_trade_ideas),
+            portfolio_note_preview=portfolio_note[:200] if portfolio_note else "(empty)",
+        )
 
     return {
         "date": state.get("current_date", ""),

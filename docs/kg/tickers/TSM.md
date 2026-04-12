@@ -36,7 +36,16 @@ Decision: Buy TSM May 2026 360/390 call spread
 
 **See also:** [[sources/connections/ai-compute-stack|AI compute stack]]
 
+## 2026-04-12 (manual brief) — HOLD PAIR
+- Spot $370.60 (+1.4%). RSI 68.7, BB%B 1.05. RV 30d: 48.4%.
+- **Q1 revenue confirmed:** $35.7B (+35% YoY, beat consensus). March +45.2% MoM = strongest month of quarter. Full earnings call Apr 16 with margin data.
+- Morgan Stanley note: "ABF substrate and HBM supply are major gating factors" for TSMC customers — not TSMC capacity. Implication: TSMC has pricing power.
+- Insider: MSPR +1.0 (5 buys, 0 sells) — bullish.
+- **Decision: Hold ASML/TSM pair.** Revenue beat known; margins + guidance are the event risk.
+- Source: [[sources/brief-2026-04-12-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-11]] — debate, short leg of ASML/TSM pair, March revenue
 > - [[sources/brief-2026-04-11-manual]] — catalyst calendar, watchlist
+> - [[sources/brief-2026-04-12-manual]] — hold pair, Q1 beat confirmed, MS ABF/HBM note

@@ -49,8 +49,13 @@ Decision: Buy META Jun 2026 620/700 call spread + sell Jun 2026 540 put (risk re
 
 **See also:** [[bull-call-spread]] | [[risk-reversal]] | [[momentum]] | [[fcf-yield]]
 
+## 2026-04-12 (manual brief) — HOLD
+- Spot $629.86. Hold existing pipeline call spread. Thesis intact.
+- Source: [[sources/brief-2026-04-12-manual]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — CoreWeave $35B deal, deepened analysis
 > - [[sources/brief-2026-04-11-manual]] — pass, wait Q1 earnings
 > - [[sources/brief-2026-04-11]] — pipeline call spread trade, full debate
+> - [[sources/brief-2026-04-12-manual]] — hold

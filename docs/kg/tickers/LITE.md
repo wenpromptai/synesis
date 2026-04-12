@@ -35,7 +35,14 @@ Decision: No trade — skip (if long, trim/hedge with OTM put)
 - No trade from pipeline — data gaps, no confirmation demand translating to profitability
 - Source: [[sources/brief-2026-04-11]]
 
+## 2026-04-12 Pipeline Brief — No Trade (pass)
+- **Price:** $897.30 (+0.3%), RSI 65.1, ADX 29.4 (strengthening trend), bullish EMA cross
+- **Bull:** AI optics inflection — rev growth 65.5%, EPS swing from -$0.64 to +$1.10 (Q1→Q4 FY2025). Piotroski 7/9, short interest 18% (squeeze fuel). Cloud Light acquisition enhances datacenter interconnect
+- **Bear:** P/B 75.7, EV/EBITDA 247.4. FCF barely negative -$0.02B. D/E 392.48, $3.32B debt vs $1.16B cash. Current ratio 0.61 (tight liquidity). Customer concentration 16% + 15.4%. China/Huawei exposure (historically 16% of revenue). Insider selling cluster (3 insiders)
+- **Key data:** Revenue growth 65.5%, Gross margin 37.1%, Op margin 10.7%, EBITDA $0.27B, FCF -$0.02B, Debt $3.32B, Cash $1.16B (2026-04-12 brief)
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-11-manual]] — backlog 2028, NVDA $2B, EML shortage, pullback entry
 > - [[sources/brief-2026-04-11]] — debate, data gap concerns
+> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade
