@@ -98,6 +98,9 @@ async def run_intelligence_brief(
     # Save brief to KG for future compilation (never raises)
     _save_brief_to_kg(brief)
 
+    # Save trade ideas to DB for outcome tracking (never raises)
+    await _save_trade_ideas_to_db(brief, db)
+
     # Send to Discord (isolate batch failures so remaining batches still send)
     settings = get_settings()
     webhook = settings.discord_brief_webhook_url or settings.discord_webhook_url
@@ -118,6 +121,65 @@ async def run_intelligence_brief(
                 await asyncio.sleep(1.0)
 
     return brief
+
+
+def _parse_direction(trade_structure: str) -> str:
+    """Parse direction from trade_structure string."""
+    if trade_structure.lower().strip().startswith("short"):
+        return "short"
+    return "long"
+
+
+async def _save_trade_ideas_to_db(brief: dict[str, Any], db: "Database") -> None:
+    """Persist trade ideas to DB for outcome tracking. Never raises."""
+    try:
+        trade_ideas = brief.get("trade_ideas", [])
+        if not trade_ideas:
+            return
+
+        brief_date_str = brief.get("date", "")
+        if not brief_date_str:
+            logger.warning("Brief has no date — skipping trade idea tracking")
+            return
+
+        try:
+            from datetime import date as date_type
+
+            brief_date = date_type.fromisoformat(brief_date_str)
+        except (ValueError, TypeError):
+            logger.warning("Invalid brief date for tracking", date=brief_date_str)
+            return
+
+        saved = 0
+        for idea in trade_ideas:
+            tickers = idea.get("tickers", [])
+            if not tickers:
+                continue
+            try:
+                result = await db.insert_trade_idea(
+                    {
+                        "brief_date": brief_date,
+                        "ticker": tickers[0],
+                        "direction": _parse_direction(idea.get("trade_structure", "")),
+                        "trade_structure": idea.get("trade_structure", ""),
+                        "thesis": idea.get("thesis", ""),
+                        "catalyst": idea.get("catalyst", ""),
+                        "conviction_tier": idea.get("conviction_tier"),
+                        "entry_price": idea.get("entry_price"),
+                        "target_price": idea.get("target_price"),
+                        "stop_price": idea.get("stop_price"),
+                        "risk_reward_ratio": idea.get("risk_reward_ratio"),
+                    }
+                )
+                if result is not None:
+                    saved += 1
+            except Exception:
+                logger.exception("Failed to save trade idea", ticker=tickers[0])
+
+        if saved:
+            logger.info("Trade ideas saved for tracking", count=saved)
+    except Exception:
+        logger.exception("Failed to save trade ideas to DB")
 
 
 def _save_brief_to_kg(brief: dict[str, Any]) -> None:

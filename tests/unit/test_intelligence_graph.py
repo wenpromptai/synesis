@@ -8,9 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from synesis.processing.intelligence.compiler import compile_brief
+from synesis.processing.intelligence.compiler import compile_brief, format_brief_as_markdown
 from synesis.processing.intelligence.context import (
     format_company_context_for_ticker,
+    format_consensus_context_for_ticker,
     format_debate_history,
     format_news_context_for_ticker,
     format_price_context_for_ticker,
@@ -144,7 +145,7 @@ class TestCompileBrief:
                 "trade_ideas": [
                     {
                         "tickers": ["NVDA"],
-                        "trade_structure": "bull call spread 150/160 June",
+                        "trade_structure": "long NVDA",
                         "thesis": "AI demand",
                     },
                     {"tickers": ["AMD"], "error": True},
@@ -941,37 +942,158 @@ class TestPerTickerContextFormatters:
         assert "No price analysis available for NVDA" in result
 
 
+class TestConsensusContext:
+    """Tests for format_consensus_context_for_ticker."""
+
+    def test_consensus_with_full_data(self) -> None:
+        state = {
+            "company_analyses": [
+                {
+                    "ticker": "NVDA",
+                    "analyst_consensus": {
+                        "buy_count": 40,
+                        "hold_count": 5,
+                        "sell_count": 1,
+                        "price_target_mean": 160.0,
+                        "price_target_low": 120.0,
+                        "price_target_high": 200.0,
+                        "current_price": 135.0,
+                        "recent_actions": ["GS upgraded to Buy"],
+                    },
+                    "financial_health": {
+                        "forward_eps": 4.20,
+                        "ev_to_ebitda": 32.0,
+                        "revenue_growth": 0.55,
+                        "short_percent_of_float": 0.012,
+                    },
+                }
+            ],
+            "price_analyses": [
+                {
+                    "ticker": "NVDA",
+                    "atm_iv": 0.42,
+                    "realized_vol_30d": 0.38,
+                    "iv_rv_spread": 0.04,
+                }
+            ],
+        }
+        result = format_consensus_context_for_ticker(state, "NVDA")
+        assert "40 Buy / 5 Hold / 1 Sell" in result
+        assert "mean $160" in result
+        assert "+19%" in result  # (160-135)/135
+        assert "Fwd EPS $4.20" in result
+        assert "Short interest: 1.2%" in result
+        assert "expensive" in result  # IV > RV
+
+    def test_consensus_no_data(self) -> None:
+        result = format_consensus_context_for_ticker({}, "NVDA")
+        assert "No consensus data" in result
+
+    def test_consensus_wrong_ticker(self) -> None:
+        state = {"company_analyses": [{"ticker": "AMD"}], "price_analyses": []}
+        result = format_consensus_context_for_ticker(state, "NVDA")
+        assert "No consensus data" in result
+
+    def test_consensus_skips_errored_analyses(self) -> None:
+        state = {
+            "company_analyses": [{"ticker": "NVDA", "error": True}],
+            "price_analyses": [],
+        }
+        result = format_consensus_context_for_ticker(state, "NVDA")
+        assert "No consensus data" in result
+
+
+class TestTickerDebateVariantFields:
+    """Tests for TickerDebate variant perception fields."""
+
+    def test_variant_fields_populated(self) -> None:
+        debate = TickerDebate(
+            role="bull",
+            ticker="NVDA",
+            argument="Bull thesis",
+            key_evidence=["Evidence 1"],
+            variant_vs_consensus="Consensus expects 55% growth; I expect 68%",
+            estimated_upside_downside="+22% to $165",
+            catalyst="Q2 earnings",
+            catalyst_timeline="July 24",
+            what_would_change_my_mind="TSMC revenue miss",
+            analysis_date=date(2026, 4, 7),
+        )
+        assert debate.variant_vs_consensus == "Consensus expects 55% growth; I expect 68%"
+        assert debate.catalyst == "Q2 earnings"
+        assert debate.what_would_change_my_mind == "TSMC revenue miss"
+
+    def test_variant_fields_default_empty(self) -> None:
+        debate = TickerDebate(
+            role="bear",
+            ticker="AMD",
+            argument="Bear thesis",
+            analysis_date=date(2026, 4, 7),
+        )
+        assert debate.variant_vs_consensus == ""
+        assert debate.estimated_upside_downside == ""
+        assert debate.catalyst == ""
+        assert debate.catalyst_timeline == ""
+        assert debate.what_would_change_my_mind == ""
+
+
 class TestTradeIdeaModel:
     """Tests for TradeIdea model validation."""
 
     def test_valid_single_ticker(self) -> None:
         idea = TradeIdea(
             tickers=["NVDA"],
-            trade_structure="bull call spread NVDA 150/160 June",
+            trade_structure="long NVDA",
             thesis="Strong AI demand",
             catalyst="Earnings beat",
             timeframe="2-4 weeks",
             key_risk="Valuation",
+            entry_price=135.0,
+            target_price=165.0,
+            stop_price=120.0,
+            risk_reward_ratio=2.0,
+            conviction_tier=2,
+            conviction_rationale="Strong thesis with catalyst",
             analysis_date=date(2026, 4, 7),
         )
         assert idea.tickers == ["NVDA"]
-        assert "NVDA" in idea.trade_structure
+        assert idea.trade_structure == "long NVDA"
+        assert idea.entry_price == 135.0
+        assert idea.conviction_tier == 2
 
-    def test_pair_trade(self) -> None:
+    def test_short_trade(self) -> None:
         idea = TradeIdea(
-            tickers=["NVDA", "AMD"],
-            trade_structure="equity L/S: long NVDA / short AMD",
-            thesis="NVDA outperforms AMD",
+            tickers=["AMD"],
+            trade_structure="short AMD",
+            thesis="Margin compression",
+            entry_price=150.0,
+            target_price=120.0,
+            stop_price=165.0,
+            risk_reward_ratio=2.0,
+            conviction_tier=3,
             analysis_date=date(2026, 4, 7),
         )
-        assert len(idea.tickers) == 2
-        assert idea.tickers[1] == "AMD"
+        assert idea.trade_structure == "short AMD"
+        assert idea.conviction_tier == 3
+
+    def test_new_fields_default_to_none(self) -> None:
+        idea = TradeIdea(
+            tickers=["NVDA"],
+            trade_structure="long NVDA",
+            analysis_date=date(2026, 4, 7),
+        )
+        assert idea.entry_price is None
+        assert idea.target_price is None
+        assert idea.stop_price is None
+        assert idea.risk_reward_ratio is None
+        assert idea.conviction_tier is None
+        assert idea.expression_note == ""
 
     def test_tickers_requires_at_least_one(self) -> None:
         with pytest.raises(Exception):
             TradeIdea(
                 tickers=[],
-                trade_structure="buy shares",
+                trade_structure="long NVDA",
                 analysis_date=date(2026, 4, 7),
             )
 
@@ -979,7 +1101,7 @@ class TestTradeIdeaModel:
         with pytest.raises(Exception):
             TradeIdea(
                 tickers=[""],
-                trade_structure="buy shares",
+                trade_structure="long NVDA",
                 analysis_date=date(2026, 4, 7),
             )
 
@@ -996,7 +1118,7 @@ class TestTradeIdeaModel:
             trade_ideas=[
                 TradeIdea(
                     tickers=["NVDA"],
-                    trade_structure="buy 100 shares NVDA",
+                    trade_structure="long NVDA",
                     analysis_date=date(2026, 4, 7),
                 ),
             ],
@@ -1019,10 +1141,10 @@ class TestCompilerTradeIdeas:
             "bull_analyses": [],
             "bear_analyses": [],
             "trade_ideas": [
-                {"tickers": ["AAPL"], "trade_structure": "buy shares", "thesis": "Weak buy"},
+                {"tickers": ["AAPL"], "trade_structure": "long AAPL", "thesis": "Weak buy"},
                 {
                     "tickers": ["NVDA"],
-                    "trade_structure": "bull call spread",
+                    "trade_structure": "long NVDA",
                     "thesis": "Strong buy",
                 },
             ],
@@ -1040,7 +1162,7 @@ class TestCompilerTradeIdeas:
             "bull_analyses": [],
             "bear_analyses": [],
             "trade_ideas": [
-                {"tickers": ["NVDA"], "trade_structure": "buy shares", "thesis": "Buy"},
+                {"tickers": ["NVDA"], "trade_structure": "long NVDA", "thesis": "Buy"},
                 {"tickers": ["AAPL"], "error": True},
             ],
         }
@@ -1065,13 +1187,128 @@ class TestCompilerTradeIdeas:
         assert brief["errors"]["trader_failures"] == []
 
 
+class TestBriefMarkdownNewFields:
+    """Tests for format_brief_as_markdown with R/R, conviction, and variant fields."""
+
+    def test_trade_idea_rr_fields_in_markdown(self) -> None:
+        brief = {
+            "date": "2026-04-07",
+            "macro": {"regime": "risk_on", "sentiment_score": 0.5},
+            "debates": [],
+            "l1_summary": {},
+            "tickers_analyzed": ["NVDA"],
+            "company_analyses": [],
+            "price_analyses": [],
+            "macro_themes": [],
+            "ticker_mentions": {"social": [], "news_clusters": []},
+            "messages_analyzed": 0,
+            "trade_ideas": [
+                {
+                    "tickers": ["NVDA"],
+                    "trade_structure": "long NVDA",
+                    "thesis": "AI demand",
+                    "entry_price": 135.0,
+                    "target_price": 165.0,
+                    "stop_price": 120.0,
+                    "risk_reward_ratio": 2.0,
+                    "conviction_tier": 1,
+                    "conviction_rationale": "Multiple signals confirm",
+                    "catalyst": "Q2 earnings",
+                    "timeframe": "3 months",
+                    "key_risk": "Valuation",
+                    "downside_scenario": "Growth slows to 30%",
+                    "expression_note": "IV cheap vs realized",
+                }
+            ],
+            "portfolio_note": "",
+            "errors": {},
+        }
+        md = format_brief_as_markdown(brief)
+        assert "Entry:** $135.00" in md
+        assert "Target:** $165.00" in md
+        assert "Stop:** $120.00" in md
+        assert "R/R 2.0:1" in md
+        assert "Tier 1" in md
+        assert "Multiple signals confirm" in md
+        assert "Q2 earnings" in md
+        assert "3 months" in md
+        assert "Growth slows to 30%" in md
+        assert "IV cheap vs realized" in md
+
+    def test_timeframe_fallback_when_no_catalyst(self) -> None:
+        brief = {
+            "date": "2026-04-07",
+            "macro": {"regime": "uncertain", "sentiment_score": 0.0},
+            "debates": [],
+            "l1_summary": {},
+            "tickers_analyzed": [],
+            "company_analyses": [],
+            "price_analyses": [],
+            "macro_themes": [],
+            "ticker_mentions": {"social": [], "news_clusters": []},
+            "messages_analyzed": 0,
+            "trade_ideas": [
+                {
+                    "tickers": ["AMD"],
+                    "trade_structure": "short AMD",
+                    "catalyst": "",
+                    "timeframe": "6 weeks",
+                }
+            ],
+            "portfolio_note": "",
+            "errors": {},
+        }
+        md = format_brief_as_markdown(brief)
+        assert "**Timeframe:** 6 weeks" in md
+
+    def test_debate_variant_fields_in_markdown(self) -> None:
+        brief = {
+            "date": "2026-04-07",
+            "macro": {"regime": "risk_on", "sentiment_score": 0.5},
+            "debates": [
+                {
+                    "ticker": "NVDA",
+                    "bull": {
+                        "argument": "Bull thesis",
+                        "variant_vs_consensus": "Consensus 55%; I expect 68%",
+                        "estimated_upside_downside": "+22% to $165",
+                        "catalyst": "Q2 earnings",
+                        "catalyst_timeline": "July 24",
+                        "what_would_change_my_mind": "TSMC miss",
+                    },
+                    "bear": {
+                        "argument": "Bear thesis",
+                        "variant_vs_consensus": "Margins compress from 75% to 70%",
+                    },
+                }
+            ],
+            "l1_summary": {},
+            "tickers_analyzed": ["NVDA"],
+            "company_analyses": [],
+            "price_analyses": [],
+            "macro_themes": [],
+            "ticker_mentions": {"social": [], "news_clusters": []},
+            "messages_analyzed": 0,
+            "trade_ideas": [],
+            "portfolio_note": "",
+            "errors": {},
+        }
+        md = format_brief_as_markdown(brief)
+        assert "Consensus 55%; I expect 68%" in md
+        assert "+22% to $165" in md
+        assert "Q2 earnings" in md
+        assert "July 24" in md
+        assert "TSMC miss" in md
+        assert "Margins compress from 75% to 70%" in md
+
+
 def _trader_output(tickers: list[str]) -> TraderOutput:
     """Helper to create a mock TraderOutput for given tickers."""
     return TraderOutput(
         trade_ideas=[
             TradeIdea(
                 tickers=[t],
-                trade_structure=f"buy 100 shares {t}",
+                trade_structure=f"long {t}",
                 thesis=f"Buy {t}",
                 catalyst="Earnings",
                 timeframe="2 weeks",

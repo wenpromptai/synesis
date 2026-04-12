@@ -359,16 +359,36 @@ def format_debate_summary_for_ticker(state: dict[str, Any], ticker: str) -> str:
     if bull_items:
         last_bull = bull_items[-1]
         lines.append(f"\n### BULL (Round {last_bull.get('round', '?')})")
+        if last_bull.get("variant_vs_consensus"):
+            lines.append(f"**Variant:** {last_bull['variant_vs_consensus']}")
+        if last_bull.get("estimated_upside_downside"):
+            lines.append(f"**Target:** {last_bull['estimated_upside_downside']}")
         lines.append(last_bull.get("argument") or "[argument not available]")
         for e in last_bull.get("key_evidence", []):
             lines.append(f"- {e}")
+        if last_bull.get("catalyst"):
+            lines.append(
+                f"**Catalyst:** {last_bull['catalyst']} ({last_bull.get('catalyst_timeline', '')})"
+            )
+        if last_bull.get("what_would_change_my_mind"):
+            lines.append(f"**Invalidation:** {last_bull['what_would_change_my_mind']}")
 
     if bear_items:
         last_bear = bear_items[-1]
         lines.append(f"\n### BEAR (Round {last_bear.get('round', '?')})")
+        if last_bear.get("variant_vs_consensus"):
+            lines.append(f"**Variant:** {last_bear['variant_vs_consensus']}")
+        if last_bear.get("estimated_upside_downside"):
+            lines.append(f"**Target:** {last_bear['estimated_upside_downside']}")
         lines.append(last_bear.get("argument") or "[argument not available]")
         for e in last_bear.get("key_evidence", []):
             lines.append(f"- {e}")
+        if last_bear.get("catalyst"):
+            lines.append(
+                f"**Catalyst:** {last_bear['catalyst']} ({last_bear.get('catalyst_timeline', '')})"
+            )
+        if last_bear.get("what_would_change_my_mind"):
+            lines.append(f"**Invalidation:** {last_bear['what_would_change_my_mind']}")
 
     return "\n".join(lines)
 
@@ -419,6 +439,92 @@ def format_news_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
             lines.append(f"- {fact}")
         for t in cluster.get("tickers", []):
             lines.append(f"- Ticker: **{t.get('ticker', '?')}** — {t.get('context', '')}")
+    return "\n".join(lines)
+
+
+def format_consensus_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
+    """Format consensus expectations for debate agents to argue against.
+
+    Pulls from CompanyAnalysis (analyst consensus, financial health) and
+    PriceAnalysis (spot price, vol regime) to build a concise baseline
+    of what the market currently prices in.
+    """
+    companies = state.get("company_analyses", [])
+    company = next(
+        (c for c in companies if c.get("ticker") == ticker and not c.get("error")),
+        None,
+    )
+    prices = state.get("price_analyses", [])
+    price = next(
+        (p for p in prices if p.get("ticker") == ticker and not p.get("error")),
+        None,
+    )
+
+    if not company and not price:
+        return f"## Consensus View\nNo consensus data available for {ticker}."
+
+    lines = [f"## Consensus View for {ticker}"]
+    lines.append(
+        "This is what the market currently prices in. Your job is to argue "
+        "where consensus is WRONG — not to repeat what it already knows."
+    )
+
+    if company:
+        analyst = company.get("analyst_consensus", {})
+        health = company.get("financial_health", {})
+
+        # Analyst ratings
+        buy = analyst.get("buy_count", 0)
+        hold = analyst.get("hold_count", 0)
+        sell = analyst.get("sell_count", 0)
+        total = buy + hold + sell
+        if total:
+            lines.append(f"- Analyst consensus: {buy} Buy / {hold} Hold / {sell} Sell")
+
+        # Price targets
+        pt_mean = analyst.get("price_target_mean")
+        pt_low = analyst.get("price_target_low")
+        pt_high = analyst.get("price_target_high")
+        current = analyst.get("current_price")
+        if pt_mean and current and current > 0:
+            upside = (pt_mean - current) / current * 100
+            parts = [f"mean ${pt_mean:.0f} ({upside:+.0f}% implied)"]
+            if pt_low is not None and pt_high is not None:
+                parts.append(f"range ${pt_low:.0f}–${pt_high:.0f}")
+            lines.append(f"- Price targets: {', '.join(parts)}")
+            lines.append(f"- Current price: ${current:.2f}")
+
+        # Key financial expectations
+        fwd_parts = []
+        if health.get("forward_eps") is not None:
+            fwd_parts.append(f"Fwd EPS ${health['forward_eps']:.2f}")
+        if health.get("ev_to_ebitda") is not None:
+            fwd_parts.append(f"EV/EBITDA {health['ev_to_ebitda']:.1f}x")
+        if health.get("revenue_growth") is not None:
+            fwd_parts.append(f"Rev growth {health['revenue_growth']:.1%}")
+        if fwd_parts:
+            lines.append(f"- Market expectations: {', '.join(fwd_parts)}")
+
+        # Positioning signals
+        if health.get("short_percent_of_float") is not None:
+            lines.append(f"- Short interest: {health['short_percent_of_float']:.1%} of float")
+
+        # Recent analyst actions
+        for action in analyst.get("recent_actions", [])[:3]:
+            lines.append(f"  - {action}")
+
+    if price:
+        # Vol regime context
+        iv = price.get("atm_iv")
+        rv = price.get("realized_vol_30d")
+        spread = price.get("iv_rv_spread")
+        if iv is not None and rv is not None:
+            regime = "cheap" if (spread or 0) < 0 else "expensive"
+            lines.append(
+                f"- Vol regime: ATM IV {iv:.1%} vs 30d RV {rv:.1%} "
+                f"(IV is {regime} relative to realized)"
+            )
+
     return "\n".join(lines)
 
 

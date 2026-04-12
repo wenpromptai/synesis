@@ -224,6 +224,47 @@ CREATE INDEX IF NOT EXISTS idx_raw_tweets_account
     ON synesis.raw_tweets (account_username, tweet_timestamp DESC);
 
 
+-- -----------------------------------------------------------------------------
+-- Trade Idea Tracking
+-- Tracks pipeline trade ideas for outcome measurement (hit rate, P&L).
+-- Populated by the intelligence pipeline job; updated weekly by tracking review.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS synesis.trade_idea_tracking (
+    id SERIAL PRIMARY KEY,
+    brief_date DATE NOT NULL,
+    ticker TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('long', 'short')),
+    trade_structure TEXT NOT NULL,
+    thesis TEXT,
+    catalyst TEXT,
+    conviction_tier SMALLINT CHECK (conviction_tier BETWEEN 1 AND 3),
+    entry_price DECIMAL,
+    target_price DECIMAL,
+    stop_price DECIMAL,
+    risk_reward_ratio DECIMAL,
+
+    -- Outcomes (filled by weekly tracking review job)
+    status TEXT DEFAULT 'open' CHECK (status IN ('open', 'hit_target', 'hit_stop', 'expired')),
+    price_at_1w DECIMAL,
+    price_at_2w DECIMAL,
+    price_at_1m DECIMAL,
+    pnl_at_close_pct DECIMAL,
+    closed_at DATE,
+    close_reason TEXT,
+
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (brief_date, ticker, direction)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trade_tracking_status
+    ON synesis.trade_idea_tracking (status);
+CREATE INDEX IF NOT EXISTS idx_trade_tracking_ticker
+    ON synesis.trade_idea_tracking (ticker);
+CREATE INDEX IF NOT EXISTS idx_trade_tracking_brief_date
+    ON synesis.trade_idea_tracking (brief_date DESC);
+
+
 -- =============================================================================
 -- GRANTS (for application user)
 -- =============================================================================

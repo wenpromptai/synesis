@@ -133,16 +133,16 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
         bull = debate.get("bull", {})
         bear = debate.get("bear", {})
 
-        # Bull argument — single argument string + key_evidence list
+        # Bull argument — variant + argument + evidence
         bull_arg = bull.get("argument", "")
         if bull_arg:
-            bull_text = _format_debate_side(bull_arg, bull.get("key_evidence", []))
+            bull_text = _format_debate_side_with_variant(bull)
             fields.extend(_split_field("\U0001f7e2 Bull Case", bull_text, inline=False))
 
         # Bear argument
         bear_arg = bear.get("argument", "")
         if bear_arg:
-            bear_text = _format_debate_side(bear_arg, bear.get("key_evidence", []))
+            bear_text = _format_debate_side_with_variant(bear)
             fields.extend(_split_field("\U0001f534 Bear Case", bear_text, inline=False))
 
         embeds.append(
@@ -160,19 +160,39 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
         for idea in trade_ideas:
             tickers_str = " / ".join(idea.get("tickers", []))
             idea_text = f"**{idea.get('trade_structure', '')}**"
+            # R/R line
+            entry = idea.get("entry_price")
+            target = idea.get("target_price")
+            stop = idea.get("stop_price")
+            rr = idea.get("risk_reward_ratio")
+            if entry is not None and target is not None and stop is not None:
+                rr_str = f" (R/R {rr:.1f}:1)" if rr is not None else ""
+                idea_text += (
+                    f"\nEntry ${entry:.2f} \u2192 Target ${target:.2f} | Stop ${stop:.2f}{rr_str}"
+                )
+            # Conviction
+            tier = idea.get("conviction_tier")
+            rationale = idea.get("conviction_rationale", "")
+            if tier is not None:
+                idea_text += f"\nConviction: Tier {tier} \u2014 {rationale}"
+            # Thesis
             thesis = idea.get("thesis", "")
             if thesis:
                 idea_text += f"\n{thesis}"
             meta_parts = []
             catalyst = idea.get("catalyst", "")
-            if catalyst:
-                meta_parts.append(f"**Catalyst:** {catalyst}")
             timeframe = idea.get("timeframe", "")
-            if timeframe:
+            if catalyst:
+                tf_str = f" ({timeframe})" if timeframe else ""
+                meta_parts.append(f"**Catalyst:** {catalyst}{tf_str}")
+            elif timeframe:
                 meta_parts.append(f"**Timeframe:** {timeframe}")
             key_risk = idea.get("key_risk", "")
             if key_risk:
-                meta_parts.append(f"**Key Risk:** {key_risk}")
+                meta_parts.append(f"**Risk:** {key_risk}")
+            expression = idea.get("expression_note", "")
+            if expression:
+                meta_parts.append(f"**Vol:** {expression}")
             if meta_parts:
                 idea_text += "\n" + " \u2022 ".join(meta_parts)
             ti_fields.extend(_split_field(f"\U0001f4a1 {tickers_str}", idea_text, inline=False))
@@ -320,9 +340,24 @@ def _split_field(name: str, value: str, *, inline: bool = False) -> list[dict[st
     return fields
 
 
-def _format_debate_side(argument: str, key_evidence: list[str]) -> str:
-    """Format a single debate side (argument + evidence) into a readable string."""
-    lines = [argument]
-    for ev in key_evidence[:4]:
+def _format_debate_side_with_variant(side: dict[str, Any]) -> str:
+    """Format a debate side with variant perception fields."""
+    lines: list[str] = []
+    variant = side.get("variant_vs_consensus", "")
+    if variant:
+        lines.append(f"**Variant:** {variant}")
+    target = side.get("estimated_upside_downside", "")
+    if target:
+        lines.append(f"**Target:** {target}")
+    lines.append(side.get("argument", ""))
+    for ev in side.get("key_evidence", [])[:4]:
         lines.append(f"\u203a {ev}")
+    catalyst = side.get("catalyst", "")
+    if catalyst:
+        timeline = side.get("catalyst_timeline", "")
+        tl_str = f" ({timeline})" if timeline else ""
+        lines.append(f"**Catalyst:** {catalyst}{tl_str}")
+    invalidation = side.get("what_would_change_my_mind", "")
+    if invalidation:
+        lines.append(f"**Invalidation:** {invalidation}")
     return "\n".join(lines)

@@ -30,6 +30,7 @@ __all__ = [
     "intelligence_brief_job",
     "market_movers_job",
     "refresh_tickers_job",
+    "tracking_review_job",
     "watchlist_cleanup_job",
 ]
 
@@ -122,6 +123,25 @@ async def intelligence_brief_job(
         )
     except Exception:
         logger.exception("Intelligence brief job failed")
+
+
+async def tracking_review_job(
+    db: Database,
+    yfinance: YFinanceClient,
+) -> None:
+    """Weekly review of open trade ideas — update prices, check target/stop hits."""
+    from synesis.processing.intelligence.tracking import run_tracking_review
+
+    try:
+        summary = await run_tracking_review(db, yfinance)
+        logger.info(
+            "Tracking review job complete",
+            reviewed=summary.get("reviewed", 0),
+            closed=summary.get("closed", 0),
+            updated=summary.get("updated", 0),
+        )
+    except Exception:
+        logger.exception("Tracking review job failed")
 
 
 async def refresh_tickers_job() -> None:

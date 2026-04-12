@@ -7,7 +7,7 @@ from typing import Any
 
 from synesis.processing.intelligence.discord_format import (
     _MAX_CHARS_PER_MSG,
-    _format_debate_side,
+    _format_debate_side_with_variant,
     _split_field,
     _split_oversized_embed,
     format_intelligence_brief,
@@ -154,11 +154,17 @@ class TestFormatIntelligenceBrief:
             trade_ideas=[
                 {
                     "tickers": ["AAPL"],
-                    "trade_structure": "buy 100 shares AAPL",
+                    "trade_structure": "long AAPL",
                     "thesis": "iPhone cycle",
                     "catalyst": "Q2 earnings",
                     "timeframe": "3 months",
                     "key_risk": "Trade war",
+                    "entry_price": 180.0,
+                    "target_price": 220.0,
+                    "stop_price": 165.0,
+                    "risk_reward_ratio": 2.7,
+                    "conviction_tier": 2,
+                    "conviction_rationale": "Strong thesis, catalyst in 3 months",
                 }
             ],
         )
@@ -175,24 +181,26 @@ class TestFormatIntelligenceBrief:
         assert len(trade_embeds) == 1
         idea_fields = trade_embeds[0]["fields"]
         assert len(idea_fields) == 1
-        assert "buy 100 shares AAPL" in idea_fields[0]["value"]
-        assert "iPhone cycle" in idea_fields[0]["value"]
-        assert "Q2 earnings" in idea_fields[0]["value"]
-        assert "3 months" in idea_fields[0]["value"]
-        assert "Trade war" in idea_fields[0]["value"]
+        value = idea_fields[0]["value"]
+        assert "long AAPL" in value
+        assert "iPhone cycle" in value
+        assert "Q2 earnings" in value
+        assert "3 months" in value
+        assert "Trade war" in value
+        assert "Entry $180.00" in value
+        assert "Target $220.00" in value
+        assert "Stop $165.00" in value
+        assert "R/R 2.7:1" in value
+        assert "Tier 2" in value
 
-    def test_multi_ticker_idea_in_trade_ideas_section(self) -> None:
-        """Multi-ticker ideas appear in the Trade Ideas section."""
+    def test_trade_idea_timeframe_without_catalyst(self) -> None:
+        """Timeframe is rendered even when catalyst is empty."""
         brief = _make_brief(
-            debates=[
-                {"ticker": "NVDA", "bull": {"argument": "Bull NVDA", "key_evidence": []}},
-                {"ticker": "AMD", "bull": {"argument": "Bull AMD", "key_evidence": []}},
-            ],
             trade_ideas=[
                 {
-                    "tickers": ["NVDA", "AMD"],
-                    "trade_structure": "equity L/S: long NVDA / short AMD",
-                    "thesis": "Relative value",
+                    "tickers": ["NVDA"],
+                    "trade_structure": "long NVDA",
+                    "thesis": "Momentum",
                     "catalyst": "",
                     "timeframe": "6 weeks",
                     "key_risk": "",
@@ -201,15 +209,10 @@ class TestFormatIntelligenceBrief:
         )
         batches = format_intelligence_brief(brief)
         all_embeds = [e for batch in batches for e in batch]
-
-        # Should NOT appear in per-ticker debate embeds
-        nvda_embed = next(e for e in all_embeds if "\u2694\ufe0f NVDA" == e.get("title", ""))
-        assert all("Trade" not in f["name"] for f in nvda_embed["fields"])
-
-        # Should appear in Trade Ideas section
         trade_embeds = [e for e in all_embeds if e.get("title") == "\U0001f4bc Trade Ideas"]
         assert len(trade_embeds) == 1
-        assert "equity L/S" in trade_embeds[0]["fields"][0]["value"]
+        value = trade_embeds[0]["fields"][0]["value"]
+        assert "**Timeframe:** 6 weeks" in value
 
     def test_portfolio_note_in_trade_ideas_section(self) -> None:
         """portfolio_note renders as description in Trade Ideas embed."""
@@ -420,20 +423,50 @@ class TestSplitOversizedEmbed:
         assert [f["name"] for f in all_fields] == [f"F{i}" for i in range(8)]
 
 
-class TestFormatDebateSide:
-    """Tests for _format_debate_side helper."""
+class TestFormatDebateSideWithVariant:
+    """Tests for _format_debate_side_with_variant helper."""
 
     def test_argument_only(self) -> None:
-        result = _format_debate_side("Strong thesis", [])
-        assert result == "Strong thesis"
+        result = _format_debate_side_with_variant({"argument": "Strong thesis"})
+        assert "Strong thesis" in result
 
     def test_with_evidence(self) -> None:
-        result = _format_debate_side("Bull case", ["Evidence 1", "Evidence 2"])
+        side = {
+            "argument": "Bull case",
+            "key_evidence": ["Evidence 1", "Evidence 2"],
+        }
+        result = _format_debate_side_with_variant(side)
         assert "Bull case" in result
         assert "\u203a Evidence 1" in result
         assert "\u203a Evidence 2" in result
 
     def test_evidence_capped_at_4(self) -> None:
-        evidence = [f"Point {i}" for i in range(10)]
-        result = _format_debate_side("Argument", evidence)
+        side = {
+            "argument": "Argument",
+            "key_evidence": [f"Point {i}" for i in range(10)],
+        }
+        result = _format_debate_side_with_variant(side)
         assert result.count("\u203a") == 4
+
+    def test_variant_fields_included(self) -> None:
+        side = {
+            "argument": "Bull thesis",
+            "key_evidence": ["EV1"],
+            "variant_vs_consensus": "Consensus expects 12%; I expect 18%",
+            "estimated_upside_downside": "+25% to $180",
+            "catalyst": "Q2 earnings",
+            "catalyst_timeline": "July 24",
+            "what_would_change_my_mind": "Margin miss below 20%",
+        }
+        result = _format_debate_side_with_variant(side)
+        assert "**Variant:** Consensus expects 12%; I expect 18%" in result
+        assert "**Target:** +25% to $180" in result
+        assert "**Catalyst:** Q2 earnings (July 24)" in result
+        assert "**Invalidation:** Margin miss below 20%" in result
+
+    def test_missing_variant_fields_skipped(self) -> None:
+        side = {"argument": "Simple argument", "key_evidence": []}
+        result = _format_debate_side_with_variant(side)
+        assert "**Variant:**" not in result
+        assert "**Catalyst:**" not in result
+        assert "Simple argument" in result

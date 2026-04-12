@@ -260,6 +260,14 @@ class TickerDebate(BaseModel):
     ticker: str = Field(min_length=1)
     argument: str = ""
     key_evidence: list[str] = Field(default_factory=list)
+
+    # Variant perception — anchored against consensus
+    variant_vs_consensus: str = ""
+    estimated_upside_downside: str = ""
+    catalyst: str = ""
+    catalyst_timeline: str = ""
+    what_would_change_my_mind: str = ""
+
     analysis_date: date
     round: int = Field(default=1, ge=1)
 
@@ -272,21 +280,35 @@ class TickerDebate(BaseModel):
 class TradeIdea(BaseModel):
     """A trade recommendation from the Trader.
 
-    Single-ticker ideas have one ticker. Pair/relative value trades have 2+
-    (only produced in portfolio mode). trade_structure is the primary field —
-    it describes exactly what to do and is the cue for execution.
+    One TradeIdea per ticker. Equity positions only — no options strategy
+    construction. trade_structure describes the equity position;
+    expression_note provides vol context for optional enhancement.
     """
 
-    tickers: list[Annotated[str, Field(min_length=1)]] = Field(min_length=1)
+    tickers: list[Annotated[str, Field(min_length=1)]] = Field(min_length=1, max_length=1)
     trade_structure: str = Field(
         min_length=1,
-        description="The specific trade: 'buy 100 shares NVDA', 'bull call spread NVDA 150/160 June', "
-        "'equity L/S: long NVDA / short AMD', etc.",
+        description="Equity position: 'long NVDA' or 'short AMD'.",
     )
     thesis: str = ""
     catalyst: str = ""
     timeframe: str = ""
     key_risk: str = ""
+
+    # R/R framework
+    entry_price: float | None = None
+    target_price: float | None = None
+    stop_price: float | None = None
+    risk_reward_ratio: float | None = None
+
+    # Conviction
+    conviction_tier: Literal[1, 2, 3] | None = None
+    conviction_rationale: str = ""
+    downside_scenario: str = ""
+
+    # Vol context (replaces options strategy construction)
+    expression_note: str = ""
+
     analysis_date: date
 
 

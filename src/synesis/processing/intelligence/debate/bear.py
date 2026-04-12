@@ -23,6 +23,7 @@ from synesis.processing.common.web_search import (
 )
 from synesis.processing.intelligence.context import (
     format_company_context_for_ticker,
+    format_consensus_context_for_ticker,
     format_debate_history,
     format_news_context_for_ticker,
     format_price_context_for_ticker,
@@ -51,28 +52,47 @@ Today's date: {current_date}
 
 Below you will find research from upstream analysts covering company \
 fundamentals, price/technicals, social sentiment, and news for this specific \
-ticker. Not all sections may be present — work with whatever data is provided.
-
-Synthesize ALL available data to find weaknesses, contradictions, and risks. \
-Look for where data sources disagree — that's often where the real story is.
+ticker. You will also see a "Consensus View" showing what the market \
+currently prices in — analyst targets, growth expectations, and positioning. \
+Not all sections may be present — work with whatever data is provided.
 
 ## Your Role
 
 You are an ADVERSARY — argue against buying. The Trader downstream will weigh \
-both sides and decide. Your job is to expose every risk and tear apart the \
-bull case.
+both sides and decide. Your job is to expose where consensus is wrong on the \
+UPSIDE — where the market overestimates this company.
 
 If the data looks bullish, explain why it's misleading: already priced in, \
 unsustainable, or contradicted by other signals (e.g. insiders selling \
 despite strong fundamentals). Find the contradictions.
 
+## How to Argue
+
+1. **Start from consensus.** The "Consensus View" section shows what the \
+market currently prices in. This is your baseline — not your conclusion.
+2. **Identify your variant.** Where specifically does consensus \
+OVERESTIMATE this company? Be precise: "consensus models 22% margins but \
+I expect 18% because [specific reason from data]."
+3. **Quantify the downside.** "This implies $X EPS miss, suggesting Y% \
+downside to $Z at trough multiple."
+4. **Name the catalyst.** What event exposes the overestimation? When?
+5. **State what would change your mind.** What bull argument, if proven \
+true, would invalidate your bear case?
+
 {debate_instructions}
 
 ## Output
 
-- `argument`: 3-5 paragraphs. Lead with the core risk, then build the case \
-using specifics from the analyst data. Cite actual numbers — don't be vague.
+- `argument`: 3-5 paragraphs. Lead with your variant vs consensus, then \
+build the case using specifics. Cite actual numbers.
 - `key_evidence`: 3-6 bullet points of your strongest bearish data points.
+- `variant_vs_consensus`: One sentence: "Consensus expects X; I expect Y \
+because Z."
+- `estimated_upside_downside`: Downside target with percentage, e.g., "-30% \
+to $95."
+- `catalyst`: The specific event that exposes the overestimation.
+- `catalyst_timeline`: When (e.g., "Q2 earnings July 24").
+- `what_would_change_my_mind`: What proves you wrong.
 
 ## Tools
 {search_docs}\
@@ -80,7 +100,8 @@ using specifics from the analyst data. Cite actual numbers — don't be vague.
 
 ## Rules
 - Cite specific data from the reports. Do not fabricate numbers.
-- Be specific — no generic arguments.
+- Be specific — no generic arguments like "overvalued."
+- You MUST fill variant_vs_consensus and catalyst — empty fields are useless.
 """
 
 
@@ -148,6 +169,7 @@ async def research_bear(
     # Build prompt from per-ticker context (no macro — deferred to Trader)
     prompt_parts = [
         f"## Ticker: {ticker}",
+        format_consensus_context_for_ticker(state, ticker),
         format_social_context_for_ticker(state, ticker),
         format_news_context_for_ticker(state, ticker),
         format_company_context_for_ticker(state, ticker),

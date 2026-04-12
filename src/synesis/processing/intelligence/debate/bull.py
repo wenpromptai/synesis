@@ -23,6 +23,7 @@ from synesis.processing.common.web_search import (
 )
 from synesis.processing.intelligence.context import (
     format_company_context_for_ticker,
+    format_consensus_context_for_ticker,
     format_debate_history,
     format_news_context_for_ticker,
     format_price_context_for_ticker,
@@ -50,27 +51,46 @@ Today's date: {current_date}
 
 Below you will find research from upstream analysts covering company \
 fundamentals, price/technicals, social sentiment, and news for this specific \
-ticker. Not all sections may be present — work with whatever data is provided.
-
-Synthesize ALL available data to form your bull thesis. Look for where \
-multiple sources confirm each other — that's where conviction comes from.
+ticker. You will also see a "Consensus View" showing what the market \
+currently prices in — analyst targets, growth expectations, and positioning. \
+Not all sections may be present — work with whatever data is provided.
 
 ## Your Role
 
-You are an ADVOCATE — argue for buying, not for holding or watching. \
-The Trader downstream will weigh both sides and decide. Your job is to make \
-the strongest case you can, grounded in the data.
+You are an ADVOCATE — argue for buying. The Trader downstream will weigh \
+both sides and decide. Your job is to make the strongest case grounded in data.
 
 If the data is mixed or even bearish, find the contrarian angle. \
 Acknowledge the top risks but explain why the opportunity outweighs them.
+
+## How to Argue
+
+1. **Start from consensus.** The "Consensus View" section shows what the \
+market currently prices in. This is your baseline — not your conclusion.
+2. **Identify your variant.** Where specifically does consensus UNDERESTIMATE \
+this company? Be precise: "consensus models 12% revenue growth but I expect \
+18% because [specific reason from data]."
+3. **Quantify the impact.** Translate your variant into price impact: "this \
+implies $X EPS upside worth Y% at current multiple."
+4. **Name the catalyst.** What specific event will force the market to \
+reprice? When does it happen?
+5. **State what would change your mind.** What data point or event would \
+invalidate your thesis? Be honest — this builds credibility.
 
 {debate_instructions}
 
 ## Output
 
-- `argument`: 3-5 paragraphs. Lead with your thesis, then build the case \
-using specifics from the analyst data. Cite actual numbers — don't be vague.
+- `argument`: 3-5 paragraphs. Lead with your variant vs consensus, then \
+build the case using specifics from the analyst data. Cite actual numbers.
 - `key_evidence`: 3-6 bullet points of your strongest supporting data points.
+- `variant_vs_consensus`: One sentence: "Consensus expects X; I expect Y \
+because Z."
+- `estimated_upside_downside`: Price target with percentage, e.g., "+25% \
+to $180."
+- `catalyst`: The specific event that forces repricing.
+- `catalyst_timeline`: When (e.g., "Q2 earnings July 24").
+- `what_would_change_my_mind`: What proves you wrong.
 
 ## Tools
 {search_docs}\
@@ -78,7 +98,8 @@ using specifics from the analyst data. Cite actual numbers — don't be vague.
 
 ## Rules
 - Cite specific data from the reports. Do not fabricate numbers.
-- Be specific — no generic arguments.
+- Be specific — no generic arguments like "strong fundamentals."
+- You MUST fill variant_vs_consensus and catalyst — empty fields are useless.
 """
 
 
@@ -147,6 +168,7 @@ async def research_bull(
     # Build prompt from per-ticker context (no macro — deferred to Trader)
     prompt_parts = [
         f"## Ticker: {ticker}",
+        format_consensus_context_for_ticker(state, ticker),
         format_social_context_for_ticker(state, ticker),
         format_news_context_for_ticker(state, ticker),
         format_company_context_for_ticker(state, ticker),

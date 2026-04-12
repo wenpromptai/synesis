@@ -356,6 +356,19 @@ async def agent_lifespan(
         )
         logger.info("Market movers scheduled", schedule="10:30am ET daily")
 
+        # Trade idea tracking review: Friday 4pm ET (after market close)
+        if db and yfinance_client:
+            from synesis.agent.scheduler import tracking_review_job
+
+            scheduler.add_job(
+                tracking_review_job,
+                CronTrigger(day_of_week="fri", hour=16, minute=0, timezone="America/New_York"),
+                args=[db, yfinance_client],
+                id="tracking_review",
+                max_instances=1,
+            )
+            logger.info("Tracking review scheduled", schedule="Friday 4pm ET weekly")
+
         # Ticker list refresh: every Monday 6am UTC
         from synesis.agent.scheduler import refresh_tickers_job
 

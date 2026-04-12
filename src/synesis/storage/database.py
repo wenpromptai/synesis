@@ -618,6 +618,107 @@ class Database:
     # Flow 1: Signal and Prediction Storage (continued)
     # -------------------------------------------------------------------------
 
+    # -------------------------------------------------------------------------
+    # Trade Idea Tracking
+    # -------------------------------------------------------------------------
+
+    async def insert_trade_idea(self, idea: dict[str, Any]) -> int | None:
+        """Insert a trade idea for outcome tracking. Returns id or None if duplicate."""
+        query = """
+            INSERT INTO trade_idea_tracking (
+                brief_date, ticker, direction, trade_structure, thesis,
+                catalyst, conviction_tier,
+                entry_price, target_price, stop_price, risk_reward_ratio
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (brief_date, ticker, direction) DO NOTHING
+            RETURNING id
+        """
+        result = await self.fetchval(
+            query,
+            idea["brief_date"],
+            idea["ticker"],
+            idea["direction"],
+            idea["trade_structure"],
+            idea.get("thesis"),
+            idea.get("catalyst"),
+            idea.get("conviction_tier"),
+            idea.get("entry_price"),
+            idea.get("target_price"),
+            idea.get("stop_price"),
+            idea.get("risk_reward_ratio"),
+        )
+        if result is not None:
+            logger.debug(
+                "Trade idea tracked",
+                id=result,
+                ticker=idea["ticker"],
+                direction=idea["direction"],
+            )
+        return int(result) if result is not None else None
+
+    async def get_open_trade_ideas(self) -> list[asyncpg.Record]:
+        """Get all trade ideas with status='open' for price tracking."""
+        query = """
+            SELECT id, brief_date, ticker, direction, trade_structure,
+                   entry_price, target_price, stop_price,
+                   conviction_tier,
+                   price_at_1w, price_at_2w, price_at_1m
+            FROM trade_idea_tracking
+            WHERE status = 'open'
+            ORDER BY brief_date DESC
+        """
+        return await self.fetch(query)
+
+    async def update_trade_tracking(
+        self,
+        idea_id: int,
+        updates: dict[str, Any],
+    ) -> None:
+        """Update tracking fields for a trade idea (prices, status, etc.)."""
+        if not updates:
+            return
+        set_parts = []
+        params: list[Any] = []
+        allowed = {
+            "price_at_1w",
+            "price_at_2w",
+            "price_at_1m",
+            "status",
+            "pnl_at_close_pct",
+            "closed_at",
+            "close_reason",
+        }
+        for key, value in updates.items():
+            if key not in allowed:
+                continue
+            params.append(value)
+            set_parts.append(f"{key} = ${len(params) + 1}")
+        if not set_parts:
+            return
+        set_parts.append("updated_at = NOW()")
+        query = f"UPDATE trade_idea_tracking SET {', '.join(set_parts)} WHERE id = $1"
+        await self.execute(query, idea_id, *params)
+        logger.debug("Trade tracking updated", id=idea_id, fields=list(updates))
+
+    async def get_trade_scorecard(
+        self,
+        days: int = 90,
+    ) -> list[asyncpg.Record]:
+        """Get closed trade ideas for hit rate / P&L analysis."""
+        query = """
+            SELECT id, brief_date, ticker, direction, trade_structure,
+                   conviction_tier, entry_price, target_price, stop_price,
+                   risk_reward_ratio, status, pnl_at_close_pct,
+                   closed_at, close_reason,
+                   price_at_1w, price_at_2w, price_at_1m
+            FROM trade_idea_tracking
+            WHERE status != 'open'
+              AND brief_date >= CURRENT_DATE - make_interval(days => $1)
+            ORDER BY brief_date DESC
+        """
+        return await self.fetch(query, days)
+
     async def insert_prediction(
         self,
         evaluation: "MarketEvaluation",

@@ -50,20 +50,38 @@ Today's date: {current_date}
 Below you will find the macro regime assessment plus the bull/bear debate \
 arguments for {scope_description}. The researchers have already synthesized \
 all analyst data (fundamentals, technicals, sentiment, news) into their \
-arguments with specific figures — work from their analysis.
+arguments with specific figures — work from their analysis. Each side has \
+stated their variant vs consensus, a catalyst, and what would prove them wrong.
 
 ## Your Job
 
-1. **Read both sides of the debate.** Who made the stronger case? Where did \
-the evidence actually point?
+1. **Read both sides of the debate.** Who made the stronger case? Whose \
+variant perception is better supported by evidence? Which side's catalyst \
+is more imminent and more likely?
 2. **Make a decisive call.** If you're not convinced either way, simply \
-don't produce a TradeIdea for that ticker.
-3. **Write the trade_structure.** This is the most important field — it is \
-what we act on. Be specific and complete: "buy 100 shares NVDA", \
-"bull call spread NVDA 150/160 June exp", "sell NVDA May 150 puts", \
-"equity L/S: long NVDA / short AMD 2:1 ratio". Consider the macro regime \
-and current IV when choosing between shares and options.
-4. **Name the catalyst and timeframe.** What triggers the move, and when?
+don't produce a TradeIdea for that ticker. Having no position IS a position.
+3. **Write the trade_structure.** Equity positions ONLY — this is what we \
+act on. Formats: "long NVDA" or "short AMD". One ticker per trade idea. \
+No options strategies, no pair trades.
+4. **Set entry, target, and stop.** Use current price as entry. Target = \
+your conviction case price. Stop = where the thesis is wrong (the level \
+that invalidates the variant). Calculate risk_reward_ratio as \
+(target - entry) / (entry - stop) for longs, or \
+(entry - target) / (stop - entry) for shorts. \
+**Reject any trade with R/R below 2:1 for longs or 3:1 for shorts.**
+5. **Assign conviction_tier:**
+   - Tier 1 (highest): Multiple independent signals confirm thesis, downside \
+bounded, hard catalyst within 30 days. Maps to 5-8% position.
+   - Tier 2: Strong directional thesis, 1-2 uncertainties remain, catalyst \
+within 60 days. Maps to 2-5% position.
+   - Tier 3: Interesting setup but critical unknowns, optionality only. \
+Maps to 0.5-2% position.
+6. **Write expression_note.** Based on IV/RV data from the debate, note \
+whether options could enhance this trade (e.g., "IV at low end of range vs \
+realized — calls are cheap for leveraged exposure" or "IV elevated — \
+consider selling put spreads for defined-risk entry"). Do NOT construct \
+specific strikes or expiries — just flag the vol regime and direction.
+7. **Name the catalyst and timeframe.** What triggers the move, and when?
 
 {mode_instructions}
 
@@ -75,7 +93,9 @@ and current IV when choosing between shares and options.
 - Ground your decision in the debate evidence. Do not fabricate data.
 - If one side of the debate is missing (error), note this and decide \
 with what you have — or skip if insufficient.
-- Be specific with trade structure — no vague "consider options".
+- Every TradeIdea MUST have entry_price, target_price, stop_price, and \
+conviction_tier. Incomplete ideas are useless.
+- Write downside_scenario: what happens if you're wrong? Be specific.
 """
 
 _PORTFOLIO_INSTRUCTIONS = """\
@@ -83,11 +103,10 @@ _PORTFOLIO_INSTRUCTIONS = """\
 You are reviewing ALL tickers together. Consider:
 - Cross-ticker correlation (are multiple ideas in the same sector/theme?)
 - Concentration risk (too much exposure to one factor?)
-- Capital allocation (which ideas deserve the largest position?)
-- **Pair / relative value trades**: If one ticker has a strong bull case and \
-another has a strong bear case, you can create a single TradeIdea with \
-tickers=["NVDA", "AMD"] and trade_structure describing the combined position \
-(e.g., "equity L/S: long NVDA / short AMD").
+- Capital allocation (which ideas deserve the largest position? Use conviction tiers.)
+- If you see a natural long/short pair (e.g., long semis via AVGO, short \
+software via CRM), create separate TradeIdeas for each leg and note the \
+pairing in portfolio_note.
 Add a portfolio_note with cross-ticker observations."""
 
 _PER_TICKER_INSTRUCTIONS = ""
@@ -221,6 +240,11 @@ async def analyze_trade_per_ticker(
                 idea_tickers=idea.tickers,
                 structure=idea.trade_structure,
                 timeframe=idea.timeframe,
+                conviction_tier=idea.conviction_tier,
+                risk_reward=idea.risk_reward_ratio,
+                entry=idea.entry_price,
+                target=idea.target_price,
+                stop=idea.stop_price,
             )
     else:
         logger.warning(
@@ -251,8 +275,8 @@ async def analyze_trade_portfolio(
     """Run Trader for all tickers at once (portfolio mode).
 
     Receives macro context + compressed debate summaries for all tickers
-    in one call. Can produce pair/relative value trades with multi-ticker
-    TradeIdeas.
+    in one call. Produces one TradeIdea per ticker with portfolio-level
+    awareness (correlation, concentration, capital allocation).
     """
     logger.info("Starting Trader (portfolio)", tickers=tickers)
 
@@ -288,6 +312,11 @@ async def analyze_trade_portfolio(
                 idea_tickers=idea.tickers,
                 structure=idea.trade_structure,
                 timeframe=idea.timeframe,
+                conviction_tier=idea.conviction_tier,
+                risk_reward=idea.risk_reward_ratio,
+                entry=idea.entry_price,
+                target=idea.target_price,
+                stop=idea.stop_price,
             )
     else:
         logger.warning(

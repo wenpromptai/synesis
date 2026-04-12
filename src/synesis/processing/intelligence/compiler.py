@@ -212,12 +212,35 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
             lines.append(f"### {idea_tickers} — {structure}")
             if idea.get("thesis"):
                 lines.append(f"- **Thesis:** {idea['thesis']}")
-            if idea.get("catalyst"):
-                lines.append(f"- **Catalyst:** {idea['catalyst']}")
-            if idea.get("timeframe"):
-                lines.append(f"- **Timeframe:** {idea['timeframe']}")
+            # R/R framework
+            entry = idea.get("entry_price")
+            target = idea.get("target_price")
+            stop = idea.get("stop_price")
+            rr = idea.get("risk_reward_ratio")
+            if entry is not None and target is not None and stop is not None:
+                rr_str = f" (R/R {rr:.1f}:1)" if rr is not None else ""
+                lines.append(
+                    f"- **Entry:** ${entry:.2f} | **Target:** ${target:.2f} "
+                    f"| **Stop:** ${stop:.2f}{rr_str}"
+                )
+            # Conviction
+            tier = idea.get("conviction_tier")
+            rationale = idea.get("conviction_rationale", "")
+            if tier is not None:
+                lines.append(f"- **Conviction:** Tier {tier} — {rationale}")
+            catalyst = idea.get("catalyst", "")
+            timeframe = idea.get("timeframe", "")
+            if catalyst:
+                tf_str = f" ({timeframe})" if timeframe else ""
+                lines.append(f"- **Catalyst:** {catalyst}{tf_str}")
+            elif timeframe:
+                lines.append(f"- **Timeframe:** {timeframe}")
             if idea.get("key_risk"):
                 lines.append(f"- **Key Risk:** {idea['key_risk']}")
+            if idea.get("downside_scenario"):
+                lines.append(f"- **Downside Scenario:** {idea['downside_scenario']}")
+            if idea.get("expression_note"):
+                lines.append(f"- **Vol Context:** {idea['expression_note']}")
             lines.append("")
 
     # Debates
@@ -228,12 +251,22 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
         for debate in debates:
             ticker = debate.get("ticker", "?")
             lines.append(f"### {ticker}")
-            bull = debate.get("bull", {})
-            bear = debate.get("bear", {})
-            if bull:
-                lines.append(f"**Bull:** {bull.get('argument', 'N/A')}")
-            if bear:
-                lines.append(f"**Bear:** {bear.get('argument', 'N/A')}")
+            for side_key, label in [("bull", "Bull"), ("bear", "Bear")]:
+                side = debate.get(side_key, {})
+                if not side:
+                    continue
+                lines.append(f"\n**{label}:**")
+                if side.get("variant_vs_consensus"):
+                    lines.append(f"*Variant:* {side['variant_vs_consensus']}")
+                if side.get("estimated_upside_downside"):
+                    lines.append(f"*Target:* {side['estimated_upside_downside']}")
+                lines.append(side.get("argument", "N/A"))
+                if side.get("catalyst"):
+                    timeline = side.get("catalyst_timeline", "")
+                    tl_str = f" ({timeline})" if timeline else ""
+                    lines.append(f"*Catalyst:* {side['catalyst']}{tl_str}")
+                if side.get("what_would_change_my_mind"):
+                    lines.append(f"*Invalidation:* {side['what_would_change_my_mind']}")
             lines.append("")
 
     # Company analyses
