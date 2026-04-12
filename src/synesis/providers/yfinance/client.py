@@ -24,6 +24,8 @@ from synesis.core.constants import (
     OPTIONS_SNAPSHOT_TRADING_DAYS,
 )
 from synesis.providers.yfinance.models import (
+    AnalystPriceTargets,
+    AnalystRatings,
     CompanyFundamentals,
     EquityQuote,
     FXRate,
@@ -35,6 +37,8 @@ from synesis.providers.yfinance.models import (
     OptionsGreeks,
     OptionsSnapshot,
     QuarterlyFinancials,
+    RecommendationTrend,
+    UpgradeDowngrade,
 )
 
 if TYPE_CHECKING:
@@ -191,6 +195,33 @@ class YFinanceClient:
             ex=settings.yfinance_cache_ttl_fundamentals,
         )
         return fundamentals
+
+    async def get_analyst_ratings(self, ticker: str, limit: int = 25) -> AnalystRatings:
+        """Get analyst ratings: recommendations, upgrades/downgrades, price targets.
+
+        Args:
+            ticker: Stock ticker symbol.
+            limit: Max number of upgrade/downgrade records to return (most recent first).
+        """
+        settings = get_settings()
+        ticker_up = ticker.upper()
+        cache_key = f"{CACHE_PREFIX}:analyst:{ticker_up}:{limit}"
+
+        cached = await self._redis.get(cache_key)
+        if cached:
+            try:
+                return AnalystRatings.model_validate(orjson.loads(cached))
+            except Exception as e:
+                logger.warning("Cache deserialization failed", key=cache_key, error=str(e))
+
+        ratings = await asyncio.to_thread(_fetch_analyst_ratings, ticker, limit)
+
+        await self._redis.set(
+            cache_key,
+            orjson.dumps(ratings.model_dump(mode="json")),
+            ex=settings.yfinance_cache_ttl_analyst,
+        )
+        return ratings
 
     async def get_quarterly_financials(self, ticker: str) -> QuarterlyFinancials:
         """Get quarterly income, balance sheet, and cash flow statements.
@@ -458,6 +489,92 @@ def _fetch_quarterly_financials(ticker: str) -> tuple[Any, Any, Any]:
     except Exception as e:
         logger.warning("yfinance quarterly financials fetch failed", ticker=ticker, error=str(e))
         return None, None, None
+
+
+def _fetch_analyst_ratings(ticker: str, limit: int) -> AnalystRatings:
+    """Fetch analyst ratings from yfinance (synchronous)."""
+    ticker_up = ticker.upper()
+    try:
+        t = yf.Ticker(ticker)
+    except Exception as e:
+        logger.warning("yfinance ticker init failed", ticker=ticker, error=str(e))
+        return AnalystRatings(ticker=ticker_up)
+
+    # 1. Recommendations (monthly aggregated)
+    recommendations: list[RecommendationTrend] = []
+    try:
+        rec_df = t.recommendations
+        if rec_df is not None and not rec_df.empty:
+            for _, row in rec_df.iterrows():
+                recommendations.append(
+                    RecommendationTrend(
+                        period=str(row.get("period", "")),
+                        strong_buy=int(row.get("strongBuy", 0)),
+                        buy=int(row.get("buy", 0)),
+                        hold=int(row.get("hold", 0)),
+                        sell=int(row.get("sell", 0)),
+                        strong_sell=int(row.get("strongSell", 0)),
+                    )
+                )
+    except Exception as e:
+        logger.warning("yfinance recommendations failed", ticker=ticker, error=str(e))
+
+    # 2. Upgrades/downgrades (individual firm actions)
+    upgrades_downgrades: list[UpgradeDowngrade] = []
+    try:
+        ud_df = t.upgrades_downgrades
+        if ud_df is not None and not ud_df.empty:
+            for idx, row in ud_df.head(limit).iterrows():
+                grade_dt = idx
+                if hasattr(grade_dt, "to_pydatetime"):
+                    grade_dt = grade_dt.to_pydatetime()
+
+                current_pt = _safe_float(row.get("currentPriceTarget"))
+                prior_pt = _safe_float(row.get("priorPriceTarget"))
+                # yfinance returns 0.0 for missing price targets
+                if current_pt == 0.0:
+                    current_pt = None
+                if prior_pt == 0.0:
+                    prior_pt = None
+
+                pta = row.get("priceTargetAction", "") or ""
+
+                upgrades_downgrades.append(
+                    UpgradeDowngrade(
+                        date=grade_dt,
+                        firm=str(row.get("Firm", "")),
+                        to_grade=str(row.get("ToGrade", "")),
+                        from_grade=str(row.get("FromGrade", "")),
+                        action=str(row.get("Action", "")),
+                        price_target_action=pta if pta else None,
+                        current_price_target=current_pt,
+                        prior_price_target=prior_pt,
+                    )
+                )
+    except Exception as e:
+        logger.warning("yfinance upgrades_downgrades failed", ticker=ticker, error=str(e))
+
+    # 3. Analyst price targets (consensus snapshot)
+    price_targets: AnalystPriceTargets | None = None
+    try:
+        apt = t.analyst_price_targets
+        if apt and isinstance(apt, dict):
+            price_targets = AnalystPriceTargets(
+                current=_safe_float(apt.get("current")),
+                high=_safe_float(apt.get("high")),
+                low=_safe_float(apt.get("low")),
+                mean=_safe_float(apt.get("mean")),
+                median=_safe_float(apt.get("median")),
+            )
+    except Exception as e:
+        logger.warning("yfinance analyst_price_targets failed", ticker=ticker, error=str(e))
+
+    return AnalystRatings(
+        ticker=ticker_up,
+        recommendations=recommendations,
+        upgrades_downgrades=upgrades_downgrades,
+        price_targets=price_targets,
+    )
 
 
 def _fetch_quote_info(ticker: str) -> dict[str, Any]:

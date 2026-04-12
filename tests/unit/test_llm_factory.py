@@ -2,11 +2,17 @@
 
 from unittest.mock import MagicMock, patch
 
+from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 
 import pytest
 
-from synesis.processing.common.llm import create_model, is_native_openai
+from synesis.processing.common.llm import (
+    SearchConfig,
+    create_model,
+    is_native_openai,
+    web_search_config,
+)
 
 
 class TestCreateModel:
@@ -150,3 +156,73 @@ class TestIsNativeOpenAI:
             mock_settings.return_value = settings
 
             assert is_native_openai() is expected
+
+
+class TestWebSearchConfig:
+    """Tests for web_search_config helper."""
+
+    def test_native_openai_returns_builtin_tools(self) -> None:
+        """Native OpenAI should return WebSearchTool and native=True."""
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.llm_provider = "openai"
+            settings.openai_base_url = None
+            mock_settings.return_value = settings
+
+            config = web_search_config(3, "test description")
+
+        assert config.native is True
+        assert len(config.builtin_tools) == 1
+        assert isinstance(config.builtin_tools[0], WebSearchTool)
+        assert "built-in web search" in config.prompt_docs
+        assert "test description" in config.prompt_docs
+        assert "3" in config.prompt_docs
+
+    def test_non_native_returns_brave_docs(self) -> None:
+        """Non-native (custom base URL) should return empty builtin_tools and native=False."""
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.llm_provider = "openai"
+            settings.openai_base_url = "https://api.z.ai/v1"
+            mock_settings.return_value = settings
+
+            config = web_search_config(5, "verify claims")
+
+        assert config.native is False
+        assert config.builtin_tools == []
+        assert "web_search(query, recency)" in config.prompt_docs
+        assert "verify claims" in config.prompt_docs
+        assert "5" in config.prompt_docs
+
+    def test_anthropic_returns_brave_docs(self) -> None:
+        """Anthropic provider should return Brave search docs."""
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.llm_provider = "anthropic"
+            settings.openai_base_url = None
+            mock_settings.return_value = settings
+
+            config = web_search_config(2, "find info")
+
+        assert config.native is False
+        assert config.builtin_tools == []
+        assert "web_search(query, recency)" in config.prompt_docs
+
+    def test_search_config_is_frozen(self) -> None:
+        """SearchConfig should be immutable."""
+        config = SearchConfig(prompt_docs="test", builtin_tools=[], native=False)
+        with pytest.raises(AttributeError):
+            config.native = True  # type: ignore[misc]
+
+    def test_native_with_explicit_openai_url(self) -> None:
+        """Explicit https://api.openai.com/v1 should still be native."""
+        with patch("synesis.processing.common.llm.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.llm_provider = "openai"
+            settings.openai_base_url = "https://api.openai.com/v1"
+            mock_settings.return_value = settings
+
+            config = web_search_config(3, "test")
+
+        assert config.native is True
+        assert len(config.builtin_tools) == 1

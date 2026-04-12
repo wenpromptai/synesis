@@ -28,7 +28,7 @@ __all__ = [
     "event_digest_job",
     "event_fetch_job",
     "intelligence_brief_job",
-    "market_brief_job",
+    "market_movers_job",
     "refresh_tickers_job",
     "watchlist_cleanup_job",
 ]
@@ -70,31 +70,26 @@ async def event_fetch_job(
         logger.exception("Event fetch job failed")
 
 
-async def market_brief_job(redis: Redis, db: Database | None = None) -> None:
-    """Send daily market brief with LLM analysis to Discord and persist to diary."""
-    from synesis.processing.market.job import market_brief_job as _market_brief_job
+async def market_movers_job(redis: Redis, db: Database | None = None) -> None:
+    """Send daily market movers snapshot to Discord and persist to diary."""
+    from synesis.processing.market.job import market_movers_job as _market_movers_job
 
     try:
-        await _market_brief_job(redis, db=db)
-        logger.info("Market brief job complete")
+        await _market_movers_job(redis, db=db)
+        logger.info("Market movers job complete")
     except Exception:
-        logger.exception("Market brief job failed")
+        logger.exception("Market movers job failed")
 
 
 async def event_digest_job(
     db: Database,
     redis: Redis | None = None,
-    sec_edgar: SECEdgarClient | None = None,
-    crawler: Crawl4AICrawlerProvider | None = None,
-    fred: FREDClient | None = None,
 ) -> None:
     """Send daily Event Radar digest to Discord."""
     from synesis.processing.events.digest import send_event_digest
 
     try:
-        sent = await send_event_digest(
-            db, redis=redis, sec_edgar=sec_edgar, crawler=crawler, fred=fred
-        )
+        sent = await send_event_digest(db, redis=redis)
         logger.info("Event digest job complete", sent=sent)
     except Exception:
         logger.exception("Event digest job failed")

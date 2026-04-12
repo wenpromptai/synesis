@@ -72,15 +72,17 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
             }
         )
 
-    tilts = macro.get("sector_tilts", [])
+    tilts = macro.get("thematic_tilts", [])
     if tilts:
         tilt_lines = []
-        for t in tilts[:6]:
+        for t in tilts[:8]:
             score = t.get("sentiment_score", 0)
             emoji = "\U0001f7e2" if score > 0 else "\U0001f534" if score < 0 else "\u26aa"
-            tilt_lines.append(f"{emoji} **{t.get('sector', '?')}** ({score:+.1f})")
+            etf = t.get("etf")
+            etf_str = f" [{etf}]" if etf else ""
+            tilt_lines.append(f"{emoji} **{t.get('theme', '?')}**{etf_str} ({score:+.1f})")
         macro_fields.append(
-            {"name": "Sector Tilts", "value": "\n".join(tilt_lines)[:1024], "inline": False}
+            {"name": "Thematic Tilts", "value": "\n".join(tilt_lines)[:1024], "inline": False}
         )
 
     risks = macro.get("risks", [])

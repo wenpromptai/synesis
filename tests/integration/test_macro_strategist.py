@@ -3,7 +3,7 @@
 Tests that the strategist correctly:
 1. Fetches all FRED series (VIX, yields, fed funds, unemployment)
 2. Consolidates macro themes from different sources
-3. Produces a coherent regime assessment with sector tilts
+3. Produces a coherent regime assessment with thematic tilts
 
 Run with: uv run pytest tests/integration/test_macro_strategist.py -v -m integration
 """
@@ -14,7 +14,7 @@ from datetime import date
 
 import pytest
 
-from synesis.processing.intelligence.models import MacroView, SectorTilt
+from synesis.processing.intelligence.models import MacroView, ThematicTilt
 from synesis.processing.intelligence.strategists.macro import (
     MacroStrategistDeps,
     _fetch_fred_data,
@@ -156,7 +156,32 @@ async def test_full_macro_analysis(fred_client):
         },
     }
 
-    deps = MacroStrategistDeps(fred=fred_client, current_date=date.today())
+    from unittest.mock import AsyncMock
+
+    mock_db = AsyncMock()
+    mock_db.get_upcoming_events = AsyncMock(return_value=[])
+    mock_db.get_events_by_date_range = AsyncMock(return_value=[])
+    mock_db.get_last_fomc_meeting_date = AsyncMock(return_value=None)
+
+    mock_yf = AsyncMock()
+    mock_yf.get_quote = AsyncMock(
+        return_value=AsyncMock(
+            last=None,
+            prev_close=None,
+            avg_50d=None,
+            avg_200d=None,
+        )
+    )
+
+    mock_sec = AsyncMock()
+
+    deps = MacroStrategistDeps(
+        fred=fred_client,
+        db=mock_db,
+        yfinance=mock_yf,
+        sec_edgar=mock_sec,
+        current_date=date.today(),
+    )
     result = await analyze_macro(state, deps)
 
     assert isinstance(result, MacroView)
@@ -169,10 +194,10 @@ async def test_full_macro_analysis(fred_client):
     assert len(result.key_drivers) >= 2, "Should have at least 2 key drivers"
 
     # Sector tilts should exist
-    assert len(result.sector_tilts) >= 1, "Should have at least 1 sector tilt"
-    for tilt in result.sector_tilts:
-        assert isinstance(tilt, SectorTilt)
-        assert tilt.sector  # non-empty
+    assert len(result.thematic_tilts) >= 1, "Should have at least 1 sector tilt"
+    for tilt in result.thematic_tilts:
+        assert isinstance(tilt, ThematicTilt)
+        assert tilt.theme  # non-empty
         assert -1.0 <= tilt.sentiment_score <= 1.0
 
     # Risks should be identified
@@ -184,6 +209,6 @@ async def test_full_macro_analysis(fred_client):
     print(f"Regime: {result.regime} (sentiment: {result.sentiment_score:+.1f})")
     print(f"Key drivers: {result.key_drivers}")
     print("Sector tilts:")
-    for tilt in result.sector_tilts:
-        print(f"  {tilt.sector}: {tilt.sentiment_score:+.1f} — {tilt.reasoning}")
+    for tilt in result.thematic_tilts:
+        print(f"  {tilt.theme}: {tilt.sentiment_score:+.1f} — {tilt.reasoning}")
     print(f"Risks: {result.risks}")

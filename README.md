@@ -62,15 +62,14 @@ src/synesis/
 │   ├── intelligence/  # LangGraph multi-agent pipeline (daily briefs)
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
-│   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
-│   ├── events/        # Event radar: daily digest
-│   │   └── yesterday/ # Yesterday brief sub-analyzers (earnings, macro, surprises, filings, consolidator)
+│   ├── market/        # Market movers: daily snapshot + top movers + diary
+│   ├── events/        # Event radar: forward-looking calendar digest
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data providers
 │   ├── finnhub/       # Real-time prices, fundamentals
 │   ├── nasdaq/        # NASDAQ earnings calendar
 │   ├── sec_edgar/     # SEC EDGAR filings, insiders, 13F holdings, ownership, XBRL
-│   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains
+│   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains, analyst ratings
 │   ├── fred/          # FRED economic data (series, releases, observations)
 │   ├── massive/       # Massive.com stocks + options (free tier, Polygon-compatible)
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)

@@ -23,9 +23,11 @@ def format_macro_context(state: dict[str, Any]) -> str:
     )
     for driver in macro.get("key_drivers", []):
         lines.append(f"- Driver: {driver}")
-    for tilt in macro.get("sector_tilts", []):
+    for tilt in macro.get("thematic_tilts", []):
+        etf = tilt.get("etf")
+        etf_str = f" [{etf}]" if etf else ""
         lines.append(
-            f"- Sector tilt: {tilt.get('sector', '?')} "
+            f"- Thematic tilt: {tilt.get('theme', '?')}{etf_str} "
             f"({tilt.get('sentiment_score', 0):+.1f}) — {tilt.get('reasoning', '')}"
         )
     for risk in macro.get("risks", []):
@@ -153,6 +155,31 @@ def _format_single_company(c: dict[str, Any]) -> list[str]:
         for txn in insider.get("notable_transactions", []):
             lines.append(f"  - {txn}")
 
+    # ── Analyst Consensus ──
+    analyst = c.get("analyst_consensus", {})
+    if analyst:
+        buy = analyst.get("buy_count", 0)
+        hold = analyst.get("hold_count", 0)
+        sell = analyst.get("sell_count", 0)
+        total = buy + hold + sell
+        if total:
+            lines.append(f"Analysts: Buy={buy}, Hold={hold}, Sell={sell}")
+        pt_mean = analyst.get("price_target_mean")
+        pt_low = analyst.get("price_target_low")
+        pt_high = analyst.get("price_target_high")
+        current = analyst.get("current_price")
+        if pt_mean and current and current > 0:
+            upside = (pt_mean - current) / current * 100
+            range_str = ""
+            if pt_low is not None and pt_high is not None:
+                range_str = f", range ${pt_low:.0f}-${pt_high:.0f}"
+            lines.append(
+                f"Price Targets: mean=${pt_mean:.0f} ({upside:+.0f}%){range_str}, "
+                f"current=${current:.2f}"
+            )
+        for action in analyst.get("recent_actions", []):
+            lines.append(f"  - {action}")
+
     # ── Red Flags ──
     for rf in c.get("red_flags", []):
         lines.append(f"[{rf.get('severity', '?')}] {rf.get('flag', '')}: {rf.get('evidence', '')}")
@@ -168,8 +195,8 @@ def _format_single_company(c: dict[str, Any]) -> list[str]:
         lines.append(f"Geographic Exposure: {c['geographic_exposure']}")
     if c.get("key_customers_suppliers"):
         lines.append(f"Key Customers/Suppliers: {c['key_customers_suppliers']}")
-    if c.get("growth_catalysts"):
-        lines.append(f"Growth Catalysts: {c['growth_catalysts']}")
+    if c.get("forward_outlook"):
+        lines.append(f"Forward Outlook: {c['forward_outlook']}")
     if c.get("competitive_position"):
         lines.append(f"Competitive Position: {c['competitive_position']}")
 

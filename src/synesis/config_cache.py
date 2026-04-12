@@ -123,3 +123,7 @@ class CacheTTLSettings:
         default=3600,
         description="Cache TTL for yfinance company fundamentals (seconds)",
     )
+    yfinance_cache_ttl_analyst: int = Field(
+        default=3600,
+        description="Cache TTL for yfinance analyst ratings (seconds)",
+    )

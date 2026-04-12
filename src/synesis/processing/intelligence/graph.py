@@ -212,7 +212,14 @@ def build_intelligence_graph(
                 return {"macro_view": {}}
 
             logger.info("MacroStrategist starting")
-            deps = MacroStrategistDeps(fred=fred, current_date=current)
+            deps = MacroStrategistDeps(
+                fred=fred,
+                db=db,
+                yfinance=yfinance,
+                sec_edgar=sec_edgar,
+                crawler=crawler,
+                current_date=current,
+            )
             result = await analyze_macro(dict(state), deps)
             logger.info("MacroStrategist complete", regime=result.regime)
             return {"macro_view": result.model_dump(mode="json")}

@@ -92,6 +92,21 @@ class InsiderSignal(BaseModel):
     notable_transactions: list[str] = Field(default_factory=list)
 
 
+class AnalystConsensus(BaseModel):
+    """Aggregated analyst ratings from yfinance."""
+
+    consensus_period: str = ""  # e.g. "2026-04"
+    buy_count: int = 0
+    hold_count: int = 0
+    sell_count: int = 0
+    price_target_mean: float | None = None
+    price_target_median: float | None = None
+    price_target_high: float | None = None
+    price_target_low: float | None = None
+    current_price: float | None = None
+    recent_actions: list[str] = Field(default_factory=list)
+
+
 class RedFlag(BaseModel):
     """Individual red flag detection."""
 
@@ -114,6 +129,7 @@ class CompanyAnalysis(BaseModel):
     # Quantitative (deterministic)
     financial_health: FinancialHealthScore
     insider_signal: InsiderSignal
+    analyst_consensus: AnalystConsensus
     red_flags: list[RedFlag] = Field(default_factory=list)
 
     # Qualitative (LLM from 10-K/10-Q/8-K prose)
@@ -122,7 +138,7 @@ class CompanyAnalysis(BaseModel):
     risk_assessment: str = ""
     geographic_exposure: str = ""
     key_customers_suppliers: str = ""
-    growth_catalysts: str = ""
+    forward_outlook: str = ""
     competitive_position: str = ""
 
     # Cross-referenced insights
@@ -195,10 +211,15 @@ class NewsAnalysis(BaseModel):
 # =============================================================================
 
 
-class SectorTilt(BaseModel):
-    """A sector/asset class tilt from the macro regime."""
+class ThematicTilt(BaseModel):
+    """A thematic tilt — sector, sub-sector, or investment theme.
 
-    sector: str
+    ETF-backed tilts have ``etf`` set (grounded in price data).
+    Pure thematic tilts (e.g. CPO, HBM, data center power) have ``etf=None``
+    and are derived from events, social, news, or 13F signals.
+    """
+
+    theme: str
     sentiment_score: float = Field(
         default=0.0,
         ge=-1.0,
@@ -206,10 +227,11 @@ class SectorTilt(BaseModel):
         description="Tilt: -1.0 (strongly underweight) to 1.0 (strongly overweight)",
     )
     reasoning: str = ""
+    etf: str | None = None
 
 
 class MacroView(BaseModel):
-    """MacroStrategist output — regime assessment + sector tilts."""
+    """MacroStrategist output — regime assessment + thematic tilts + event analysis."""
 
     regime: Literal["risk_on", "risk_off", "transitioning", "uncertain"]
     sentiment_score: float = Field(
@@ -219,8 +241,10 @@ class MacroView(BaseModel):
         description="Broad market outlook: -1.0 (strongly bearish) to 1.0 (strongly bullish)",
     )
     key_drivers: list[str] = Field(default_factory=list)
-    sector_tilts: list[SectorTilt] = Field(default_factory=list)
+    thematic_tilts: list[ThematicTilt] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    event_analysis: str = ""
+    positioning_signals: str = ""
     analysis_date: date
 
 

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic_ai import Agent, RunContext
 
 from synesis.core.logging import get_logger
-from synesis.processing.common.llm import create_model
+from synesis.processing.common.llm import create_model, web_search_config
 from synesis.processing.common.ticker_tools import verify_ticker
 from synesis.processing.common.web_search import (
     Recency,
@@ -30,7 +30,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 2
+_WEB_SEARCH_CAP = 3
+_SEARCH_DESC = "fill in missing specifics or verify unconfirmed claims"
 
 
 @dataclass
@@ -126,15 +127,15 @@ and extract key information.
 ## Tools
 
 - `verify_ticker(ticker)` — Verify a ticker or find a company's ticker symbol.
-- `web_search(query, recency)` — Verify claims or fill in missing facts. Budget: \
-{web_search_cap} calls. Not every story needs a search — be selective.
+{search_docs}\
 - `web_read(url)` — Read a web page for full article content. Unlimited calls.
 
 ## When to web_search (budget is tight — pick the highest-value searches)
-- A claim lacks key specifics: deal size, percentage, deadline, or named parties
-- A story seems significant but only one source reports it — verify before passing downstream
-- A regulatory or legal event needs current status (approved? pending? blocked?)
-- Do NOT search for routine news that already has sufficient detail in the messages
+- A story lacks key specifics: deal size, percentage, deadline, or named parties — \
+search to fill in the gaps.
+- A claim needs verification: single-source stories, unconfirmed rumors, or numbers \
+that seem off — search to confirm before passing downstream.
+- Do NOT search for routine news that already has sufficient detail in the messages.
 
 ## Rules
 - Group aggressively — 3 messages about the same topic = 1 cluster, not 3.
@@ -203,15 +204,21 @@ async def analyze_news(deps: NewsDeps) -> NewsAnalysis:
     logger.info("Messages formatted", message_count=len(messages))
 
     # Construct agent at runtime with formatted system prompt
+    search = web_search_config(_WEB_SEARCH_CAP, _SEARCH_DESC)
+    tools: list[Any] = [_tool_verify_ticker, _tool_web_read]
+    if not search.native:
+        tools.append(_tool_web_search)
+
     agent: Agent[NewsDeps, NewsAnalysis] = Agent(
         model=create_model(smart=True),
         deps_type=NewsDeps,
         output_type=NewsAnalysis,
         system_prompt=SYSTEM_PROMPT.format(
             current_date=deps.current_date,
-            web_search_cap=_WEB_SEARCH_CAP,
+            search_docs=search.prompt_docs,
         ),
-        tools=[_tool_verify_ticker, _tool_web_search, _tool_web_read],
+        tools=tools,
+        builtin_tools=search.builtin_tools,
     )
 
     try:

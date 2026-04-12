@@ -14,8 +14,14 @@ from typing import TYPE_CHECKING, Any
 from pydantic_ai import Agent, RunContext
 
 from synesis.core.logging import get_logger
-from synesis.processing.common.llm import create_model
+from synesis.processing.common.llm import create_model, web_search_config
 from synesis.processing.common.ticker_tools import verify_ticker
+from synesis.processing.common.web_search import (
+    Recency,
+    format_search_results,
+    read_web_page,
+    search_market_impact,
+)
 from synesis.processing.intelligence.models import SocialSentimentAnalysis
 from synesis.processing.intelligence.specialists.social_sentiment.x_accounts import (
     get_profile,
@@ -26,6 +32,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+_WEB_SEARCH_CAP = 3
+_SEARCH_DESC = "verify conviction plays and research thematic theses"
+
 
 @dataclass
 class SocialSentimentDeps:
@@ -33,6 +42,7 @@ class SocialSentimentDeps:
 
     db: Database
     current_date: date = field(default_factory=lambda: datetime.now(UTC).date())
+    web_search_calls: int = 0
 
 
 # ── Data Gathering ───────────────────────────────────────────────
@@ -123,6 +133,17 @@ in the tweets.
 ## Tools
 
 - `verify_ticker(ticker)` — Verify a ticker exists or find a company's ticker symbol.
+{search_docs}\
+- `web_read(url)` — Read a web page for full article content. Unlimited calls.
+
+## When to web_search (budget is tight — pick the highest-value searches)
+- A conviction play or thematic thesis worth verifying — e.g. someone building a position \
+based on a downstream AI bottleneck thesis, unusual_whales flagging massive option flow, \
+Burry adding a new position, or a credible account pushing a sector rotation narrative. \
+Search to verify the claim and get deeper context for downstream analysts.
+- Bold or controversial claims — cross-check the specific data points cited by known \
+short-sellers, permabulls, or anyone making outsized claims.
+- Do NOT search for routine market commentary that already has sufficient detail in the tweets.
 
 ## Rules
 - ONLY extract explicitly mentioned tickers. NEVER infer additional tickers.
@@ -138,6 +159,29 @@ in the tweets.
 async def _tool_verify_ticker(ctx: RunContext[SocialSentimentDeps], ticker: str) -> str:
     """Verify if a ticker symbol exists."""
     return await verify_ticker(ticker)
+
+
+async def _tool_web_search(
+    ctx: RunContext[SocialSentimentDeps],
+    query: str,
+    recency: str = "day",
+) -> str:
+    """Search the web for market context. Budget: limited calls."""
+    if ctx.deps.web_search_calls >= _WEB_SEARCH_CAP:
+        return f"Web search budget exhausted ({_WEB_SEARCH_CAP} calls used)."
+    ctx.deps.web_search_calls += 1
+
+    valid_recencies = ("day", "week", "month", "year", "none")
+    recency_val: Recency = recency if recency in valid_recencies else "day"  # type: ignore[assignment]
+    results = await search_market_impact(query, recency=recency_val)
+    if not results:
+        return "No search results found."
+    return format_search_results(results)
+
+
+async def _tool_web_read(ctx: RunContext[SocialSentimentDeps], url: str) -> str:
+    """Read a web page for full article content."""
+    return await read_web_page(url)
 
 
 # ── Public API ───────────────────────────────────────────────────
@@ -167,14 +211,21 @@ async def analyze_social_sentiment(deps: SocialSentimentDeps) -> SocialSentiment
     logger.info("Tweets formatted", tweet_count=len(tweets))
 
     # Construct agent at runtime with formatted system prompt
+    search = web_search_config(_WEB_SEARCH_CAP, _SEARCH_DESC)
+    tools: list[Any] = [_tool_verify_ticker, _tool_web_read]
+    if not search.native:
+        tools.append(_tool_web_search)
+
     agent: Agent[SocialSentimentDeps, SocialSentimentAnalysis] = Agent(
         model=create_model(smart=True),
         deps_type=SocialSentimentDeps,
         output_type=SocialSentimentAnalysis,
         system_prompt=SYSTEM_PROMPT.format(
             current_date=deps.current_date,
+            search_docs=search.prompt_docs,
         ),
-        tools=[_tool_verify_ticker],
+        tools=tools,
+        builtin_tools=search.builtin_tools,
     )
 
     try:

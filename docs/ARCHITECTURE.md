@@ -90,7 +90,7 @@ Two PydanticAI agents run in parallel, scanning the last 24h of ingested data.
 Source: `specialists/social_sentiment/agent.py`
 
 - **Input**: Raw tweets from DB, grouped by account with profile context from `x_accounts.py` (bias, focus areas)
-- **Tools**: `verify_ticker`
+- **Tools**: `verify_ticker`, `web_search` (3 calls), `web_read`
 - **Output**: `SocialSentimentAnalysis` — `ticker_mentions[]`, `macro_themes[]`, `summary`
 - **Model**: `SocialSentimentAnalysis` in `models.py`
 
@@ -99,7 +99,7 @@ Source: `specialists/social_sentiment/agent.py`
 Source: `specialists/news/agent.py`
 
 - **Input**: Pre-scored `raw_messages` from DB (`impact_score >= 20`)
-- **Tools**: `verify_ticker`, `web_search` (2 calls), `web_read`
+- **Tools**: `verify_ticker`, `web_search` (3 calls), `web_read`
 - **Output**: `NewsAnalysis` — `story_clusters[]` (event_type, urgency, key_facts, tickers), `macro_themes[]`, `summary`
 - **Models**: `NewsStoryCluster`, `NewsAnalysis`, `NewsEventType` enum — all in `models.py`
 
@@ -126,11 +126,11 @@ Three-phase pipeline — only Phase 3 uses LLM:
 
 | Phase                  | What                                                                                                                                                                                                   | Source                        |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
-| 1. Data Gather         | `asyncio.gather`: yfinance fundamentals + quarterly financials, SEC EDGAR insider txns + sentiment + Form 144 + late filing alerts, 10-K/10-Q text, 8-K events                                        | yfinance, SEC EDGAR, Crawl4AI |
-| 2. Deterministic Score | Piotroski F-Score (9 signals from quarterly data), InsiderSignal (MSPR, buy/sell counts, cluster detection, C-suite activity), RedFlag detection (late filings, cash flow divergence)                  | Phase 1 data                  |
-| 3. LLM Synthesis       | business_summary, earnings_quality, risk_assessment, geographic_exposure, key_customers_suppliers, growth_catalysts, competitive_position, insider_vs_financials, disclosure_consistency, primary_thesis, key_risks, monitoring_triggers | Phase 1+2 as prompt context   |
+| 1. Data Gather         | `asyncio.gather`: yfinance fundamentals + quarterly financials + analyst ratings, SEC EDGAR insider txns + sentiment + Form 144 + late filing alerts, 10-K/10-Q text, 8-K events | yfinance, SEC EDGAR, Crawl4AI |
+| 2. Deterministic Score | Piotroski F-Score (9 signals from quarterly data), InsiderSignal (MSPR, buy/sell counts, cluster detection, C-suite activity), AnalystConsensus (Buy/Hold/Sell counts, price targets, recent upgrades/downgrades), RedFlag detection (late filings, cash flow divergence) | Phase 1 data |
+| 3. LLM Synthesis       | business_summary, earnings_quality, risk_assessment, geographic_exposure, key_customers_suppliers, forward_outlook, competitive_position, insider_vs_financials, disclosure_consistency, primary_thesis, key_risks, monitoring_triggers | Phase 1+2 as prompt context |
 
-**Output**: `CompanyAnalysis` — merges Phase 2 deterministic fields + Phase 3 LLM fields.
+**Output**: `CompanyAnalysis` — merges Phase 2 deterministic fields (financial_health, insider_signal, analyst_consensus, red_flags) + Phase 3 LLM fields.
 
 ### PriceAnalyst (per ticker)
 
@@ -150,10 +150,20 @@ Three-phase pipeline — only Phase 3 uses LLM:
 
 Source: `strategists/macro.py`
 
-- **Input**: FRED data (`_FRED_SERIES`: VIXCLS, DGS10, DGS2, FEDFUNDS, UNRATE — 10-observation history each, plus computed yield curve spread) + aggregated Layer 1 macro themes
-- **Tools**: `web_search` (2 calls), `web_read`, `get_fred_data`
-- **Output**: `MacroView` — regime (risk_on/risk_off/transitioning/uncertain), sentiment_score (-1 to 1), key_drivers[], sector_tilts[], risks[]
+Multi-source regime assessment that replaces the separate yesterday brief pipeline. Pre-fetches data from multiple providers before LLM synthesis.
+
+**Data sources (pre-fetched):**
+1. FRED economic indicators (`_FRED_SERIES`: VIXCLS, DGS10, DGS2, FEDFUNDS, UNRATE — 10-observation history each, plus computed yield curve spread)
+2. Benchmark quotes via yfinance — equities (SPY, QQQ, IWM), treasuries (TLT, SHY), commodities (GLD, USO), dollar (UUP), credit (HYG, LQD), sectors (XLE, XLF, XLK, XLU), sub-sectors (SMH, IGV, XBI, KWEB, KRE, XHB, ITA)
+3. Yesterday's calendar events enriched with actual outcomes — earnings (SEC 8-K press releases), economic data (FRED actuals vs forecasts), Fed (FOMC minutes/statements via crawler)
+4. Upcoming catalysts from DB (next 7 days)
+5. 13F position changes for major hedge funds (SEC EDGAR quarterly comparison)
+6. Aggregated Layer 1 macro themes (social + news)
+
+- **Tools**: `web_search` (3 calls), `web_read`
+- **Output**: `MacroView` — regime (risk_on/risk_off/transitioning/uncertain), sentiment_score (-1 to 1), key_drivers[], thematic_tilts[] (ETF-backed + pure thematic), risks[], event_analysis, positioning_signals
 - **Toggle**: Skipped if `settings.macro_strategist_enabled=False` or FRED client unavailable
+- **Dependencies**: `MacroStrategistDeps` — fred, db, yfinance, sec_edgar, crawler, current_date
 
 ## Layer 2 Join + Routing
 
@@ -281,7 +291,7 @@ Single Send with all tickers. Receives macro context + per-ticker debate histori
 
 - `TraderOutput` in `models.py` — `trade_ideas[]`, `portfolio_note`, `analysis_date`
 - `TradeIdea` in `models.py` — `tickers[]`, `trade_structure` (the execution cue), `thesis`, `catalyst`, `timeframe`, `key_risk`, `analysis_date`
-- **Tools**: `web_search` (3 calls — `_WEB_SEARCH_CAP`), `web_read`
+- **Tools**: `web_search` (7 calls — `_WEB_SEARCH_CAP`), `web_read`
 
 ## Compilation (deterministic, defer=True)
 
@@ -292,7 +302,7 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 ```python
 {
     "date": "2026-04-06",
-    "macro": { "regime", "sentiment_score", "key_drivers", "sector_tilts", "risks" },
+    "macro": { "regime", "sentiment_score", "key_drivers", "thematic_tilts", "risks", "event_analysis", "positioning_signals" },
     "debates": [
         { "ticker": "NVDA", "bull": {...}, "bear": {...} },  # last-round arguments
         ...
@@ -322,14 +332,14 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 
 | Agent                    | Model Tier | Tools                               | Web Budget  | Output Type               |
 | ------------------------ | ---------- | ----------------------------------- | ----------- | ------------------------- |
-| SocialSentimentAnalyst   | smart      | verify_ticker                       | 0           | `SocialSentimentAnalysis` |
-| NewsAnalyst              | smart      | verify_ticker, web_search, web_read | 2           | `NewsAnalysis`            |
+| SocialSentimentAnalyst   | smart      | verify_ticker, web_search, web_read | 3           | `SocialSentimentAnalysis` |
+| NewsAnalyst              | smart      | verify_ticker, web_search, web_read | 3           | `NewsAnalysis`            |
 | CompanyAnalyst (Phase 3) | smart      | none (deterministic Phase 1-2)      | 0           | `CompanyAnalysis`         |
 | PriceAnalyst (Phase 3)   | smart      | none (deterministic Phase 1-2)      | 0           | `PriceAnalysis`           |
-| MacroStrategist          | vsmart     | web_search, web_read, get_fred_data | 2           | `MacroView`               |
+| MacroStrategist          | vsmart     | web_search, web_read                | 3           | `MacroView`               |
 | BullResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
 | BearResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
-| Trader                   | vsmart     | web_search, web_read                | 3           | `TraderOutput`            |
+| Trader                   | vsmart     | web_search, web_read                | 7           | `TraderOutput`            |
 
 ## Key Design Decisions
 
@@ -347,7 +357,7 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 
 7. **Two sync barriers** — `l2_join` separates Layer 2 from debate; `trader_gate` separates debate from Trader. Both use `defer=True` to wait for all upstream fan-out nodes.
 
-8. **Web search budgets** — hard caps per agent per round prevent runaway API costs (News: 2, Debate: 1 per round per side, Macro: 2, Trader: 3). Social has no web search. Brave circuit breaker trips after 3 consecutive 429s, disabling web search for the rest of the process.
+8. **Web search budgets** — hard caps per agent per round prevent runaway API costs (Social: 3, News: 3, Macro: 3, Debate: 1 per round per side, Trader: 7). All agents use `web_search_config()` from `processing/common/llm.py` which handles native OpenAI search vs manual tool injection. Brave circuit breaker trips after 3 consecutive 429s, disabling web search for the rest of the process.
 
 9. **Graceful degradation** — EDGAR failures don't block CompanyAnalyst; Massive failures don't block PriceAnalyst; FRED failures don't block MacroStrategist. Layer 1 failures return `{"error": True}` for downstream visibility.
 
@@ -356,3 +366,9 @@ No LLM. `defer=True` waits for all trader nodes (or receives control directly fr
 11. **Send semantics for Layer 2 + Layer 3 + Layer 4** — `Send("node", {**state, "ticker": t})` creates independent state copies per ticker. Results merge back via `Annotated[list, add]` reducers in `state.py`.
 
 12. **Per-node error tracking** — compiler surfaces failures per ticker (`company_failures`, `price_failures`, `bull_failures`, `bear_failures`, `trader_failures`) and per Layer 1 node (`social_failed`, `news_failed`) for downstream visibility (see `compiler.py`).
+
+13. **MacroStrategist as event synthesis hub** — replaces the separate yesterday brief pipeline. The MacroStrategist pre-fetches benchmark quotes, enriches recent calendar events with actual outcomes (SEC 8-K, FRED actuals, Fed minutes), and integrates 13F position changes — all before LLM synthesis. This makes it the single source of truth for "what happened + what it means + what's the regime."
+
+14. **Thematic tilts over sector tilts** — `ThematicTilt` (replacing `SectorTilt`) supports both ETF-backed tilts (grounded in price data, e.g. `theme="Semiconductors", etf="SMH"`) and pure thematic tilts derived from events, social, news, or 13F signals (e.g. `theme="Data Center Power", etf=None`).
+
+15. **Analyst consensus integration** — CompanyAnalyst Phase 1 fetches yfinance analyst ratings (recommendation trends, upgrades/downgrades, price targets). Phase 2 builds `AnalystConsensus` with Buy/Hold/Sell counts, target range, and recent firm actions. This gives the LLM and downstream debate/trader agents Wall Street consensus context.

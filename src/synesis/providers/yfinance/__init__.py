@@ -5,6 +5,8 @@ Free data, no API key required. ~15 min delayed for US equities during market ho
 
 from synesis.providers.yfinance.client import YFinanceClient
 from synesis.providers.yfinance.models import (
+    AnalystPriceTargets,
+    AnalystRatings,
     EquityQuote,
     FXRate,
     OHLCBar,
@@ -12,10 +14,14 @@ from synesis.providers.yfinance.models import (
     OptionsContract,
     OptionsGreeks,
     OptionsSnapshot,
+    RecommendationTrend,
+    UpgradeDowngrade,
 )
 
 __all__ = [
     "YFinanceClient",
+    "AnalystPriceTargets",
+    "AnalystRatings",
     "EquityQuote",
     "FXRate",
     "OHLCBar",
@@ -23,4 +29,6 @@ __all__ = [
     "OptionsContract",
     "OptionsGreeks",
     "OptionsSnapshot",
+    "RecommendationTrend",
+    "UpgradeDowngrade",
 ]

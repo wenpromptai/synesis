@@ -18,7 +18,10 @@ from synesis.processing.intelligence.context import (
 )
 from synesis.processing.intelligence.graph import build_intelligence_graph
 from synesis.processing.intelligence.models import (
+    AnalystConsensus,
     CompanyAnalysis,
+    FinancialHealthScore,
+    InsiderSignal,
     MacroView,
     NewsAnalysis,
     NewsEventType,
@@ -118,7 +121,7 @@ class TestCompileBrief:
                     "regime": "risk_on",
                     "sentiment_score": 0.6,
                     "key_drivers": ["Strong employment"],
-                    "sector_tilts": [{"sector": "Tech", "sentiment_score": 0.7}],
+                    "thematic_tilts": [{"theme": "Tech", "sentiment_score": 0.7}],
                     "risks": ["Fed uncertainty"],
                 },
                 "bull_analyses": [
@@ -154,7 +157,7 @@ class TestCompileBrief:
         assert brief["macro"]["regime"] == "risk_on"
         assert brief["macro"]["sentiment_score"] == 0.6
         assert brief["macro"]["key_drivers"] == ["Strong employment"]
-        assert len(brief["macro"]["sector_tilts"]) == 1
+        assert len(brief["macro"]["thematic_tilts"]) == 1
         assert brief["macro"]["risks"] == ["Fed uncertainty"]
         # Debates
         assert len(brief["debates"]) == 1
@@ -466,7 +469,14 @@ def _news(tickers: list[str]) -> NewsAnalysis:
 
 
 def _company(ticker: str) -> CompanyAnalysis:
-    return CompanyAnalysis(ticker=ticker, company_name=ticker, analysis_date=date(2026, 4, 7))
+    return CompanyAnalysis(
+        ticker=ticker,
+        company_name=ticker,
+        analysis_date=date(2026, 4, 7),
+        financial_health=FinancialHealthScore(),
+        insider_signal=InsiderSignal(),
+        analyst_consensus=AnalystConsensus(),
+    )
 
 
 def _price(ticker: str) -> PriceAnalysis:

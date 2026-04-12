@@ -12,10 +12,9 @@ from datetime import date
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.builtin_tools import WebSearchTool
 
 from synesis.core.logging import get_logger
-from synesis.processing.common.llm import create_model, is_native_openai, native_search_docs
+from synesis.processing.common.llm import create_model, web_search_config
 from synesis.processing.common.web_search import (
     Recency,
     format_search_results,
@@ -36,7 +35,7 @@ logger = get_logger(__name__)
 _WEB_SEARCH_CAP = 2
 
 
-_NATIVE_SEARCH_DESC = (
+_SEARCH_DESC = (
     "find analyst downgrades, competitive threats, regulatory actions, insider "
     "selling, earnings misses, or risks the analysts missed"
 )
@@ -76,9 +75,7 @@ using specifics from the analyst data. Cite actual numbers — don't be vague.
 - `key_evidence`: 3-6 bullet points of your strongest bearish data points.
 
 ## Tools
-{native_search_docs}\
-- `web_search(query, recency)` — search via Brave API with explicit \
-recency filter (day/week/month/year). Budget: {web_search_cap} calls.
+{search_docs}\
 - `web_read(url)` — read full article content (~4000 chars). Unlimited.
 
 ## Rules
@@ -161,7 +158,10 @@ async def research_bear(
     user_prompt = "\n\n".join(prompt_parts)
 
     debate_instructions = _DEBATE_INSTRUCTIONS if history else _NO_DEBATE_INSTRUCTIONS
-    native = is_native_openai()
+    search = web_search_config(_WEB_SEARCH_CAP, _SEARCH_DESC)
+    tools: list[Any] = [_tool_web_read]
+    if not search.native:
+        tools.append(_tool_web_search)
 
     agent: Agent[BearResearcherDeps, TickerDebate] = Agent(
         model=create_model(tier="vsmart"),
@@ -169,14 +169,11 @@ async def research_bear(
         output_type=TickerDebate,
         system_prompt=SYSTEM_PROMPT.format(
             current_date=current_date,
-            web_search_cap=_WEB_SEARCH_CAP,
             debate_instructions=debate_instructions,
-            native_search_docs=native_search_docs(_WEB_SEARCH_CAP, _NATIVE_SEARCH_DESC)
-            if native
-            else "",
+            search_docs=search.prompt_docs,
         ),
-        tools=[_tool_web_search, _tool_web_read],
-        builtin_tools=[WebSearchTool(max_uses=_WEB_SEARCH_CAP)] if native else [],
+        tools=tools,
+        builtin_tools=search.builtin_tools,
     )
 
     result = await agent.run(user_prompt, deps=deps)

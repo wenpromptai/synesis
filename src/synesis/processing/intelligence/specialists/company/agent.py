@@ -20,6 +20,7 @@ from pydantic_ai import Agent
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model
 from synesis.processing.intelligence.models import (
+    AnalystConsensus,
     CompanyAnalysis,
     FinancialHealthScore,
     InsiderSignal,
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
     from synesis.providers.sec_edgar.client import SECEdgarClient
     from synesis.providers.yfinance.client import YFinanceClient
-    from synesis.providers.yfinance.models import QuarterlyFinancials
+    from synesis.providers.yfinance.models import AnalystRatings, QuarterlyFinancials
 
 logger = get_logger(__name__)
 
@@ -54,10 +55,33 @@ class CompanyDeps:
 
 
 async def _gather_yfinance(yf: YFinanceClient, ticker: str) -> dict[str, Any]:
-    """Fetch yfinance fundamentals and quarterly financials."""
-    fundamentals = await yf.get_fundamentals(ticker)
-    quarterly = await yf.get_quarterly_financials(ticker)
-    return {"fundamentals": fundamentals, "quarterly": quarterly}
+    """Fetch yfinance fundamentals, quarterly financials, and analyst ratings.
+
+    Fundamentals and quarterly are required (drive Phase 2 scoring).
+    Analyst ratings are supplementary — failures degrade gracefully.
+    """
+    from synesis.providers.yfinance.models import AnalystRatings
+
+    fundamentals, quarterly, analyst_ratings = await asyncio.gather(
+        yf.get_fundamentals(ticker),
+        yf.get_quarterly_financials(ticker),
+        yf.get_analyst_ratings(ticker),
+        return_exceptions=True,
+    )
+    # Fundamentals + quarterly are required — propagate failures
+    if isinstance(fundamentals, BaseException):
+        raise fundamentals
+    if isinstance(quarterly, BaseException):
+        raise quarterly
+    # Analyst ratings are supplementary — degrade gracefully
+    if isinstance(analyst_ratings, BaseException):
+        logger.warning("Analyst ratings fetch failed — proceeding without", ticker=ticker)
+        analyst_ratings = AnalystRatings(ticker=ticker)
+    return {
+        "fundamentals": fundamentals,
+        "quarterly": quarterly,
+        "analyst_ratings": analyst_ratings,
+    }
 
 
 async def _gather_edgar_insiders(edgar: SECEdgarClient, ticker: str) -> dict[str, Any]:
@@ -292,67 +316,112 @@ def _build_insider_signal(insider_data: dict[str, Any]) -> InsiderSignal:
     )
 
 
+def _build_analyst_consensus(ratings: AnalystRatings) -> AnalystConsensus:
+    """Build AnalystConsensus from yfinance analyst ratings."""
+    buy = hold = sell = 0
+    consensus_period = ""
+    if ratings.recommendations:
+        latest = ratings.recommendations[0]
+        consensus_period = latest.period
+        buy = latest.strong_buy + latest.buy
+        hold = latest.hold
+        sell = latest.sell + latest.strong_sell
+
+    pt = ratings.price_targets
+    price_target_mean = pt.mean if pt else None
+    price_target_median = pt.median if pt else None
+    price_target_high = pt.high if pt else None
+    price_target_low = pt.low if pt else None
+    current_price = pt.current if pt else None
+
+    recent_actions: list[str] = []
+    for ud in ratings.upgrades_downgrades[:5]:
+        arrow = {"up": "\u2191", "down": "\u2193", "init": "\u2192"}.get(ud.action, "?")
+        pt_str = ""
+        if ud.current_price_target is not None:
+            if ud.prior_price_target is not None:
+                pt_str = f" (${ud.prior_price_target:.0f}\u2192${ud.current_price_target:.0f})"
+            else:
+                pt_str = f" (${ud.current_price_target:.0f})"
+        dt = ud.date.strftime("%Y-%m-%d") if hasattr(ud.date, "strftime") else str(ud.date)[:10]
+        recent_actions.append(f"{dt}: {ud.firm} {arrow} {ud.from_grade}\u2192{ud.to_grade}{pt_str}")
+
+    return AnalystConsensus(
+        consensus_period=consensus_period,
+        buy_count=buy,
+        hold_count=hold,
+        sell_count=sell,
+        price_target_mean=price_target_mean,
+        price_target_median=price_target_median,
+        price_target_high=price_target_high,
+        price_target_low=price_target_low,
+        current_price=current_price,
+        recent_actions=recent_actions,
+    )
+
+
 # ── Phase 3: LLM Synthesis ──────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You extract qualitative intelligence from SEC filings, financial data, and insider \
-activity — the kind of information NOT available from financial data APIs. Your \
-output feeds directly into bull/bear researchers who will form the investment \
-thesis — your job is to give them clean, structured, fact-rich context to work \
-with. Always preserve specifics: revenue percentages, customer names, filing \
-dates, guidance figures, and regulatory details.
+You extract and organize key information from SEC filings, financial data, insider \
+activity, and analyst ratings. You are an INFORMATION GATHERER — extract facts, \
+preserve specifics, and organize them clearly. Do NOT score, rate, or interpret. \
+Downstream analysts will form the investment thesis from your output.
 
 Today's date: {current_date}
 
 ## What You're Extracting (in priority order)
 
-1. **GROWTH CATALYSTS & FORWARD NARRATIVE** (highest value)
-   - Product/technology pipeline and transition timeline (e.g., 800G→1.6T→CPO)
-   - AI demand signals, TAM expansion, management revenue/margin projections
-   - Forward guidance from earnings 8-K or MD&A
-   - New markets, sovereign AI, physical AI, or other emerging revenue streams
-   - Capex plans and manufacturing capacity ramp
+1. **FORWARD OUTLOOK** (highest value — do not miss any forward-looking information)
+   - Revenue/EPS/margin guidance (e.g., "FY2026 revenue guidance $45-47B", "targeting 60% GM by FY2027")
+   - Demand signals and volume forecasts (e.g., "expect AI datacenter revenue to grow 40%+ in FY2026")
+   - Capex and capacity ramp plans (e.g., "$15B planned capex for FY2026 data center buildout")
+   - Product pipeline and launch timelines (e.g., "1.6T CPO modules expected to ship H2 2026")
+   - TAM expansion and new market entry (e.g., sovereign AI, physical AI)
+   - Any forward-looking statement from MD&A, earnings 8-K, or management commentary
+   - Include the period/date each projection refers to
 
-2. **CUSTOMER & SUPPLIER CONCENTRATION** (critical risk signal)
-   - Extract exact percentages: "Customer A = 22% of revenue"
-   - Name customers when disclosed (common in small/mid-cap filings)
+2. **CUSTOMER & SUPPLIER CONCENTRATION**
+   - Exact percentages (e.g., "Customer A = 22% of revenue")
+   - Named customers when disclosed (common in small/mid-cap filings)
    - Supply chain single-source dependencies (e.g., sole foundry for advanced nodes)
-   - Note if concentration is increasing or decreasing vs prior period
+   - Concentration trend vs prior period (increasing/decreasing)
 
 3. **COMPETITIVE POSITION & MOAT**
-   - What protects this business? (ecosystem lock-in, IP, scale, vertical integration)
-   - Who does management name as competitive threats?
+   - What protects this business (ecosystem lock-in, IP, scale, vertical integration)
+   - Competitive threats named by management
    - Market share context if disclosed
    - Technology differentiation vs commoditized products
 
-4. **GEOGRAPHIC EXPOSURE & REGULATORY RISKS**
+4. **GEOGRAPHIC EXPOSURE & REGULATORY**
    - Revenue breakdown by region with dollar amounts and percentages
-   - Caveats that modify geographic data (e.g., billing location vs end-customer)
-   - Export controls, tariffs, sanctions — specific to this company
-   - Active litigation, regulatory proceedings (EU DMA, DOJ antitrust, etc.)
+   - Caveats (e.g., billing location vs end-customer)
+   - Export controls, tariffs, sanctions specific to this company
+   - Active litigation, regulatory proceedings (e.g., EU DMA, DOJ antitrust)
 
 5. **FINANCIAL HEALTH & EARNINGS QUALITY**
-   - Pre-computed scores are provided (Piotroski F-Score: 7-9 strong, 4-6 moderate, 0-3 weak)
-   - Cash flow from operations vs reported net income — is profit real?
-   - Non-GAAP vs GAAP divergence trends
-   - Quarter-over-quarter improvement or deterioration
+   - Pre-computed scores are provided (Piotroski F-Score, ratios, quarterly trends)
+   - Cash flow from operations vs reported net income
+   - Non-GAAP vs GAAP divergence
+   - Quarter-over-quarter changes
 
 6. **INSIDER ACTIVITY**
-   - Compare insider buying/selling against financial trends and management narrative
-   - C-suite buying during weakness = management confidence signal
-   - C-suite selling during growth claims = potential red flag
-   - Cluster activity (3+ insiders within 14 days) = coordinated action
+   - Insider buying/selling patterns, volumes, and dollar amounts
+   - C-suite transactions (e.g., "CEO bought 50,000 shares @ $120 on 2026-03-15")
+   - Cluster activity (3+ insiders within 14 days)
 
 7. **MATERIAL 8-K EVENTS**
    - Material agreements, M&A, earnings results, officer changes, Reg FD disclosures
-   - What happened, when, and the key details (dollar amounts, parties, dates)
+   - Key details: dollar amounts, parties, dates
+
+8. **ANALYST CONSENSUS**
+   - Buy/hold/sell distribution and price target range
+   - Recent upgrades/downgrades (e.g., "Goldman Sachs ↑ Hold→Buy, PT $150→$170")
 
 ## Guidelines
 - NEVER fabricate data. If unavailable, say "not available".
-- Always cite which filing period (Q1 2025, FY 2024) or 8-K date data comes from.
-- Cross-reference at least 2 data points before making claims.
-- If insider activity contradicts financial trends or management narrative, flag prominently.
-- Focus on what the FILINGS reveal that financial data APIs do NOT provide.
+- Cite the filing period or date for each piece of information.
+- Extract and organize — do NOT score, rate, or provide investment opinions.
 """
 
 
@@ -364,7 +433,7 @@ class _LLMAnalysisOutput(BaseModel):
     risk_assessment: str
     geographic_exposure: str
     key_customers_suppliers: str
-    growth_catalysts: str
+    forward_outlook: str
     competitive_position: str
     insider_vs_financials: str
     disclosure_consistency: str
@@ -496,6 +565,7 @@ def _build_user_prompt(
     yf_data: dict[str, Any],
     financial_health: FinancialHealthScore,
     insider_signal: InsiderSignal,
+    analyst_consensus: AnalystConsensus,
     red_flags: list[RedFlag],
     filing_data: dict[str, Any],
 ) -> str:
@@ -521,6 +591,9 @@ def _build_user_prompt(
 
     sections.append("\n## Insider Activity")
     sections.append(insider_signal.model_dump_json(indent=2))
+
+    sections.append("\n## Analyst Consensus")
+    sections.append(analyst_consensus.model_dump_json(indent=2))
 
     if red_flags:
         sections.append("\n## Detected Red Flags")
@@ -571,20 +644,21 @@ def _build_user_prompt(
 
     sections.append(
         "\n## Instructions\n"
-        "Produce a thorough company analysis. For each field:\n"
+        "Extract and organize company information. For each field:\n"
         "- **business_summary**: What they do, market position, key products/services\n"
         "- **earnings_quality**: Cash conversion, revenue recognition, GAAP vs non-GAAP\n"
         "- **risk_assessment**: Key risks from filings (regulatory, geopolitical, operational)\n"
         "- **geographic_exposure**: Revenue by region with % and caveats\n"
         "- **key_customers_suppliers**: Concentration % (e.g., 'Customer A = 22% of revenue'), "
         "supply chain dependencies\n"
-        "- **growth_catalysts**: Product pipeline, AI/tech demand signals, forward guidance, "
-        "TAM expansion, management projections, upcoming catalysts\n"
+        "- **forward_outlook**: ALL forward-looking information — revenue/EPS/margin guidance, "
+        "demand forecasts, capex plans, product pipeline timelines, TAM expansion, new markets. "
+        "Include the period each projection refers to. Do not miss any forward-looking statements.\n"
         "- **competitive_position**: Moat (ecosystem, IP, scale), competitive threats, "
         "market share context\n"
-        "- **insider_vs_financials**: Do insider actions align with management narrative?\n"
-        "- **disclosure_consistency**: Does MD&A match reality? Any red flags in tone?\n"
-        "- **primary_thesis**: One-paragraph key finding for an investment analyst\n"
+        "- **insider_vs_financials**: Insider actions vs financial trends — state the facts\n"
+        "- **disclosure_consistency**: MD&A vs reported numbers — state the facts\n"
+        "- **primary_thesis**: One-paragraph summary of key findings\n"
         "- **key_risks**: Top 3 risks\n"
         "- **monitoring_triggers**: What to watch next (earnings, regulatory deadlines, "
         "product launches, order announcements)"
@@ -660,6 +734,7 @@ async def analyze_company(
     # Phase 2: Deterministic scoring
     financial_health = _build_financial_health(yf_data)
     insider_signal = _build_insider_signal(insider_data)
+    analyst_consensus = _build_analyst_consensus(yf_data["analyst_ratings"])
 
     # Only flag late filings from the last 2 years as red flags
     cutoff = deps.current_date - timedelta(days=2 * 365)
@@ -706,7 +781,7 @@ async def analyze_company(
     )
 
     user_prompt = _build_user_prompt(
-        ticker, yf_data, financial_health, insider_signal, red_flags, filing_data
+        ticker, yf_data, financial_health, insider_signal, analyst_consensus, red_flags, filing_data
     )
 
     # Assemble metadata before LLM call (needed for both success and fallback)
@@ -736,6 +811,7 @@ async def analyze_company(
             latest_annual_filing=latest_filing,
             financial_health=financial_health,
             insider_signal=insider_signal,
+            analyst_consensus=analyst_consensus,
             red_flags=red_flags,
             business_summary="[LLM synthesis failed — qualitative analysis unavailable]",
         )
@@ -751,13 +827,14 @@ async def analyze_company(
         latest_annual_filing=latest_filing,
         financial_health=financial_health,
         insider_signal=insider_signal,
+        analyst_consensus=analyst_consensus,
         red_flags=red_flags,
         business_summary=llm_output.business_summary,
         earnings_quality=llm_output.earnings_quality,
         risk_assessment=llm_output.risk_assessment,
         geographic_exposure=llm_output.geographic_exposure,
         key_customers_suppliers=llm_output.key_customers_suppliers,
-        growth_catalysts=llm_output.growth_catalysts,
+        forward_outlook=llm_output.forward_outlook,
         competitive_position=llm_output.competitive_position,
         insider_vs_financials=llm_output.insider_vs_financials,
         disclosure_consistency=llm_output.disclosure_consistency,

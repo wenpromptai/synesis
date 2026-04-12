@@ -89,7 +89,9 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
             "regime": macro.get("regime", "uncertain"),
             "sentiment_score": macro.get("sentiment_score", 0.0),
             "key_drivers": macro.get("key_drivers", []),
-            "sector_tilts": macro.get("sector_tilts", []),
+            "thematic_tilts": macro.get("thematic_tilts", []),
+            "event_analysis": macro.get("event_analysis", ""),
+            "positioning_signals": macro.get("positioning_signals", ""),
             "risks": macro.get("risks", []),
         },
         # Debates per ticker (bull + bear arguments)
@@ -172,11 +174,26 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
     lines.append(f"- **Regime:** {regime} (sentiment: {sentiment:+.1f})")
     for driver in macro.get("key_drivers", []):
         lines.append(f"- **Driver:** {driver}")
-    for tilt in macro.get("sector_tilts", []):
-        sector = tilt.get("sector", "?")
-        tilt_score = tilt.get("sentiment_score", 0.0)
-        reasoning = tilt.get("reasoning", "")
-        lines.append(f"- **Sector tilt:** {sector} ({tilt_score:+.1f}) — {reasoning}")
+
+    event_analysis = macro.get("event_analysis", "")
+    if event_analysis:
+        lines.append(f"\n### Event Analysis\n{event_analysis}")
+
+    positioning = macro.get("positioning_signals", "")
+    if positioning:
+        lines.append(f"\n### Positioning Signals\n{positioning}")
+
+    tilts = macro.get("thematic_tilts", [])
+    if tilts:
+        lines.append("\n### Thematic Tilts")
+        for tilt in tilts:
+            theme = tilt.get("theme", "?")
+            tilt_score = tilt.get("sentiment_score", 0.0)
+            reasoning = tilt.get("reasoning", "")
+            etf = tilt.get("etf")
+            etf_str = f" [{etf}]" if etf else ""
+            lines.append(f"- **{theme}**{etf_str} ({tilt_score:+.1f}) — {reasoning}")
+
     for risk in macro.get("risks", []):
         lines.append(f"- **Risk:** {risk}")
     lines.append("")
@@ -229,19 +246,44 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
             lines.append(f"### {ticker}")
             if ca.get("business_summary"):
                 lines.append(f"- **Business:** {ca['business_summary']}")
+            if ca.get("forward_outlook"):
+                lines.append(f"- **Forward outlook:** {ca['forward_outlook']}")
             if ca.get("primary_thesis"):
                 lines.append(f"- **Thesis:** {ca['primary_thesis']}")
+            if ca.get("competitive_position"):
+                lines.append(f"- **Competitive position:** {ca['competitive_position']}")
+            if ca.get("key_customers_suppliers"):
+                lines.append(f"- **Customers/Suppliers:** {ca['key_customers_suppliers']}")
+            if ca.get("geographic_exposure"):
+                lines.append(f"- **Geographic exposure:** {ca['geographic_exposure']}")
             if ca.get("earnings_quality"):
                 lines.append(f"- **Earnings quality:** {ca['earnings_quality']}")
             if ca.get("risk_assessment"):
                 lines.append(f"- **Risk:** {ca['risk_assessment']}")
-            if ca.get("piotroski_f_score") is not None:
-                lines.append(f"- **Piotroski F-Score:** {ca['piotroski_f_score']}/9")
+            # Financial health
+            fh = ca.get("financial_health", {})
+            if fh.get("piotroski_f") is not None:
+                lines.append(f"- **Piotroski F-Score:** {fh['piotroski_f']}/9")
+            if fh.get("latest_filing_period"):
+                lines.append(f"- **Filing period:** {fh['latest_filing_period']}")
+            # Insider signal
             if ca.get("insider_signal"):
                 ins = ca["insider_signal"]
                 lines.append(
                     f"- **Insider signal:** MSPR {ins.get('mspr', 'N/A')}, "
-                    f"buys {ins.get('buy_count', 0)}, sells {ins.get('sell_count', 0)}"
+                    f"buys {ins.get('buy_count', 0)}, sells {ins.get('sell_count', 0)}, "
+                    f"cluster={'yes' if ins.get('cluster_detected') else 'no'}"
+                )
+            # Analyst consensus
+            ac = ca.get("analyst_consensus", {})
+            if ac.get("buy_count") or ac.get("hold_count") or ac.get("sell_count"):
+                pt_str = ""
+                if ac.get("price_target_mean"):
+                    pt_str = f", PT mean=${ac['price_target_mean']:.0f}"
+                lines.append(
+                    f"- **Analyst consensus** ({ac.get('consensus_period', '?')}): "
+                    f"Buy={ac.get('buy_count', 0)}, Hold={ac.get('hold_count', 0)}, "
+                    f"Sell={ac.get('sell_count', 0)}{pt_str}"
                 )
             if ca.get("red_flags"):
                 for flag in ca["red_flags"]:
@@ -249,6 +291,10 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
             if ca.get("key_risks"):
                 for risk in ca["key_risks"]:
                     lines.append(f"- **Key risk:** {risk}")
+            if ca.get("insider_vs_financials"):
+                lines.append(f"- **Insider vs financials:** {ca['insider_vs_financials']}")
+            if ca.get("monitoring_triggers"):
+                lines.append(f"- **Watch:** {'; '.join(ca['monitoring_triggers'])}")
             lines.append("")
 
     # Price analyses

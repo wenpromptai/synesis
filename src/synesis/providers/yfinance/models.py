@@ -140,6 +140,49 @@ class OptionsSnapshot(BaseModel):
     puts: list[OptionsContract]
 
 
+class RecommendationTrend(BaseModel):
+    """Monthly aggregated analyst recommendation counts."""
+
+    period: str
+    strong_buy: int = 0
+    buy: int = 0
+    hold: int = 0
+    sell: int = 0
+    strong_sell: int = 0
+
+
+class UpgradeDowngrade(BaseModel):
+    """Individual analyst firm grade change with price target."""
+
+    date: datetime
+    firm: str
+    to_grade: str
+    from_grade: str
+    action: str
+    price_target_action: str | None = None
+    current_price_target: float | None = None
+    prior_price_target: float | None = None
+
+
+class AnalystPriceTargets(BaseModel):
+    """Consensus analyst price target summary."""
+
+    current: float | None = None
+    high: float | None = None
+    low: float | None = None
+    mean: float | None = None
+    median: float | None = None
+
+
+class AnalystRatings(BaseModel):
+    """Complete analyst ratings snapshot for a ticker."""
+
+    ticker: str
+    recommendations: list[RecommendationTrend] = Field(default_factory=list)
+    upgrades_downgrades: list[UpgradeDowngrade] = Field(default_factory=list)
+    price_targets: AnalystPriceTargets | None = None
+
+
 class CompanyFundamentals(BaseModel):
     """Full fundamental snapshot for a company, parsed from yfinance .info dict."""
 

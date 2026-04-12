@@ -11,7 +11,7 @@ All endpoints are rate-limited per IP via slowapi.
 | `/fh/ticker/verify`, `/fh/ticker/search` | 120/min | Local Redis/memory cache |
 | `/fh` WS reads, subscriptions | 120/min | Local Redis cache |
 | `/fh` subscribe/unsubscribe | 60/min | Local WebSocket mgmt |
-| `/yf/*` (quote, history, FX, expirations) | 30/min | yfinance (no official limit) |
+| `/yf/*` (quote, history, FX, expirations, analyst) | 30/min | yfinance (no official limit) |
 | `/yf/options/{ticker}/chain` | 10/min | Heavy (chain + optional Greeks) |
 | `/yf/options/{ticker}/snapshot` | 10/min | Heavy (quote + history + chain) |
 | `/watchlist` reads | 60/min | Local Redis/PG |
@@ -21,7 +21,7 @@ All endpoints are rate-limited per IP via slowapi.
 | `/sec_edgar/earnings`, `/sec_edgar/earnings/latest` | 10/min | SEC + Crawl4AI |
 | `/fred` search, observations, release series/dates | 30/min | FRED API (120 req/min) |
 | `/fred` series info, single release | 60/min | FRED API (120 req/min) |
-| `/market/brief` | 5/min | Local (triggers background job) |
+| `/market/movers` | 5/min | Local (triggers background job) |
 
 ---
 
@@ -394,6 +394,25 @@ curl "localhost:7337/api/v1/yf/options/AAPL/snapshot"
     "ticker": "AAPL", "spot": 264.72, "realized_vol_30d": 0.3245, "expiration": "2026-03-20", "days_to_expiry": 15,
     "calls": [{"contract_symbol": "AAPL260320C00265000", "strike": 265.0, "last_price": 5.50, "bid": 5.30, "ask": 5.70, "volume": 1200, "open_interest": 8500, "implied_volatility": 0.28, "in_the_money": false, "greeks": {"delta": 0.48, "gamma": 0.02, "theta": -0.15, "vega": 0.35, "rho": 0.05, "implied_volatility": 0.28}}],
     "puts": [{"contract_symbol": "AAPL260320P00265000", "strike": 265.0, "last_price": 5.80, "bid": 5.60, "ask": 6.00, "volume": 900, "open_interest": 7200, "implied_volatility": 0.29, "in_the_money": true, "greeks": {"delta": -0.52, "gamma": 0.02, "theta": -0.14, "vega": 0.35, "rho": -0.05, "implied_volatility": 0.29}}]
+}
+```
+
+### GET `/yf/analyst/{ticker}?limit=`
+Analyst ratings: recommendation trends (buy/hold/sell counts by period), upgrades/downgrades (firm, grade change, price target), and consensus price targets.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ticker` | path | — | Stock ticker |
+| `limit` | query | `25` | Max upgrade/downgrade records (1-100) |
+
+```
+curl "localhost:7337/api/v1/yf/analyst/AAPL?limit=5"
+```
+```json
+{
+    "recommendations": [{"period": "0m", "strong_buy": 11, "buy": 21, "hold": 8, "sell": 1, "strong_sell": 0}],
+    "upgrades_downgrades": [{"date": "2026-04-10T00:00:00", "firm": "Morgan Stanley", "to_grade": "Overweight", "from_grade": "Equal-Weight", "action": "up", "price_target_action": "up", "current_price_target": 280.0, "prior_price_target": 250.0}],
+    "price_targets": {"current": 265.0, "high": 320.0, "low": 200.0, "mean": 275.5, "median": 280.0}
 }
 ```
 
@@ -910,18 +929,18 @@ curl "localhost:7337/api/v1/fred/releases/10/dates?limit=3"
 
 ---
 
-## Market Brief (`/market`)
+## Market Movers (`/market`)
 
-Daily market brief: benchmarks, sectors, top movers, and LLM-powered analysis. Scheduled at 10:30am ET daily. Can also be triggered manually.
+Daily market movers: benchmarks, sectors, and top movers. Scheduled at 10:30am ET daily. Can also be triggered manually.
 
-### POST `/market/brief`
-Manually trigger the daily market brief. Runs in background — returns immediately.
+### POST `/market/movers`
+Manually trigger the daily market movers snapshot. Runs in background — returns immediately.
 
 ```
-curl -X POST localhost:7337/api/v1/market/brief
+curl -X POST localhost:7337/api/v1/market/movers
 ```
 ```json
-{"status": "triggered", "message": "Market brief job started in background"}
+{"status": "triggered", "message": "Market movers job started in background"}
 ```
 
-Returns `503` if market brief is not configured (requires Redis).
+Returns `503` if market movers is not configured (requires Redis).

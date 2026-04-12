@@ -33,7 +33,7 @@ from synesis.agent.scheduler import (
     event_digest_job,
     event_fetch_job,
     intelligence_brief_job,
-    market_brief_job,
+    market_movers_job,
     watchlist_cleanup_job,
 )
 from synesis.config import Settings
@@ -331,11 +331,11 @@ async def agent_lifespan(
                 max_instances=1,
             )
 
-            # Daily digest (outcome enrichment + Discord): 7pm ET daily
+            # Daily digest (What's Coming): 7pm ET daily
             scheduler.add_job(
                 event_digest_job,
                 CronTrigger(hour=19, minute=0, timezone="America/New_York"),
-                args=[db, redis, sec_edgar_client, crawler_instance, fred_client],
+                args=[db, redis],
                 id="event_digest",
                 max_instances=1,
             )
@@ -346,15 +346,15 @@ async def agent_lifespan(
                 digest="7pm ET daily",
             )
 
-        # Market brief: 10:30am ET (60min after market open)
+        # Market movers: 10:30am ET (60min after market open)
         scheduler.add_job(
-            market_brief_job,
+            market_movers_job,
             CronTrigger(hour=10, minute=30, timezone="America/New_York"),
             args=[redis, db],
-            id="market_brief",
+            id="market_movers",
             max_instances=1,
         )
-        logger.info("Market brief scheduled", schedule="10:30am ET daily")
+        logger.info("Market movers scheduled", schedule="10:30am ET daily")
 
         # Ticker list refresh: every Monday 6am UTC
         from synesis.agent.scheduler import refresh_tickers_job
@@ -430,25 +430,19 @@ async def agent_lifespan(
 
             trigger_fns["event_discover"] = _trigger_event_discover
 
-        async def _trigger_market_brief() -> None:
-            from synesis.processing.market.job import market_brief_job as _market_brief
+        async def _trigger_market_movers() -> None:
+            from synesis.processing.market.job import market_movers_job as _market_movers
 
-            await _market_brief(redis, db=db)
+            await _market_movers(redis, db=db)
 
-        trigger_fns["market_brief"] = _trigger_market_brief
+        trigger_fns["market_movers"] = _trigger_market_movers
 
         if db:
 
             async def _trigger_event_digest() -> bool:
                 from synesis.processing.events.digest import send_event_digest
 
-                return await send_event_digest(
-                    db,
-                    redis=redis,
-                    sec_edgar=sec_edgar_client,
-                    crawler=crawler_instance,
-                    fred=fred_client,
-                )
+                return await send_event_digest(db, redis=redis)
 
             trigger_fns["event_digest"] = _trigger_event_digest
 

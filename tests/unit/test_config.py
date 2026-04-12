@@ -248,6 +248,7 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("yfinance_cache_ttl_fx", "YFINANCE_CACHE_TTL_FX", "60", 60),
     ("yfinance_cache_ttl_movers", "YFINANCE_CACHE_TTL_MOVERS", "600", 600),
     ("yfinance_cache_ttl_fundamentals", "YFINANCE_CACHE_TTL_FUNDAMENTALS", "3600", 3600),
+    ("yfinance_cache_ttl_analyst", "YFINANCE_CACHE_TTL_ANALYST", "3600", 3600),
     # --- Crawl4AI ---
     ("crawl4ai_url", "CRAWL4AI_URL", "http://crawl:11235", "http://crawl:11235"),
     # --- Trading ---

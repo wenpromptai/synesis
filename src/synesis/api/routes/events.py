@@ -108,7 +108,7 @@ async def trigger_digest(
     request: Request,
     state: AgentStateDep,
 ) -> dict[str, str]:
-    """Manually trigger the event digest (What's Coming + Yesterday's Brief)."""
+    """Manually trigger the event digest (What's Coming)."""
     trigger = state.trigger_fns.get("event_digest")
     if trigger is None:
         raise HTTPException(

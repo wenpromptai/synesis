@@ -5,6 +5,11 @@ Supports:
 - OpenAI-compatible APIs (ZAI, etc.)
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -24,11 +29,57 @@ def is_native_openai() -> bool:
     return settings.llm_provider == "openai" and (not base or base == _OPENAI_BASE_URL)
 
 
-def native_search_docs(cap: int, description: str) -> str:
-    """Format the native web search prompt block for OpenAI Responses API agents."""
-    return (
-        f"- **Native web search** — you have built-in web search to {description}. "
-        f"Budget: {cap} searches.\n"
+# ── Web Search Configuration ──────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SearchConfig:
+    """Web search configuration for a PydanticAI agent.
+
+    Usage::
+
+        search = web_search_config(cap=3, description="verify claims")
+        tools = [_tool_web_read]
+        if not search.native:
+            tools.append(_tool_web_search)
+        agent = Agent(
+            ...,
+            system_prompt=PROMPT.format(search_docs=search.prompt_docs, ...),
+            tools=tools,
+            builtin_tools=search.builtin_tools,
+        )
+    """
+
+    prompt_docs: str
+    builtin_tools: list[WebSearchTool] = field(default_factory=list)
+    native: bool = False
+
+
+def web_search_config(cap: int, description: str) -> SearchConfig:
+    """Build web search config based on the current LLM provider.
+
+    If native OpenAI: returns ``WebSearchTool`` in builtin_tools, prompt docs
+    reference built-in search. Agent should NOT include Brave ``_tool_web_search``.
+
+    Otherwise: returns empty builtin_tools, prompt docs reference Brave
+    ``web_search(query, recency)`` tool. Agent must include ``_tool_web_search``.
+    """
+    if is_native_openai():
+        return SearchConfig(
+            prompt_docs=(
+                f"- **Native web search** — you have built-in web search to {description}. "
+                f"Budget: {cap} searches.\n"
+            ),
+            builtin_tools=[WebSearchTool(max_uses=cap)],
+            native=True,
+        )
+    return SearchConfig(
+        prompt_docs=(
+            f"- `web_search(query, recency)` — {description}. "
+            f"Budget: {cap} calls. Recency filter: day/week/month/year.\n"
+        ),
+        builtin_tools=[],
+        native=False,
     )
 
 

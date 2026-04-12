@@ -10,13 +10,9 @@ from synesis.core.constants import (
     DEFAULT_SIMILARITY_THRESHOLD,
     FINNHUB_RATE_LIMIT_CALLS_PER_MINUTE,
     SEC_13F_DEADLINES,
-    SECTOR_COLORS,
     SECTOR_LABELS,
     SECTOR_TICKERS,
-    SENTIMENT_ICON,
-    SOURCE_LABEL,
     TELEGRAM_MAX_MESSAGE_LENGTH,
-    THEME_EMOJI,
 )
 
 
@@ -30,9 +26,6 @@ class TestConstantsImportability:
 
     def test_display_constants_importable(self) -> None:
         assert isinstance(COLOR_HEADER, int)
-        assert isinstance(SECTOR_COLORS, dict)
-        assert isinstance(THEME_EMOJI, dict)
-        assert isinstance(SOURCE_LABEL, dict)
 
     def test_events_constants_importable(self) -> None:
         assert isinstance(SEC_13F_DEADLINES, dict)
@@ -42,22 +35,6 @@ class TestConstantsImportability:
         assert isinstance(SECTOR_TICKERS, list)
         assert isinstance(SECTOR_LABELS, dict)
         assert isinstance(DAY_NAMES, list)
-
-
-class TestSentimentIconValues:
-    """Guard SENTIMENT_ICON emoji values used by discord.py sentiment_labels derivation."""
-
-    def test_bullish_icon(self) -> None:
-        assert SENTIMENT_ICON["bullish"] == "\U0001f7e2"  # green circle
-
-    def test_bearish_icon(self) -> None:
-        assert SENTIMENT_ICON["bearish"] == "\U0001f534"  # red circle
-
-    def test_neutral_icon(self) -> None:
-        assert SENTIMENT_ICON["neutral"] == "\u26aa"  # white circle
-
-    def test_all_keys_present(self) -> None:
-        assert set(SENTIMENT_ICON.keys()) == {"bullish", "bearish", "neutral"}
 
 
 class TestDedupCacheTTL:

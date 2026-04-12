@@ -20,8 +20,8 @@ from synesis.processing.events.fetchers import (
     fetch_fred_macro_events,
     fetch_nasdaq_earnings_events,
 )
-from synesis.processing.events.digest import (
-    _fetch_outcomes,
+from synesis.processing.intelligence.strategists.macro import (
+    _enrich_events_with_outcomes,
     _get_crawled_outcome,
     _get_economic_data_outcome,
     _get_earnings_outcome,
@@ -288,20 +288,22 @@ class TestThirteenFE2E:
             "synesis.processing.common.web_search.search_market_impact",
             AsyncMock(return_value=[{"snippet": "should not be called"}]),
         ) as mock_search:
-            result = await _fetch_outcomes(events, None, None)
+            result = await _enrich_events_with_outcomes(
+                events, AsyncMock(), AsyncMock(), None, AsyncMock()
+            )
 
         mock_search.assert_not_called()
         assert result[0].get("outcome") is None
 
 
 # ---------------------------------------------------------------------------
-# 5. FULL ENRICHMENT MATRIX — all categories through _fetch_outcomes
+# 5. FULL ENRICHMENT MATRIX — all categories through _enrich_events_with_outcomes
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
 class TestEnrichmentMatrixE2E:
-    """Run all structured categories through _fetch_outcomes
+    """Run all structured categories through _enrich_events_with_outcomes
     using real FRED + SEC EDGAR APIs."""
 
     @pytest.mark.asyncio
@@ -367,7 +369,7 @@ class TestEnrichmentMatrixE2E:
         mock_db = AsyncMock()
         mock_db.get_last_fomc_meeting_date = AsyncMock(return_value=date(2024, 12, 18))
 
-        result = await _fetch_outcomes(events, redis, sec_edgar, crawler, fred, mock_db)
+        result = await _enrich_events_with_outcomes(events, sec_edgar, fred, crawler, mock_db)
 
         # 1. earnings → real SEC data
         earnings_outcome = result[0].get("outcome", "")

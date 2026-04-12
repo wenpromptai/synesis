@@ -22,7 +22,7 @@ def _make_brief(**overrides: Any) -> dict[str, Any]:
             "regime": "risk_on",
             "sentiment_score": 0.65,
             "key_drivers": ["Strong earnings season"],
-            "sector_tilts": [{"sector": "Technology", "sentiment_score": 0.8}],
+            "thematic_tilts": [{"theme": "Technology", "sentiment_score": 0.8}],
             "risks": ["Tariff escalation"],
         },
         "debates": [],
@@ -75,7 +75,7 @@ class TestFormatIntelligenceBrief:
         assert "Regime" in field_names
         assert "Sentiment" in field_names
         assert "Key Drivers" in field_names
-        assert "Sector Tilts" in field_names
+        assert "Thematic Tilts" in field_names
         assert "Risks" in field_names
 
     def test_regime_colors(self) -> None:

@@ -68,7 +68,7 @@ src/synesis/
 ├── processing/        # All analysis pipelines
 │   ├── intelligence/  # LangGraph multi-agent pipeline (see docs/ARCHITECTURE.md)
 │   │   ├── specialists/   # Layer 1-2: social_sentiment, news, company, price
-│   │   ├── strategists/   # MacroStrategist (regime + sector tilts)
+│   │   ├── strategists/   # MacroStrategist (regime + thematic tilts + event synthesis)
 │   │   ├── debate/        # Bull/bear debate subgraph (configurable rounds)
 │   │   ├── trader/        # Trader (sole decision maker → TradeIdea)
 │   │   ├── graph.py       # LangGraph state machine wiring
@@ -76,9 +76,8 @@ src/synesis/
 │   │   └── job.py         # Pipeline runner → Discord + KG brief save
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
-│   ├── market/        # Market brief: daily snapshot + LLM analysis + diary
-│   ├── events/        # Event radar: daily digest
-│   │   └── yesterday/ # Yesterday brief sub-analyzers (earnings, macro, surprises, filings, consolidator)
+│   ├── market/        # Market movers: daily snapshot + top movers + diary
+│   ├── events/        # Event radar: forward-looking calendar digest
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data providers
 │   ├── finnhub/       # Real-time prices, fundamentals
@@ -137,14 +136,14 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 
 - `/system/*` — System status (60/min)
 - `/fh/*` — Finnhub: ticker verify/search (120/min), REST quotes (60/min), WS cache reads (120/min)
-- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks, options snapshot (30/min, chain/snapshot 10/min)
+- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks, options snapshot, analyst ratings (30/min, chain/snapshot 10/min)
 - `/watchlist/*` — Watchlist CRUD (reads 60/min, writes 10/min)
 - `/earnings/*` — NASDAQ earnings calendar (30/min)
 - `/sec_edgar/*` — SEC filings, insider transactions, sentiment, search (60/min, earnings content 10/min)
 - `/fred/*` — FRED: series search, observations, releases (30/min, info 60/min)
 - `/events/*` — Event radar: upcoming, calendar, discover, digest, CRUD (30/min, digest 5/min)
 - `/twitter/*` — Twitter agent: trigger daily digest (5/min)
-- `/market/*` — Market brief: trigger daily brief (5/min)
+- `/market/*` — Market movers: trigger daily movers snapshot (5/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 

@@ -1,4 +1,4 @@
-"""Market brief endpoints."""
+"""Market movers endpoints."""
 
 import asyncio
 
@@ -18,15 +18,15 @@ logger = get_logger(__name__)
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
-@router.post("/brief")
+@router.post("/movers")
 @limiter.limit("5/minute")
-async def trigger_market_brief(request: Request, state: AgentStateDep) -> dict[str, str]:
-    """Manually trigger the daily market brief."""
-    trigger = state.trigger_fns.get("market_brief")
+async def trigger_market_movers(request: Request, state: AgentStateDep) -> dict[str, str]:
+    """Manually trigger the daily market movers snapshot."""
+    trigger = state.trigger_fns.get("market_movers")
     if trigger is None:
         raise HTTPException(
             status_code=503,
-            detail="Market brief not configured (requires Redis)",
+            detail="Market movers not configured (requires Redis)",
         )
 
     def _on_done(t: asyncio.Task[None]) -> None:
@@ -34,11 +34,11 @@ async def trigger_market_brief(request: Request, state: AgentStateDep) -> dict[s
             return
         if exc := t.exception():
             logger.error(
-                "Market brief background task failed",
+                "Market movers background task failed",
                 error=str(exc),
                 error_type=type(exc).__name__,
                 exc_info=exc,
             )
 
     create_tracked_task(trigger(), _background_tasks, _on_done)
-    return {"status": "triggered", "message": "Market brief job started in background"}
+    return {"status": "triggered", "message": "Market movers job started in background"}

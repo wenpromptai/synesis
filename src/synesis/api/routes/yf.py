@@ -107,6 +107,19 @@ async def get_options_snapshot(
     return snapshot.model_dump(mode="json")
 
 
+@router.get("/analyst/{ticker}")
+@limiter.limit("30/minute")
+async def get_analyst_ratings(
+    request: Request,
+    ticker: str,
+    client: YFinanceClientDep,
+    limit: int = Query(25, ge=1, le=100, description="Max upgrade/downgrade records"),
+) -> dict[str, Any]:
+    """Analyst ratings: recommendation trends, upgrades/downgrades, price targets."""
+    ratings = await client.get_analyst_ratings(ticker, limit=limit)
+    return ratings.model_dump(mode="json")
+
+
 @router.get("/movers")
 @limiter.limit("10/minute")
 async def get_market_movers(

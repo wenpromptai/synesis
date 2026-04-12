@@ -12,10 +12,9 @@ from datetime import date
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.builtin_tools import WebSearchTool
 
 from synesis.core.logging import get_logger
-from synesis.processing.common.llm import create_model, is_native_openai, native_search_docs
+from synesis.processing.common.llm import create_model, web_search_config
 from synesis.processing.common.web_search import (
     Recency,
     format_search_results,
@@ -34,7 +33,7 @@ logger = get_logger(__name__)
 _WEB_SEARCH_CAP = 7
 
 
-_NATIVE_SEARCH_DESC = (
+_SEARCH_DESC = (
     "look up current prices, recent earnings, breaking news, options flow, "
     "analyst targets, or verify claims from the debate"
 )
@@ -69,9 +68,7 @@ and current IV when choosing between shares and options.
 {mode_instructions}
 
 ## Tools
-{native_search_docs}\
-- `web_search(query, recency)` — search via Brave API with explicit \
-recency filter (day/week/month/year). Budget: {web_search_cap} calls.
+{search_docs}\
 - `web_read(url)` — read full article content (~4000 chars). Unlimited.
 
 ## Rules
@@ -191,9 +188,12 @@ async def analyze_trade_per_ticker(
     ticker = state["ticker"]
     logger.info("Starting Trader (per_ticker)", ticker=ticker)
 
-    native = is_native_openai()
+    search = web_search_config(_WEB_SEARCH_CAP, _SEARCH_DESC)
     deps = TraderDeps(current_date=current_date)
     user_prompt = _build_per_ticker_prompt(state, ticker)
+    tools: list[Any] = [_tool_web_read]
+    if not search.native:
+        tools.append(_tool_web_search)
 
     agent: Agent[TraderDeps, TraderOutput] = Agent(
         model=create_model(tier="vsmart"),
@@ -201,15 +201,12 @@ async def analyze_trade_per_ticker(
         output_type=TraderOutput,
         system_prompt=_SYSTEM_PROMPT.format(
             current_date=current_date,
-            web_search_cap=_WEB_SEARCH_CAP,
             mode_instructions=_PER_TICKER_INSTRUCTIONS,
             scope_description=f"ticker {ticker}",
-            native_search_docs=native_search_docs(_WEB_SEARCH_CAP, _NATIVE_SEARCH_DESC)
-            if native
-            else "",
+            search_docs=search.prompt_docs,
         ),
-        tools=[_tool_web_search, _tool_web_read],
-        builtin_tools=[WebSearchTool(max_uses=_WEB_SEARCH_CAP)] if native else [],
+        tools=tools,
+        builtin_tools=search.builtin_tools,
     )
 
     result = await agent.run(user_prompt, deps=deps)
@@ -259,9 +256,12 @@ async def analyze_trade_portfolio(
     """
     logger.info("Starting Trader (portfolio)", tickers=tickers)
 
-    native = is_native_openai()
+    search = web_search_config(_WEB_SEARCH_CAP, _SEARCH_DESC)
     deps = TraderDeps(current_date=current_date)
     user_prompt = _build_portfolio_prompt(state, tickers)
+    tools_list: list[Any] = [_tool_web_read]
+    if not search.native:
+        tools_list.append(_tool_web_search)
 
     agent: Agent[TraderDeps, TraderOutput] = Agent(
         model=create_model(tier="vsmart"),
@@ -269,15 +269,12 @@ async def analyze_trade_portfolio(
         output_type=TraderOutput,
         system_prompt=_SYSTEM_PROMPT.format(
             current_date=current_date,
-            web_search_cap=_WEB_SEARCH_CAP,
             mode_instructions=_PORTFOLIO_INSTRUCTIONS,
             scope_description=f"tickers {', '.join(tickers)}",
-            native_search_docs=native_search_docs(_WEB_SEARCH_CAP, _NATIVE_SEARCH_DESC)
-            if native
-            else "",
+            search_docs=search.prompt_docs,
         ),
-        tools=[_tool_web_search, _tool_web_read],
-        builtin_tools=[WebSearchTool(max_uses=_WEB_SEARCH_CAP)] if native else [],
+        tools=tools_list,
+        builtin_tools=search.builtin_tools,
     )
 
     result = await agent.run(user_prompt, deps=deps)
