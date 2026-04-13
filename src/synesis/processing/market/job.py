@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
@@ -15,12 +14,10 @@ from synesis.processing.market.snapshot import fetch_market_movers
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-    from synesis.storage.database import Database
-
 logger = get_logger(__name__)
 
 
-async def market_movers_job(redis: Redis, db: Database | None = None) -> None:
+async def market_movers_job(redis: Redis) -> None:
     """Daily market movers job — fetches snapshot + movers, sends to Discord."""
     settings = get_settings()
 
@@ -55,15 +52,3 @@ async def market_movers_job(redis: Redis, db: Database | None = None) -> None:
             messages_sent=sent_ok,
             messages_total=len(data_messages),
         )
-
-    # Persist to diary table
-    if db:
-        try:
-            payload: dict[str, Any] = {"market_data": brief.model_dump(mode="json")}
-            await db.upsert_diary_entry(
-                entry_date=datetime.now(UTC).date(),
-                source="market_movers",
-                payload=payload,
-            )
-        except Exception:
-            logger.exception("Failed to save market movers to diary")

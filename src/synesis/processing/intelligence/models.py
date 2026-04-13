@@ -230,8 +230,19 @@ class ThematicTilt(BaseModel):
     etf: str | None = None
 
 
+class ScreenedTicker(BaseModel):
+    """A ticker selected by the screener for deep analysis."""
+
+    ticker: str
+    thematic_angle: str
+    direction_lean: Literal["bullish", "bearish"]
+    signal_strength: str
+    research_note: str = ""
+    is_wildcard: bool = False
+
+
 class MacroView(BaseModel):
-    """MacroStrategist output — regime assessment + thematic tilts + event analysis."""
+    """MacroStrategist output — regime assessment + thematic tilts + event analysis + screening."""
 
     regime: Literal["risk_on", "risk_off", "transitioning", "uncertain"]
     sentiment_score: float = Field(
@@ -245,6 +256,12 @@ class MacroView(BaseModel):
     risks: list[str] = Field(default_factory=list)
     event_analysis: str = ""
     positioning_signals: str = ""
+
+    # Ticker screening (populated when tickers are present in Layer 1)
+    screener_picks: list[ScreenedTicker] = Field(default_factory=list, max_length=5)
+    tickers_dropped: list[str] = Field(default_factory=list)
+    drop_reasons: list[str] = Field(default_factory=list)
+
     analysis_date: date
 
 

@@ -71,12 +71,12 @@ async def event_fetch_job(
         logger.exception("Event fetch job failed")
 
 
-async def market_movers_job(redis: Redis, db: Database | None = None) -> None:
-    """Send daily market movers snapshot to Discord and persist to diary."""
+async def market_movers_job(redis: Redis) -> None:
+    """Send daily market movers snapshot to Discord."""
     from synesis.processing.market.job import market_movers_job as _market_movers_job
 
     try:
-        await _market_movers_job(redis, db=db)
+        await _market_movers_job(redis)
         logger.info("Market movers job complete")
     except Exception:
         logger.exception("Market movers job failed")

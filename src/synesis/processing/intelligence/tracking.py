@@ -35,6 +35,7 @@ async def run_tracking_review(
     reviewed = 0
     closed = 0
     updated = 0
+    skipped = 0
 
     for idea in open_ideas:
         ticker = idea["ticker"]
@@ -47,9 +48,11 @@ async def run_tracking_review(
             current_price = quote.last
             if current_price is None:
                 logger.warning("No price for tracked ticker", ticker=ticker)
+                skipped += 1
                 continue
         except Exception:
             logger.exception("Failed to fetch quote for tracking", ticker=ticker)
+            skipped += 1
             continue
 
         reviewed += 1
@@ -129,6 +132,9 @@ async def run_tracking_review(
             except Exception:
                 logger.exception("Failed to update tracking", ticker=ticker, id=idea_id)
 
-    summary = {"reviewed": reviewed, "closed": closed, "updated": updated}
+    if skipped:
+        logger.warning("Tracking review skipped ideas due to price fetch failures", skipped=skipped)
+
+    summary = {"reviewed": reviewed, "closed": closed, "updated": updated, "skipped": skipped}
     logger.info("Tracking review complete", **summary)
     return summary

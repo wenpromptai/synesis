@@ -229,6 +229,17 @@ async def analyze_trade_per_ticker(
     )
 
     result = await agent.run(user_prompt, deps=deps)
+    usage = result.usage()
+    logger.info(
+        "Trader API response (per_ticker)",
+        ticker=ticker,
+        finish_reason=result.response.finish_reason,
+        model=result.response.model_name,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        requests=usage.requests,
+        tool_calls=usage.tool_calls,
+    )
     output = result.output
 
     # Log trade ideas detail
@@ -302,6 +313,17 @@ async def analyze_trade_portfolio(
     )
 
     result = await agent.run(user_prompt, deps=deps)
+    usage = result.usage()
+    logger.info(
+        "Trader API response (portfolio)",
+        tickers=tickers,
+        finish_reason=result.response.finish_reason,
+        model=result.response.model_name,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        requests=usage.requests,
+        tool_calls=usage.tool_calls,
+    )
     output = result.output
 
     # Log trade ideas detail

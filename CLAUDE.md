@@ -68,15 +68,16 @@ src/synesis/
 ├── processing/        # All analysis pipelines
 │   ├── intelligence/  # LangGraph multi-agent pipeline (see docs/ARCHITECTURE.md)
 │   │   ├── specialists/   # Layer 1-2: social_sentiment, news, company, price
-│   │   ├── strategists/   # MacroStrategist (regime + thematic tilts + event synthesis)
+│   │   ├── strategists/   # MacroStrategist (regime + thematic tilts + ticker screening)
 │   │   ├── debate/        # Bull/bear debate subgraph (configurable rounds)
-│   │   ├── trader/        # Trader (sole decision maker → TradeIdea)
+│   │   ├── trader/        # Trader (sole decision maker → equity TradeIdea with R/R)
 │   │   ├── graph.py       # LangGraph state machine wiring
 │   │   ├── compiler.py    # Brief assembly + markdown export for KG
-│   │   └── job.py         # Pipeline runner → Discord + KG brief save
+│   │   ├── tracking.py    # Trade idea outcome tracking (weekly review)
+│   │   └── job.py         # Pipeline runner → Discord + KG brief + DB tracking
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
-│   ├── market/        # Market movers: daily snapshot + top movers + diary
+│   ├── market/        # Market movers: daily snapshot + top movers
 │   ├── events/        # Event radar: forward-looking calendar digest
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data providers
@@ -149,11 +150,13 @@ See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with
 
 ## Intelligence Pipeline
 
-Daily LangGraph pipeline (9:00 AM SGT / 1:00 AM UTC): social/news signals → per-ticker company + price analysis + macro regime → bull/bear debate → Trader decisions → Discord + KG brief.
+Daily LangGraph pipeline (9:00 AM SGT / 1:00 AM UTC): social/news signals → MacroStrategist (regime + screening, top 5 tickers) → per-ticker company + price analysis → consensus-anchored bull/bear debate → Trader (equity R/R + conviction tiers) → Discord + KG brief + DB tracking.
 
 See `docs/ARCHITECTURE.md` for full graph topology, state schema, and agent inventory.
 
 **Pipeline brief auto-save:** Each run saves a markdown brief to `docs/kg/raw/synesis_briefs/YYYY-MM-DD.md` for future KG compilation.
+
+**Trade idea tracking:** Each run saves trade ideas to `trade_idea_tracking` DB table. A weekly review job (Friday 4pm ET) checks prices, marks target/stop hits, and auto-expires after 90 days.
 
 ## Knowledge Graph (`docs/kg/`)
 

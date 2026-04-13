@@ -470,3 +470,79 @@ class TestFormatDebateSideWithVariant:
         assert "**Variant:**" not in result
         assert "**Catalyst:**" not in result
         assert "Simple argument" in result
+
+
+class TestScreenerEmbed:
+    """Tests for the screener embed in Discord output."""
+
+    def test_screener_embed_appears_with_picks(self) -> None:
+        brief = _make_brief(
+            screener={
+                "l1_tickers": ["NVDA", "AMD", "AVGO", "CRM"],
+                "selected": [
+                    {
+                        "ticker": "AVGO",
+                        "thematic_angle": "Custom ASIC play",
+                        "direction_lean": "bullish",
+                        "signal_strength": "Cross-signal confirmation",
+                        "is_wildcard": False,
+                    },
+                    {
+                        "ticker": "CRM",
+                        "thematic_angle": "AI agent disruption",
+                        "direction_lean": "bearish",
+                        "signal_strength": "Insider selling",
+                        "is_wildcard": False,
+                    },
+                ],
+                "themes": ["AI infrastructure", "Software disruption"],
+                "dropped": ["NVDA", "AMD"],
+                "drop_reasons": ["Stale consensus", "No catalyst"],
+            },
+        )
+        batches = format_intelligence_brief(brief)
+        all_embeds = [e for batch in batches for e in batch]
+        screener_embeds = [e for e in all_embeds if "Screener" in e.get("title", "")]
+        assert len(screener_embeds) == 1
+        embed = screener_embeds[0]
+        assert "2 of 4" in embed["title"]
+        assert "AI infrastructure" in embed.get("description", "")
+        # Check selected field
+        selected_field = next(f for f in embed["fields"] if f["name"] == "Selected")
+        assert "AVGO" in selected_field["value"]
+        assert "CRM" in selected_field["value"]
+        # Check dropped field
+        dropped_field = next(f for f in embed["fields"] if f["name"] == "Dropped")
+        assert "NVDA" in dropped_field["value"]
+        assert "Stale consensus" in dropped_field["value"]
+
+    def test_screener_embed_absent_without_picks(self) -> None:
+        brief = _make_brief()
+        batches = format_intelligence_brief(brief)
+        all_embeds = [e for batch in batches for e in batch]
+        screener_embeds = [e for e in all_embeds if "Screener" in e.get("title", "")]
+        assert len(screener_embeds) == 0
+
+    def test_wildcard_flagged_in_embed(self) -> None:
+        brief = _make_brief(
+            screener={
+                "l1_tickers": ["NVDA"],
+                "selected": [
+                    {
+                        "ticker": "MRVL",
+                        "thematic_angle": "Custom silicon",
+                        "direction_lean": "bullish",
+                        "signal_strength": "Theme fit",
+                        "is_wildcard": True,
+                    },
+                ],
+                "themes": [],
+                "dropped": ["NVDA"],
+                "drop_reasons": ["Stale"],
+            },
+        )
+        batches = format_intelligence_brief(brief)
+        all_embeds = [e for batch in batches for e in batch]
+        screener_embeds = [e for e in all_embeds if "Screener" in e.get("title", "")]
+        selected_field = screener_embeds[0]["fields"][0]
+        assert "wildcard" in selected_field["value"]

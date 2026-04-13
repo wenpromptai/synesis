@@ -562,45 +562,6 @@ class Database:
         """
         return await self.fetch(query, since_hours)
 
-    # -------------------------------------------------------------------------
-    # Diary: Persisted Pipeline Outputs
-    # -------------------------------------------------------------------------
-
-    async def upsert_diary_entry(
-        self,
-        entry_date: "date",
-        source: str,
-        payload: dict[str, Any],
-    ) -> None:
-        """Upsert a diary entry (pipeline output) for a given date and source.
-
-        Re-runs on the same day overwrite the previous entry.
-        """
-        query = """
-            INSERT INTO diary (entry_date, source, payload)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (entry_date, source) DO UPDATE SET
-                payload = EXCLUDED.payload,
-                created_at = NOW()
-        """
-        await self.execute(query, entry_date, source, orjson.dumps(payload).decode("utf-8"))
-        logger.debug("Diary entry upserted", entry_date=str(entry_date), source=source)
-
-    async def get_diary_entries(
-        self,
-        source: str,
-        from_date: "date",
-        to_date: "date",
-    ) -> list[asyncpg.Record]:
-        """Get diary entries for a source within a date range."""
-        query = """
-            SELECT entry_date, source, payload, created_at
-            FROM diary
-            WHERE source = $1 AND entry_date >= $2 AND entry_date <= $3
-            ORDER BY entry_date DESC
-        """
-        return await self.fetch(query, source, from_date, to_date)
-
     async def get_recent_signals(
         self,
         hours: int = 24,

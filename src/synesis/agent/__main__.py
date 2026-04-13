@@ -350,7 +350,7 @@ async def agent_lifespan(
         scheduler.add_job(
             market_movers_job,
             CronTrigger(hour=10, minute=30, timezone="America/New_York"),
-            args=[redis, db],
+            args=[redis],
             id="market_movers",
             max_instances=1,
         )
@@ -446,7 +446,7 @@ async def agent_lifespan(
         async def _trigger_market_movers() -> None:
             from synesis.processing.market.job import market_movers_job as _market_movers
 
-            await _market_movers(redis, db=db)
+            await _market_movers(redis)
 
         trigger_fns["market_movers"] = _trigger_market_movers
 

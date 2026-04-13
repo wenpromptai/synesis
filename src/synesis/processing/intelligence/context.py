@@ -543,6 +543,29 @@ def format_company_context_for_ticker(state: dict[str, Any], ticker: str) -> str
     return "\n".join(lines)
 
 
+def format_screener_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
+    """Format the screener's thematic angle for a ticker.
+
+    Gives debate agents the CIO's thesis seed — why this ticker was selected
+    and what angle to investigate.
+    """
+    ctx = state.get("screener_context", {})
+    for pick in ctx.get("selected", []):
+        if pick.get("ticker") == ticker:
+            lines = ["## Screener Thesis Seed"]
+            lines.append(f"**Thematic angle:** {pick.get('thematic_angle', 'N/A')}")
+            lines.append(f"**Direction lean:** {pick.get('direction_lean', 'N/A')}")
+            lines.append(f"**Signal strength:** {pick.get('signal_strength', 'N/A')}")
+            if pick.get("research_note"):
+                lines.append(f"**Research note:** {pick['research_note']}")
+            if pick.get("is_wildcard"):
+                lines.append(
+                    "*This ticker was added as a wildcard — not in the original signal pool.*"
+                )
+            return "\n".join(lines)
+    return ""
+
+
 def format_price_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
     """Format price analysis for a single ticker."""
     prices = state.get("price_analyses", [])

@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 3
+_WEB_SEARCH_CAP = 5
 
 
 _SEARCH_DESC = (
@@ -589,6 +589,87 @@ def _format_macro_themes(state: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+_SCREENING_INSTRUCTIONS = """\
+7. **Ticker Screening** (you have a ticker pool from today's signals — see below):
+   You are the CIO deciding where the analyst team spends its time. Select up to 5 \
+tickers that warrant deep fundamental, technical, and debate analysis downstream. \
+You are NOT doing the analysis yourself — you are CHOOSING which tickers are worth \
+the research team's time based on your macro view, thematic tilts, and the signal context.
+
+   Prioritize:
+   - **Asymmetry**: where consensus is likely wrong and a catalyst will force repricing.
+   - **Thematic fit**: tickers that express your identified thematic tilts most directly. \
+A ticker that sits at the center of a strong theme is more interesting than one with \
+no narrative. Use your regime assessment and event analysis to inform picks.
+   - **Catalyst proximity**: upcoming event that forces repricing within 30-60 days.
+   - **Cross-signal confirmation**: mentioned in both social AND news > single source.
+   - **Fresh angle**: avoid stale consensus plays where everyone already agrees.
+
+   For each pick, fill `screener_picks` with: ticker, thematic_angle (be specific — \
+"custom silicon displacing GPU for inference" not just "AI"), direction_lean \
+(your initial read — bullish or bearish), signal_strength (why this stands out \
+from the noise), and research_note (anything you found via web search).
+
+   **Wildcard (max 1):** If your research reveals a ticker NOT in the signal pool \
+that better expresses an identified theme, include it with is_wildcard=True. It must \
+be directly connected to a theme from today's signals.
+
+   Drop the rest into `tickers_dropped` with a one-liner reason each in `drop_reasons`. \
+Be honest — "stale consensus", "no catalyst", "single weak mention" are valid reasons."""
+
+_NO_SCREENING_INSTRUCTIONS = ""
+
+
+def _format_ticker_pool(state: dict[str, Any]) -> str:
+    """Format Layer 1 tickers with their context for screening."""
+    tickers = state.get("target_tickers", [])
+    if not tickers:
+        return ""
+
+    lines = ["## Ticker Pool for Screening"]
+    lines.append(
+        f"Layer 1 surfaced {len(tickers)} tickers from social + news signals. "
+        "Select up to 5 for deep analysis based on thematic conviction."
+    )
+
+    # Social mentions with context
+    social = state.get("social_analysis", {})
+    social_mentions = social.get("ticker_mentions", [])
+    if social_mentions:
+        lines.append("\n### Social Signals")
+        for mention in social_mentions:
+            ticker = mention.get("ticker", "")
+            if ticker not in tickers:
+                continue
+            context = mention.get("context", "")
+            accounts = ", ".join(mention.get("source_accounts", []))
+            lines.append(f"- **{ticker}**: {context} [from: {accounts}]")
+
+    # News clusters with tickers
+    news = state.get("news_analysis", {})
+    clusters = news.get("story_clusters", [])
+    if clusters:
+        lines.append("\n### News Clusters")
+        for cluster in clusters:
+            cluster_tickers = [t.get("ticker", "") for t in cluster.get("tickers", [])]
+            relevant = [t for t in cluster_tickers if t in tickers]
+            if not relevant:
+                continue
+            urgency = cluster.get("urgency", "normal")
+            event_type = cluster.get("event_type", "other")
+            headline = cluster.get("headline", "?")
+            lines.append(f"\n**[{event_type}, urgency={urgency}]** {headline}")
+            for fact in cluster.get("key_facts", [])[:4]:
+                lines.append(f"  - {fact}")
+            for t_info in cluster.get("tickers", []):
+                t = t_info.get("ticker", "")
+                if t in tickers:
+                    lines.append(f"  - **{t}**: {t_info.get('context', '')}")
+
+    lines.append(f"\n**Full ticker pool:** {', '.join(tickers)}")
+    return "\n".join(lines)
+
+
 SYSTEM_PROMPT = """\
 You are a senior macro strategist at a multi-strategy fund.
 You assess the current market regime, analyze yesterday's events, and produce sector tilts.
@@ -642,6 +723,8 @@ captures a sub-theme within the first. Not all of tech is the same.
 6. **Risks**: What could shift the regime? List 2-4 scenarios.
    - Reference upcoming catalysts — an FOMC meeting or CPI release this week is a concrete risk.
    - Reference 13F positioning — crowded trades that could unwind.
+
+{screening_instructions}
 
 ## Tools
 
@@ -759,11 +842,20 @@ async def analyze_macro(
     benchmark_context = _format_benchmark_context(benchmark_data)
     event_context = _format_event_context(upcoming, enriched_events, filing_briefs)
     themes_context = _format_macro_themes(state)
+    ticker_context = _format_ticker_pool(state)
+
+    has_tickers = bool(state.get("target_tickers"))
 
     # Build prompt
     user_prompt = "\n\n".join(
         section
-        for section in [fred_context, benchmark_context, event_context, themes_context]
+        for section in [
+            fred_context,
+            benchmark_context,
+            event_context,
+            themes_context,
+            ticker_context,
+        ]
         if section
     )
 
@@ -780,6 +872,9 @@ async def analyze_macro(
         system_prompt=SYSTEM_PROMPT.format(
             current_date=deps.current_date,
             search_docs=search.prompt_docs,
+            screening_instructions=(
+                _SCREENING_INSTRUCTIONS if has_tickers else _NO_SCREENING_INSTRUCTIONS
+            ),
         ),
         tools=tools,
         builtin_tools=search.builtin_tools,
@@ -802,6 +897,8 @@ async def analyze_macro(
         regime=output.regime,
         sentiment=output.sentiment_score,
         tilts=len(output.thematic_tilts),
+        screener_picks=len(output.screener_picks),
+        tickers_dropped=len(output.tickers_dropped),
     )
 
     if output.analysis_date != deps.current_date:

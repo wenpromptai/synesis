@@ -15,6 +15,7 @@ from synesis.processing.intelligence.context import (
     format_debate_history,
     format_news_context_for_ticker,
     format_price_context_for_ticker,
+    format_screener_context_for_ticker,
     format_social_context_for_ticker,
 )
 from synesis.processing.intelligence.graph import build_intelligence_graph
@@ -28,6 +29,7 @@ from synesis.processing.intelligence.models import (
     NewsEventType,
     NewsStoryCluster,
     PriceAnalysis,
+    ScreenedTicker,
     SocialSentimentAnalysis,
     TickerDebate,
     TickerMention,
@@ -1003,6 +1005,121 @@ class TestConsensusContext:
         assert "No consensus data" in result
 
 
+class TestScreenerModels:
+    """Tests for ScreenedTicker and MacroView screening fields."""
+
+    def test_screened_ticker_fields(self) -> None:
+        pick = ScreenedTicker(
+            ticker="AVGO",
+            thematic_angle="Custom ASIC displacing GPU for inference",
+            direction_lean="bullish",
+            signal_strength="Cross-signal: social + news, earnings in 2 weeks",
+            research_note="Channel checks show 3x order growth",
+        )
+        assert pick.ticker == "AVGO"
+        assert pick.direction_lean == "bullish"
+        assert not pick.is_wildcard
+
+    def test_screened_ticker_wildcard(self) -> None:
+        pick = ScreenedTicker(
+            ticker="MRVL",
+            thematic_angle="Custom silicon for inference",
+            direction_lean="bullish",
+            signal_strength="Connected to AI infra theme",
+            is_wildcard=True,
+        )
+        assert pick.is_wildcard
+
+    def test_macro_view_with_screener_picks(self) -> None:
+        view = MacroView(
+            regime="risk_on",
+            sentiment_score=0.5,
+            key_drivers=["AI capex"],
+            screener_picks=[
+                ScreenedTicker(
+                    ticker="AVGO",
+                    thematic_angle="Custom ASIC",
+                    direction_lean="bullish",
+                    signal_strength="Strong",
+                ),
+            ],
+            tickers_dropped=["NVDA"],
+            drop_reasons=["Stale consensus"],
+            analysis_date=date(2026, 4, 13),
+        )
+        assert len(view.screener_picks) == 1
+        assert view.tickers_dropped == ["NVDA"]
+
+    def test_macro_view_defaults_empty_screener(self) -> None:
+        view = MacroView(
+            regime="uncertain",
+            analysis_date=date(2026, 4, 13),
+        )
+        assert view.screener_picks == []
+        assert view.tickers_dropped == []
+
+
+class TestScreenerContext:
+    """Tests for format_screener_context_for_ticker."""
+
+    def test_returns_context_for_picked_ticker(self) -> None:
+        state = {
+            "screener_context": {
+                "selected": [
+                    {
+                        "ticker": "AVGO",
+                        "thematic_angle": "Custom ASIC play",
+                        "direction_lean": "bullish",
+                        "signal_strength": "Cross-signal confirmation",
+                        "research_note": "Channel checks positive",
+                    }
+                ],
+            }
+        }
+        result = format_screener_context_for_ticker(state, "AVGO")
+        assert "Screener Thesis Seed" in result
+        assert "Custom ASIC play" in result
+        assert "bullish" in result
+        assert "Channel checks positive" in result
+
+    def test_returns_empty_for_non_picked_ticker(self) -> None:
+        state = {
+            "screener_context": {
+                "selected": [
+                    {
+                        "ticker": "AVGO",
+                        "thematic_angle": "X",
+                        "direction_lean": "bullish",
+                        "signal_strength": "Y",
+                    }
+                ],
+            }
+        }
+        result = format_screener_context_for_ticker(state, "NVDA")
+        assert result == ""
+
+    def test_returns_empty_without_screener_context(self) -> None:
+        result = format_screener_context_for_ticker({}, "NVDA")
+        assert result == ""
+
+    def test_wildcard_flagged(self) -> None:
+        state = {
+            "screener_context": {
+                "selected": [
+                    {
+                        "ticker": "MRVL",
+                        "thematic_angle": "Custom silicon",
+                        "direction_lean": "bullish",
+                        "signal_strength": "Theme fit",
+                        "is_wildcard": True,
+                    }
+                ],
+            }
+        }
+        result = format_screener_context_for_ticker(state, "MRVL")
+        assert "wildcard" in result
+
+
 class TestTickerDebateVariantFields:
     """Tests for TickerDebate variant perception fields."""
 
@@ -1300,6 +1417,126 @@ class TestBriefMarkdownNewFields:
         assert "July 24" in md
         assert "TSMC miss" in md
         assert "Margins compress from 75% to 70%" in md
+
+
+class TestCompilerScreener:
+    """Tests for screener section in compiled brief."""
+
+    def test_screener_included_in_brief(self) -> None:
+        state = {
+            "current_date": "2026-04-13",
+            "social_analysis": {},
+            "news_analysis": {},
+            "company_analyses": [],
+            "price_analyses": [],
+            "bull_analyses": [],
+            "bear_analyses": [],
+            "trade_ideas": [],
+            "macro_view": {},
+            "l1_tickers": ["NVDA", "AMD", "AVGO"],
+            "screener_context": {
+                "selected": [
+                    {
+                        "ticker": "AVGO",
+                        "thematic_angle": "Custom ASIC",
+                        "direction_lean": "bullish",
+                    },
+                ],
+                "themes": ["AI infrastructure"],
+                "dropped": ["NVDA", "AMD"],
+                "drop_reasons": ["Stale consensus", "No catalyst"],
+            },
+        }
+        brief = compile_brief(state)
+        assert brief["screener"]["l1_tickers"] == ["NVDA", "AMD", "AVGO"]
+        assert len(brief["screener"]["selected"]) == 1
+        assert brief["screener"]["selected"][0]["ticker"] == "AVGO"
+        assert brief["screener"]["dropped"] == ["NVDA", "AMD"]
+
+    def test_screener_empty_without_context(self) -> None:
+        state = {
+            "current_date": "2026-04-13",
+            "social_analysis": {},
+            "news_analysis": {},
+            "company_analyses": [],
+            "price_analyses": [],
+            "bull_analyses": [],
+            "bear_analyses": [],
+            "trade_ideas": [],
+            "macro_view": {},
+        }
+        brief = compile_brief(state)
+        assert brief["screener"]["l1_tickers"] == []
+        assert brief["screener"]["selected"] == []
+
+
+class TestMarkdownScreener:
+    """Tests for screener section in format_brief_as_markdown."""
+
+    def test_screener_section_in_markdown(self) -> None:
+        brief = {
+            "date": "2026-04-13",
+            "macro": {"regime": "risk_on", "sentiment_score": 0.5},
+            "screener": {
+                "l1_tickers": ["NVDA", "AMD", "AVGO"],
+                "selected": [
+                    {
+                        "ticker": "AVGO",
+                        "thematic_angle": "Custom ASIC play",
+                        "direction_lean": "bullish",
+                        "is_wildcard": False,
+                    },
+                ],
+                "themes": ["AI infrastructure"],
+                "dropped": ["NVDA", "AMD"],
+                "drop_reasons": ["Stale consensus", "No catalyst"],
+            },
+            "debates": [],
+            "l1_summary": {},
+            "tickers_analyzed": ["AVGO"],
+            "company_analyses": [],
+            "price_analyses": [],
+            "macro_themes": [],
+            "ticker_mentions": {"social": [], "news_clusters": []},
+            "messages_analyzed": 0,
+            "trade_ideas": [],
+            "portfolio_note": "",
+            "errors": {},
+        }
+        md = format_brief_as_markdown(brief)
+        assert "## Screener" in md
+        assert "3 tickers from Layer 1" in md
+        assert "1 for deep analysis" in md
+        assert "AVGO" in md
+        assert "Custom ASIC play" in md
+        assert "NVDA" in md
+        assert "Stale consensus" in md
+
+    def test_no_screener_section_without_data(self) -> None:
+        brief = {
+            "date": "2026-04-13",
+            "macro": {"regime": "uncertain", "sentiment_score": 0.0},
+            "screener": {
+                "l1_tickers": [],
+                "selected": [],
+                "themes": [],
+                "dropped": [],
+                "drop_reasons": [],
+            },
+            "debates": [],
+            "l1_summary": {},
+            "tickers_analyzed": [],
+            "company_analyses": [],
+            "price_analyses": [],
+            "macro_themes": [],
+            "ticker_mentions": {"social": [], "news_clusters": []},
+            "messages_analyzed": 0,
+            "trade_ideas": [],
+            "portfolio_note": "",
+            "errors": {},
+        }
+        md = format_brief_as_markdown(brief)
+        assert "## Screener" not in md
 
 
 def _trader_output(tickers: list[str]) -> TraderOutput:

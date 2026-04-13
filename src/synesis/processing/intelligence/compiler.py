@@ -9,11 +9,32 @@ knowledge graph at `docs/kg/raw/synesis_briefs/`.
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, cast
 
 from synesis.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# OpenAI web search leaks internal reference tokens like
+# "citeturn0search12turn0search0turn0search13" into responses.
+_LLM_ARTIFACT_RE = re.compile(r"(?:cite)?turn\d+search\d+(?:turn\d+search\d+)*")
+
+
+def _strip_llm_artifacts(text: str) -> str:
+    """Strip broken OpenAI web search reference tokens from text."""
+    return _LLM_ARTIFACT_RE.sub("", text).strip()
+
+
+def _sanitize_brief(obj: Any) -> Any:
+    """Recursively strip LLM artifacts from all strings in a brief dict."""
+    if isinstance(obj, str):
+        return _strip_llm_artifacts(obj)
+    if isinstance(obj, list):
+        return [_sanitize_brief(item) for item in obj]
+    if isinstance(obj, dict):
+        return {k: _sanitize_brief(v) for k, v in obj.items()}
+    return obj
 
 
 def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
@@ -33,6 +54,7 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
     prices = state.get("price_analyses", [])
     valid_prices = [p for p in prices if not p.get("error")]
     macro = state.get("macro_view", {})
+    screener_ctx = state.get("screener_context", {})
     trade_ideas_raw = state.get("trade_ideas", [])
     valid_trade_ideas = [t for t in trade_ideas_raw if not t.get("error")]
     portfolio_note = state.get("portfolio_note", "")
@@ -82,61 +104,80 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
             portfolio_note_preview=portfolio_note[:200] if portfolio_note else "(empty)",
         )
 
-    return {
-        "date": state.get("current_date", ""),
-        # Macro regime
-        "macro": {
-            "regime": macro.get("regime", "uncertain"),
-            "sentiment_score": macro.get("sentiment_score", 0.0),
-            "key_drivers": macro.get("key_drivers", []),
-            "thematic_tilts": macro.get("thematic_tilts", []),
-            "event_analysis": macro.get("event_analysis", ""),
-            "positioning_signals": macro.get("positioning_signals", ""),
-            "risks": macro.get("risks", []),
-        },
-        # Debates per ticker (bull + bear arguments)
-        "debates": debates,
-        # Layer 1 summaries
-        "l1_summary": {
-            "social": social.get("summary", ""),
-            "news": news.get("summary", ""),
-        },
-        # Supporting context
-        "tickers_analyzed": [c["ticker"] for c in valid_companies if "ticker" in c],
-        "company_analyses": valid_companies,
-        "price_analyses": valid_prices,
-        "macro_themes": social.get("macro_themes", []) + news.get("macro_themes", []),
-        "ticker_mentions": {
-            "social": social.get("ticker_mentions", []),
-            "news_clusters": news.get("story_clusters", []),
-        },
-        "messages_analyzed": news.get("messages_analyzed", 0),
-        # Trade ideas from Trader
-        "trade_ideas": valid_trade_ideas,
-        "portfolio_note": portfolio_note,
-        # Pipeline errors (for downstream visibility)
-        "errors": {
-            "social_failed": social.get("error", False),
-            "news_failed": news.get("error", False),
-            "company_failures": [
-                c["ticker"] for c in companies if c.get("error") and "ticker" in c
-            ],
-            "price_failures": [p["ticker"] for p in prices if p.get("error") and "ticker" in p],
-            "bull_failures": [
-                item["ticker"] for item in bull_analyses if item.get("error") and "ticker" in item
-            ],
-            "bear_failures": [
-                item["ticker"] for item in bear_analyses if item.get("error") and "ticker" in item
-            ],
-            "macro_failed": macro.get("error", False),
-            "trader_failures": [
-                t
-                for item in trade_ideas_raw
-                if item.get("error") and "tickers" in item
-                for t in item["tickers"]
-            ],
-        },
-    }
+    return cast(
+        dict[str, Any],
+        _sanitize_brief(
+            {
+                "date": state.get("current_date", ""),
+                # Macro regime
+                "macro": {
+                    "regime": macro.get("regime", "uncertain"),
+                    "sentiment_score": macro.get("sentiment_score", 0.0),
+                    "key_drivers": macro.get("key_drivers", []),
+                    "thematic_tilts": macro.get("thematic_tilts", []),
+                    "event_analysis": macro.get("event_analysis", ""),
+                    "positioning_signals": macro.get("positioning_signals", ""),
+                    "risks": macro.get("risks", []),
+                },
+                # Screener (ticker screening from MacroStrategist)
+                "screener": {
+                    "l1_tickers": state.get("l1_tickers", []),
+                    "selected": screener_ctx.get("selected", []),
+                    "themes": screener_ctx.get("themes", []),
+                    "dropped": screener_ctx.get("dropped", []),
+                    "drop_reasons": screener_ctx.get("drop_reasons", []),
+                },
+                # Debates per ticker (bull + bear arguments)
+                "debates": debates,
+                # Layer 1 summaries
+                "l1_summary": {
+                    "social": social.get("summary", ""),
+                    "news": news.get("summary", ""),
+                },
+                # Supporting context
+                "tickers_analyzed": [c["ticker"] for c in valid_companies if "ticker" in c],
+                "company_analyses": valid_companies,
+                "price_analyses": valid_prices,
+                "macro_themes": social.get("macro_themes", []) + news.get("macro_themes", []),
+                "ticker_mentions": {
+                    "social": social.get("ticker_mentions", []),
+                    "news_clusters": news.get("story_clusters", []),
+                },
+                "messages_analyzed": news.get("messages_analyzed", 0),
+                # Trade ideas from Trader
+                "trade_ideas": valid_trade_ideas,
+                "portfolio_note": portfolio_note,
+                # Pipeline errors (for downstream visibility)
+                "errors": {
+                    "social_failed": social.get("error", False),
+                    "news_failed": news.get("error", False),
+                    "company_failures": [
+                        c["ticker"] for c in companies if c.get("error") and "ticker" in c
+                    ],
+                    "price_failures": [
+                        p["ticker"] for p in prices if p.get("error") and "ticker" in p
+                    ],
+                    "bull_failures": [
+                        item["ticker"]
+                        for item in bull_analyses
+                        if item.get("error") and "ticker" in item
+                    ],
+                    "bear_failures": [
+                        item["ticker"]
+                        for item in bear_analyses
+                        if item.get("error") and "ticker" in item
+                    ],
+                    "macro_failed": macro.get("error", False),
+                    "trader_failures": [
+                        t
+                        for item in trade_ideas_raw
+                        if item.get("error") and "tickers" in item
+                        for t in item["tickers"]
+                    ],
+                },
+            }
+        ),
+    )
 
 
 def format_brief_as_markdown(brief: dict[str, Any]) -> str:
@@ -199,6 +240,39 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
     lines.append("")
 
     # Trade ideas
+    # Screener
+    screener = brief.get("screener", {})
+    l1_pool = screener.get("l1_tickers", [])
+    screener_picks = screener.get("selected", [])
+    if l1_pool or screener_picks:
+        lines.append("## Screener")
+        lines.append(f"**Signal pool:** {len(l1_pool)} tickers from Layer 1")
+        lines.append(f"**Selected:** {len(screener_picks)} for deep analysis")
+        themes = screener.get("themes", [])
+        if themes:
+            lines.append(f"**Themes:** {', '.join(themes)}")
+        lines.append("")
+        if screener_picks:
+            lines.append("### Selected")
+            for pick in screener_picks:
+                direction = pick.get("direction_lean", "?")
+                wildcard = " (wildcard)" if pick.get("is_wildcard") else ""
+                lines.append(
+                    f"- **{pick.get('ticker', '?')}** ({direction}{wildcard}) — "
+                    f"{pick.get('thematic_angle', '')}"
+                )
+                if pick.get("research_note"):
+                    lines.append(f"  {pick['research_note']}")
+            lines.append("")
+        dropped = screener.get("dropped", [])
+        drop_reasons = screener.get("drop_reasons", [])
+        if dropped:
+            lines.append("### Dropped")
+            for i, ticker in enumerate(dropped):
+                reason = drop_reasons[i] if i < len(drop_reasons) else ""
+                lines.append(f"- {ticker} — {reason}")
+            lines.append("")
+
     if trade_ideas:
         lines.append("## Trade Ideas")
         lines.append("")

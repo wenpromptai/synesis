@@ -122,6 +122,48 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
             }
         )
 
+    # ── Screener embed ──────────────────────────────────────────
+    screener = brief.get("screener", {})
+    screener_picks = screener.get("selected", [])
+    l1_pool = screener.get("l1_tickers", [])
+    if screener_picks:
+        pick_lines = []
+        for pick in screener_picks:
+            direction = pick.get("direction_lean", "?")
+            emoji = "\U0001f7e2" if direction == "bullish" else "\U0001f534"
+            wildcard = " \u26a1 wildcard" if pick.get("is_wildcard") else ""
+            line = f"{emoji} **{pick.get('ticker', '?')}** \u2014 {pick.get('thematic_angle', '')}{wildcard}"
+            note = pick.get("signal_strength", "")
+            if note:
+                line += f"\n   {note}"
+            pick_lines.append(line)
+
+        screener_fields: list[dict[str, Any]] = [
+            {"name": "Selected", "value": "\n".join(pick_lines)[:1024], "inline": False}
+        ]
+
+        dropped = screener.get("dropped", [])
+        drop_reasons = screener.get("drop_reasons", [])
+        if dropped:
+            drop_parts = []
+            for i, t in enumerate(dropped):
+                reason = drop_reasons[i] if i < len(drop_reasons) else ""
+                drop_parts.append(f"{t} ({reason})" if reason else t)
+            screener_fields.append(
+                {"name": "Dropped", "value": ", ".join(drop_parts)[:1024], "inline": False}
+            )
+
+        themes = screener.get("themes", [])
+        title_str = f"\U0001f4cb Screener \u2014 {len(screener_picks)} of {len(l1_pool)} tickers"
+        screener_embed: dict[str, Any] = {
+            "title": title_str,
+            "color": color,
+            "fields": screener_fields,
+        }
+        if themes:
+            screener_embed["description"] = " | ".join(themes[:5])
+        embeds.append(screener_embed)
+
     # ── Per-ticker Debate embeds ────────────────────────────────
     debates = brief.get("debates", [])
     trade_ideas = brief.get("trade_ideas", [])

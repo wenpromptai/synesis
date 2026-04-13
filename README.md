@@ -62,7 +62,7 @@ src/synesis/
 │   ├── intelligence/  # LangGraph multi-agent pipeline (daily briefs)
 │   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
-│   ├── market/        # Market movers: daily snapshot + top movers + diary
+│   ├── market/        # Market movers: daily snapshot + top movers
 │   ├── events/        # Event radar: forward-looking calendar digest
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data providers
@@ -85,8 +85,8 @@ src/synesis/
 Daily LangGraph state machine (9:00 AM SGT / 1:00 AM UTC) that transforms social/news signals into structured trade ideas:
 
 ```
-social_sentiment + news_analyst → extract_tickers → company + price + macro (parallel)
-→ bull/bear debate (configurable rounds) → Trader → compiler → Discord + KG brief
+social_sentiment + news_analyst → extract_tickers → MacroStrategist (regime + screen top 5)
+→ company + price (parallel) → bull/bear debate → Trader (equity R/R) → Discord + KG + tracking
 ```
 
 Each pipeline run auto-saves a markdown brief to `docs/kg/raw/synesis_briefs/` for knowledge graph compilation. See `docs/ARCHITECTURE.md` for full details.

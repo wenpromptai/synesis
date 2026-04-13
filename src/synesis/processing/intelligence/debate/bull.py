@@ -27,6 +27,7 @@ from synesis.processing.intelligence.context import (
     format_debate_history,
     format_news_context_for_ticker,
     format_price_context_for_ticker,
+    format_screener_context_for_ticker,
     format_social_context_for_ticker,
 )
 from synesis.processing.intelligence.models import TickerDebate
@@ -166,14 +167,21 @@ async def research_bull(
     deps = BullResearcherDeps(current_date=current_date)
 
     # Build prompt from per-ticker context (no macro — deferred to Trader)
+    screener_ctx = format_screener_context_for_ticker(state, ticker)
     prompt_parts = [
         f"## Ticker: {ticker}",
         format_consensus_context_for_ticker(state, ticker),
-        format_social_context_for_ticker(state, ticker),
-        format_news_context_for_ticker(state, ticker),
-        format_company_context_for_ticker(state, ticker),
-        format_price_context_for_ticker(state, ticker),
     ]
+    if screener_ctx:
+        prompt_parts.append(screener_ctx)
+    prompt_parts.extend(
+        [
+            format_social_context_for_ticker(state, ticker),
+            format_news_context_for_ticker(state, ticker),
+            format_company_context_for_ticker(state, ticker),
+            format_price_context_for_ticker(state, ticker),
+        ]
+    )
     if history:
         prompt_parts.append(format_debate_history(history))
     user_prompt = "\n\n".join(prompt_parts)

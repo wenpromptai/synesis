@@ -27,6 +27,12 @@ class IntelligenceState(TypedDict):
     # Ticker extraction (deterministic)
     target_tickers: list[str]
 
+    # Pre-screening ticker pool (preserved for brief visibility)
+    l1_tickers: list[str]
+
+    # Screener output (thematic context for downstream debate agents)
+    screener_context: dict[str, Any]
+
     # Layer 2 outputs (multiple parallel writers via Send, needs reducer)
     company_analyses: Annotated[list[dict[str, Any]], add]
     price_analyses: Annotated[list[dict[str, Any]], add]

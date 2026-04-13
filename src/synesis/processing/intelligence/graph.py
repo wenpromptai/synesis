@@ -3,9 +3,9 @@
 Builds a compiled StateGraph that orchestrates:
   Layer 1: SocialSentiment + News (parallel signal discovery)
   → extract_tickers (deterministic)
-  → Layer 2 + Macro (ALL parallel via Send):
-      CompanyAnalyst (per ticker) | PriceAnalyst (per ticker) | MacroStrategist
-  → l2_join (defer=True, waits for all Layer 2 + Macro)
+  → MacroStrategist (regime assessment + ticker screening, max 5 picks)
+  → Layer 2 (CompanyAnalyst + PriceAnalyst per screened ticker, parallel via Send)
+  → l2_join (defer=True, waits for all Layer 2)
   → Layer 3 (configurable via DEBATE_ROUNDS):
       rounds=0: BullResearcher | BearResearcher (parallel, no debate)
       rounds≥1: TickerDebate subgraph per ticker (bull ⇄ bear loop)
@@ -136,23 +136,30 @@ def build_intelligence_graph(
 
         target = sorted(tickers)
         logger.info("Tickers extracted", count=len(target), tickers=target)
-        return {"target_tickers": target}
+        return {"target_tickers": target, "l1_tickers": target}
 
     # ── Layer 2 Fan-Out Router ───────────────────────────────────
 
-    def route_to_L2(state: IntelligenceState) -> list[Send]:  # noqa: N802
-        """Fan-out: CompanyAnalyst + PriceAnalyst per ticker + MacroStrategist, all parallel."""
-        tickers = state.get("target_tickers", [])
-        sends: list[Send] = []
+    def route_to_L2(state: IntelligenceState) -> list[Send] | str:  # noqa: N802
+        """Fan-out: CompanyAnalyst + PriceAnalyst per ticker (after macro screening).
 
-        # MacroStrategist always runs (only needs FRED + Layer 1 themes)
-        sends.append(Send("macro_strategist", state))
+        Returns "compiler" if no tickers to skip the entire analysis pipeline.
+        """
+        tickers = state.get("target_tickers", [])
+        macro = state.get("macro_view", {})
 
         if not tickers:
-            logger.info("No tickers to analyze — macro only")
-            return sends
+            logger.info("No tickers to analyze after screening — skipping to compiler")
+            return "compiler"
+
+        if macro.get("error") and tickers:
+            logger.warning(
+                "Macro failed — using unscreened L1 tickers as fallback",
+                count=len(tickers),
+            )
 
         logger.info("Routing to Layer 2", tickers=tickers)
+        sends: list[Send] = []
         for t in tickers:
             sends.append(Send("company_analyst", {**state, "ticker": t}))
             sends.append(Send("price_analyst", {**state, "ticker": t}))
@@ -199,10 +206,10 @@ def build_intelligence_graph(
             logger.exception("PriceAnalyst failed", ticker=ticker)
             return {"price_analyses": [{"ticker": ticker, "error": True}]}
 
-    # ── MacroStrategist (parallel with Layer 2) ──────────────────
+    # ── MacroStrategist (runs before Layer 2 — regime + screening) ──
 
     async def macro_strategist_node(state: IntelligenceState) -> dict[str, Any]:
-        """Run MacroStrategist — assess regime from FRED data + Layer 1 themes."""
+        """Run MacroStrategist — regime assessment + ticker screening."""
         try:
             from synesis.config import get_settings
 
@@ -221,8 +228,28 @@ def build_intelligence_graph(
                 current_date=current,
             )
             result = await analyze_macro(dict(state), deps)
+            data = result.model_dump(mode="json")
             logger.info("MacroStrategist complete", regime=result.regime)
-            return {"macro_view": result.model_dump(mode="json")}
+
+            output: dict[str, Any] = {"macro_view": data}
+
+            # Overwrite target_tickers with screener picks + save context
+            if result.screener_picks:
+                screened = [p.ticker for p in result.screener_picks]
+                output["target_tickers"] = screened
+                output["screener_context"] = {
+                    "selected": [p.model_dump(mode="json") for p in result.screener_picks],
+                    "themes": [t.theme for t in result.thematic_tilts],
+                    "dropped": result.tickers_dropped,
+                    "drop_reasons": result.drop_reasons,
+                }
+                logger.info(
+                    "Screener picks",
+                    selected=screened,
+                    dropped=result.tickers_dropped,
+                )
+
+            return output
         except Exception:
             logger.exception("MacroStrategist failed", date=state.get("current_date"))
             return {"macro_view": {"error": True}}
@@ -309,6 +336,7 @@ def build_intelligence_graph(
                 "news_analysis": state.get("news_analysis", {}),
                 "company_analyses": state.get("company_analyses", []),
                 "price_analyses": state.get("price_analyses", []),
+                "screener_context": state.get("screener_context", {}),
                 "debate_history": [],
                 "round": 0,
                 "max_rounds": rounds,
@@ -437,13 +465,18 @@ def build_intelligence_graph(
     graph.add_edge("social_sentiment", "extract_tickers")
     graph.add_edge("news_analyst", "extract_tickers")
 
-    # Dynamic fan-out: Layer 2 analysts + MacroStrategist (all parallel)
-    graph.add_conditional_edges("extract_tickers", route_to_L2)
+    # MacroStrategist: regime assessment + ticker screening (runs before Layer 2)
+    graph.add_edge("extract_tickers", "macro_strategist")
 
-    # Join: all Layer 2 + Macro feed into l2_join (defer waits for all)
+    # Dynamic fan-out: CompanyAnalyst + PriceAnalyst per screened ticker
+    # Falls through to "compiler" if no tickers after screening
+    graph.add_conditional_edges(
+        "macro_strategist", route_to_L2, ["company_analyst", "price_analyst", "compiler"]
+    )
+
+    # Join: all Layer 2 analysts feed into l2_join (defer waits for all)
     graph.add_edge("company_analyst", "l2_join")
     graph.add_edge("price_analyst", "l2_join")
-    graph.add_edge("macro_strategist", "l2_join")
 
     # Layer 3: route to debate (rounds>=1) or parallel bull/bear (rounds=0)
     graph.add_conditional_edges(
