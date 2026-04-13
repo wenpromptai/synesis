@@ -13,6 +13,7 @@ from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
 from synesis.providers.finnhub.prices import FinnhubPriceProvider, get_price_service
 from synesis.providers.finnhub.ticker import FinnhubTickerProvider
 from synesis.providers.fred import FREDClient
+from synesis.providers.massive.client import MassiveClient
 from synesis.providers.nasdaq import NasdaqClient
 from synesis.providers.sec_edgar import SECEdgarClient
 from synesis.providers.yfinance import YFinanceClient
@@ -28,6 +29,7 @@ _nasdaq_client: NasdaqClient | None = None
 _yfinance_client: YFinanceClient | None = None
 _crawler: Crawl4AICrawlerProvider | None = None
 _fred_client: FREDClient | None = None
+_massive_client: MassiveClient | None = None
 _ticker_provider: FinnhubTickerProvider | None = None
 
 
@@ -103,6 +105,17 @@ async def get_fred_client(redis: Redis = Depends(get_redis)) -> FREDClient:
     return _fred_client
 
 
+async def get_massive_client(redis: Redis = Depends(get_redis)) -> MassiveClient | None:
+    """Get or create singleton MassiveClient. Returns None if no API key."""
+    global _massive_client
+    if _massive_client is None:
+        settings = get_settings()
+        if settings.massive_api_key is None:
+            return None
+        _massive_client = MassiveClient(redis=redis)
+    return _massive_client
+
+
 def get_crawler() -> Crawl4AICrawlerProvider:
     """Get or create singleton Crawl4AI crawler."""
     global _crawler
@@ -121,4 +134,5 @@ NasdaqClientDep = Annotated[NasdaqClient, Depends(get_nasdaq_client)]
 YFinanceClientDep = Annotated[YFinanceClient, Depends(get_yfinance_client)]
 TickerProviderDep = Annotated[FinnhubTickerProvider, Depends(get_ticker_provider)]
 FREDClientDep = Annotated[FREDClient, Depends(get_fred_client)]
+MassiveClientDep = Annotated[MassiveClient | None, Depends(get_massive_client)]
 Crawl4AICrawlerDep = Annotated[Crawl4AICrawlerProvider, Depends(get_crawler)]

@@ -1,29 +1,17 @@
-"""LangGraph pipeline builder for the daily intelligence pipeline.
+"""LangGraph pipeline builders for the intelligence system.
 
-Builds a compiled StateGraph that orchestrates:
-  Layer 1: SocialSentiment + News (parallel signal discovery)
-  → extract_tickers (deterministic)
-  → MacroStrategist (regime assessment + ticker screening, max 5 picks)
-  → Layer 2 (CompanyAnalyst + PriceAnalyst per screened ticker, parallel via Send)
-  → l2_join (defer=True, waits for all Layer 2)
-  → Layer 3 (configurable via DEBATE_ROUNDS):
-      rounds=0: BullResearcher | BearResearcher (parallel, no debate)
-      rounds≥1: TickerDebate subgraph per ticker (bull ⇄ bear loop)
-  → trader_gate (defer=True, waits for all debate output)
-  → Trader (configurable via TRADER_MODE):
-      per_ticker: one Send per ticker
-      portfolio: single Send with all tickers
-  → Compiler (defer=True)
+Two separate graphs:
 
-Provider clients (DB, SEC EDGAR, yfinance, FRED, crawler) are captured via
-closure — they never appear in state (not serializable).
+1. **Scan Graph** (daily scheduled):
+   Social + News (parallel) → extract_tickers → MacroStrategist → scan_compiler
+   Outputs macro regime, thematic tilts, and watchlist tickers for Discord.
 
-Usage:
-    graph = build_intelligence_graph(db, sec_edgar, yfinance, fred, crawler)
-    result = await graph.ainvoke(
-        {"current_date": "2026-04-06", ...},
-        config={"recursion_limit": 50},
-    )
+2. **Analyze Graph** (on-demand POST endpoint):
+   Input tickers → CompanyAnalyst + PriceAnalyst (parallel per ticker via Send)
+   → debate (bull/bear) → Trader → analyze_compiler
+   Returns trade ideas as JSON + saves to KG.
+
+Provider clients are captured via closure — never serialized in state.
 """
 
 from __future__ import annotations
@@ -34,26 +22,32 @@ from typing import TYPE_CHECKING, Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from synesis.config import get_settings
 from synesis.core.logging import get_logger
-from synesis.processing.intelligence.compiler import compile_brief
+from synesis.processing.intelligence.compiler import compile_brief, compile_scan_brief
 from synesis.processing.intelligence.debate.bear import research_bear
 from synesis.processing.intelligence.debate.bull import research_bull
 from synesis.processing.intelligence.debate.subgraph import build_debate_subgraph
-from synesis.processing.intelligence.trader.trader import (
-    analyze_trade_per_ticker,
-    analyze_trade_portfolio,
-)
 from synesis.processing.intelligence.specialists.company import CompanyDeps, analyze_company
 from synesis.processing.intelligence.specialists.news import NewsDeps, analyze_news
 from synesis.processing.intelligence.specialists.price import PriceDeps, analyze_price
+from synesis.ingestion.twitterapi import TwitterClient
+from synesis.processing.intelligence.specialists.ticker_research import (
+    TickerResearchDeps,
+    analyze_ticker_research,
+)
 from synesis.processing.intelligence.specialists.social_sentiment import (
     SocialSentimentDeps,
     analyze_social_sentiment,
 )
-from synesis.processing.intelligence.state import IntelligenceState
+from synesis.processing.intelligence.state import AnalyzeState, ScanState
 from synesis.processing.intelligence.strategists.macro import (
     MacroStrategistDeps,
     analyze_macro,
+)
+from synesis.processing.intelligence.trader.trader import (
+    analyze_trade_per_ticker,
+    analyze_trade_portfolio,
 )
 
 if TYPE_CHECKING:
@@ -67,24 +61,25 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def build_intelligence_graph(
+# ═══════════════════════════════════════════════════════════════════
+#  Scan Graph — daily signal discovery + macro regime + watchlist
+# ═══════════════════════════════════════════════════════════════════
+
+
+def build_scan_graph(
     db: "Database",
     sec_edgar: "SECEdgarClient",
     yfinance: "YFinanceClient",
     fred: "FREDClient | None" = None,
-    massive: "MassiveClient | None" = None,
     crawler: "Crawl4AICrawlerProvider | None" = None,
 ) -> Any:
-    """Build the intelligence pipeline graph. Call once at startup.
+    """Build the daily scan pipeline graph.
 
-    Provider clients are captured via closure so they never appear in
-    serializable state. The compiled graph is reusable for each daily run.
+    START → social_sentiment + news_analyst (parallel)
+      → extract_tickers → macro_strategist → scan_compiler → END
     """
 
-    # ── Layer 1 (parallel signal discovery) ──────────────────────
-
-    async def social_sentiment_node(state: IntelligenceState) -> dict[str, Any]:
-        """Run SocialSentimentAnalyst on recent tweets."""
+    async def social_sentiment_node(state: ScanState) -> dict[str, Any]:
         logger.info("SocialSentimentAnalyst starting")
         try:
             current = date.fromisoformat(state["current_date"])
@@ -100,8 +95,7 @@ def build_intelligence_graph(
             logger.exception("SocialSentimentAnalyst failed", date=state.get("current_date"))
             return {"social_analysis": {"error": True}}
 
-    async def news_analyst_node(state: IntelligenceState) -> dict[str, Any]:
-        """Run NewsAnalyst on recent pre-scored messages."""
+    async def news_analyst_node(state: ScanState) -> dict[str, Any]:
         logger.info("NewsAnalyst starting")
         try:
             current = date.fromisoformat(state["current_date"])
@@ -117,102 +111,27 @@ def build_intelligence_graph(
             logger.exception("NewsAnalyst failed", date=state.get("current_date"))
             return {"news_analysis": {"error": True}}
 
-    # ── Ticker Extraction (deterministic) ────────────────────────
-
-    async def extract_tickers_node(state: IntelligenceState) -> dict[str, Any]:
-        """Collect all unique tickers from Layer 1 outputs."""
-        tickers: set[str] = set()
-
-        social = state.get("social_analysis", {})
-        for mention in social.get("ticker_mentions", []):
-            if mention.get("ticker"):
-                tickers.add(mention["ticker"])
-
-        news = state.get("news_analysis", {})
-        for cluster in news.get("story_clusters", []):
-            for mention in cluster.get("tickers", []):
+    async def extract_tickers_node(state: ScanState) -> dict[str, Any]:
+        try:
+            tickers: set[str] = set()
+            social = state.get("social_analysis", {})
+            for mention in social.get("ticker_mentions", []):
                 if mention.get("ticker"):
                     tickers.add(mention["ticker"])
-
-        target = sorted(tickers)
-        logger.info("Tickers extracted", count=len(target), tickers=target)
-        return {"target_tickers": target, "l1_tickers": target}
-
-    # ── Layer 2 Fan-Out Router ───────────────────────────────────
-
-    def route_to_L2(state: IntelligenceState) -> list[Send] | str:  # noqa: N802
-        """Fan-out: CompanyAnalyst + PriceAnalyst per ticker (after macro screening).
-
-        Returns "compiler" if no tickers to skip the entire analysis pipeline.
-        """
-        tickers = state.get("target_tickers", [])
-        macro = state.get("macro_view", {})
-
-        if not tickers:
-            logger.info("No tickers to analyze after screening — skipping to compiler")
-            return "compiler"
-
-        if macro.get("error") and tickers:
-            logger.warning(
-                "Macro failed — using unscreened L1 tickers as fallback",
-                count=len(tickers),
-            )
-
-        logger.info("Routing to Layer 2", tickers=tickers)
-        sends: list[Send] = []
-        for t in tickers:
-            sends.append(Send("company_analyst", {**state, "ticker": t}))
-            sends.append(Send("price_analyst", {**state, "ticker": t}))
-        return sends
-
-    # ── Layer 2: Company Analyst (per-ticker via Send) ───────────
-
-    async def company_analyst_node(state: dict[str, Any]) -> dict[str, Any]:
-        """Run CompanyAnalyst for a single ticker. Called via Send."""
-        ticker = state["ticker"]
-        current = date.fromisoformat(state["current_date"])
-        deps = CompanyDeps(
-            sec_edgar=sec_edgar,
-            yfinance=yfinance,
-            crawler=crawler,
-            current_date=current,
-        )
-        logger.info("CompanyAnalyst starting", ticker=ticker)
-        try:
-            result = await analyze_company(ticker, deps)
-            logger.info("CompanyAnalyst complete", ticker=ticker)
-            return {"company_analyses": [result.model_dump(mode="json")]}
+            news = state.get("news_analysis", {})
+            for cluster in news.get("story_clusters", []):
+                for mention in cluster.get("tickers", []):
+                    if mention.get("ticker"):
+                        tickers.add(mention["ticker"])
+            target = sorted(tickers)
+            logger.info("Tickers extracted", count=len(target), tickers=target)
+            return {"target_tickers": target, "l1_tickers": target}
         except Exception:
-            logger.exception("CompanyAnalyst failed", ticker=ticker)
-            return {"company_analyses": [{"ticker": ticker, "error": True}]}
+            logger.exception("Ticker extraction failed")
+            return {"target_tickers": [], "l1_tickers": []}
 
-    # ── Layer 2: Price Analyst (per-ticker via Send) ─────────────
-
-    async def price_analyst_node(state: dict[str, Any]) -> dict[str, Any]:
-        """Run PriceAnalyst for a single ticker. Called via Send.
-
-        yfinance calls are unlimited. Massive calls (up to 3 per ticker) are
-        rate-limited by the MassiveClient's built-in token bucket.
-        """
-        ticker = state["ticker"]
-        current = date.fromisoformat(state["current_date"])
-        deps = PriceDeps(yfinance=yfinance, massive=massive, current_date=current)
-        logger.info("PriceAnalyst starting", ticker=ticker)
+    async def macro_strategist_node(state: ScanState) -> dict[str, Any]:
         try:
-            result = await analyze_price(ticker, deps)
-            logger.info("PriceAnalyst complete", ticker=ticker)
-            return {"price_analyses": [result.model_dump(mode="json")]}
-        except Exception:
-            logger.exception("PriceAnalyst failed", ticker=ticker)
-            return {"price_analyses": [{"ticker": ticker, "error": True}]}
-
-    # ── MacroStrategist (runs before Layer 2 — regime + screening) ──
-
-    async def macro_strategist_node(state: IntelligenceState) -> dict[str, Any]:
-        """Run MacroStrategist — regime assessment + ticker screening."""
-        try:
-            from synesis.config import get_settings
-
             current = date.fromisoformat(state["current_date"])
             if not get_settings().macro_strategist_enabled or fred is None:
                 logger.info("MacroStrategist disabled or FRED unavailable — skipping")
@@ -233,19 +152,17 @@ def build_intelligence_graph(
 
             output: dict[str, Any] = {"macro_view": data}
 
-            # Overwrite target_tickers with screener picks + save context
-            if result.screener_picks:
-                screened = [p.ticker for p in result.screener_picks]
-                output["target_tickers"] = screened
-                output["screener_context"] = {
-                    "selected": [p.model_dump(mode="json") for p in result.screener_picks],
+            # Save watchlist context (all picks — no culling)
+            if result.watchlist_picks:
+                output["watchlist_context"] = {
+                    "selected": [p.model_dump(mode="json") for p in result.watchlist_picks],
                     "themes": [t.theme for t in result.thematic_tilts],
                     "dropped": result.tickers_dropped,
                     "drop_reasons": result.drop_reasons,
                 }
                 logger.info(
-                    "Screener picks",
-                    selected=screened,
+                    "Watchlist",
+                    tickers=[p.ticker for p in result.watchlist_picks],
                     dropped=result.tickers_dropped,
                 )
 
@@ -254,43 +171,161 @@ def build_intelligence_graph(
             logger.exception("MacroStrategist failed", date=state.get("current_date"))
             return {"macro_view": {"error": True}}
 
-    # ── Layer 2 Join (waits for all analysts + macro) ────────────
+    async def scan_compiler_node(state: ScanState) -> dict[str, Any]:
+        try:
+            brief = compile_scan_brief(dict(state))
+            return {"brief": brief}
+        except Exception:
+            logger.exception("Scan compiler failed", date=state.get("current_date"))
+            return {"brief": {}}
 
-    async def l2_join_node(state: IntelligenceState) -> dict[str, Any]:
-        """Sync barrier: waits for all Layer 2 analysts + MacroStrategist (defer=True)."""
+    # ── Build Graph ──────────────────────────────────────────────
+
+    graph = StateGraph(ScanState)
+
+    graph.add_node("social_sentiment", social_sentiment_node)
+    graph.add_node("news_analyst", news_analyst_node)
+    graph.add_node("extract_tickers", extract_tickers_node)
+    graph.add_node("macro_strategist", macro_strategist_node)
+    graph.add_node("scan_compiler", scan_compiler_node)
+
+    graph.add_edge(START, "social_sentiment")
+    graph.add_edge(START, "news_analyst")
+    graph.add_edge("social_sentiment", "extract_tickers")
+    graph.add_edge("news_analyst", "extract_tickers")
+    graph.add_edge("extract_tickers", "macro_strategist")
+    graph.add_edge("macro_strategist", "scan_compiler")
+    graph.add_edge("scan_compiler", END)
+
+    return graph.compile()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Analyze Graph — on-demand deep ticker analysis
+# ═══════════════════════════════════════════════════════════════════
+
+
+def build_analyze_graph(
+    sec_edgar: "SECEdgarClient",
+    yfinance: "YFinanceClient",
+    massive: "MassiveClient | None" = None,
+    crawler: "Crawl4AICrawlerProvider | None" = None,
+    twitter_api_key: str | None = None,
+) -> Any:
+    """Build the on-demand ticker analysis graph.
+
+    START → ticker_research (all tickers, parallel with L2)
+    START → route_to_L2 (Send per ticker: company + price)
+      → l2_join → debate (bull/bear) → trader_gate → trader
+      → analyze_compiler → END
+
+    Input state must include ``target_tickers`` (from POST body).
+    """
+
+    # ── Ticker Research (all tickers, runs parallel with L2) ────
+
+    async def ticker_research_node(state: AnalyzeState) -> dict[str, Any]:
+        tickers = state.get("target_tickers", [])
+        if not tickers:
+            return {"ticker_research": {}}
+
+        logger.info("TickerResearchAnalyst starting", tickers=tickers)
+        twitter_client = TwitterClient(api_key=twitter_api_key) if twitter_api_key else None
+        try:
+            current = date.fromisoformat(state["current_date"])
+            deps = TickerResearchDeps(twitter_client=twitter_client, current_date=current)
+            result = await analyze_ticker_research(tickers, deps)
+            logger.info(
+                "TickerResearchAnalyst complete",
+                tickers_researched=len(result.research),
+            )
+            return {"ticker_research": result.model_dump(mode="json")}
+        except Exception:
+            logger.exception("TickerResearchAnalyst failed", tickers=tickers)
+            return {"ticker_research": {"error": True}}
+        finally:
+            if twitter_client:
+                await twitter_client.stop()
+
+    # ── Layer 2: Company + Price per ticker ─────────────────────
+
+    async def company_analyst_node(state: dict[str, Any]) -> dict[str, Any]:
+        ticker = state["ticker"]
+        current = date.fromisoformat(state["current_date"])
+        deps = CompanyDeps(
+            sec_edgar=sec_edgar,
+            yfinance=yfinance,
+            crawler=crawler,
+            current_date=current,
+        )
+        logger.info("CompanyAnalyst starting", ticker=ticker)
+        try:
+            result = await analyze_company(ticker, deps)
+            logger.info("CompanyAnalyst complete", ticker=ticker)
+            return {"company_analyses": [result.model_dump(mode="json")]}
+        except Exception:
+            logger.exception("CompanyAnalyst failed", ticker=ticker)
+            return {"company_analyses": [{"ticker": ticker, "error": True}]}
+
+    async def price_analyst_node(state: dict[str, Any]) -> dict[str, Any]:
+        ticker = state["ticker"]
+        current = date.fromisoformat(state["current_date"])
+        deps = PriceDeps(yfinance=yfinance, massive=massive, current_date=current)
+        logger.info("PriceAnalyst starting", ticker=ticker)
+        try:
+            result = await analyze_price(ticker, deps)
+            logger.info("PriceAnalyst complete", ticker=ticker)
+            return {"price_analyses": [result.model_dump(mode="json")]}
+        except Exception:
+            logger.exception("PriceAnalyst failed", ticker=ticker)
+            return {"price_analyses": [{"ticker": ticker, "error": True}]}
+
+    # ── Fan-out router ──────────────────────────────────────────
+
+    def route_to_L2(state: AnalyzeState) -> list[Send] | str:  # noqa: N802
+        tickers = state.get("target_tickers", [])
+        if not tickers:
+            logger.info("No tickers provided — skipping to compiler")
+            return "analyze_compiler"
+        logger.info("Routing to Layer 2", tickers=tickers)
+        sends: list[Send] = []
+        for t in tickers:
+            sends.append(Send("company_analyst", {**state, "ticker": t}))
+            sends.append(Send("price_analyst", {**state, "ticker": t}))
+        return sends
+
+    # ── L2 Join ─────────────────────────────────────────────────
+
+    async def l2_join_node(state: AnalyzeState) -> dict[str, Any]:
         logger.info(
             "L2 join complete",
             company_analyses=len(state.get("company_analyses", [])),
             price_analyses=len(state.get("price_analyses", [])),
-            has_macro=bool(state.get("macro_view")),
         )
         return {}
 
-    def l2_router(state: IntelligenceState) -> list[str | Send]:
-        """Route to per-ticker debate if tickers exist, otherwise skip to compiler."""
-        from synesis.config import get_settings
+    # ── Debate routing ──────────────────────────────────────────
 
+    debate_subgraph = build_debate_subgraph()
+
+    def debate_router(state: AnalyzeState) -> list[str | Send]:
         tickers = state.get("target_tickers", [])
         if not tickers:
-            logger.info("No priority tickers — skipping debate + trader, going to compiler")
-            return ["compiler"]
+            return ["analyze_compiler"]
 
         rounds = get_settings().debate_rounds
         sends: list[str | Send] = []
         for t in tickers:
             if rounds == 0:
-                # Parallel: independent bull + bear (no debate)
                 sends.append(Send("bull_researcher", {**state, "ticker": t}))
                 sends.append(Send("bear_researcher", {**state, "ticker": t}))
             else:
-                # Sequential debate subgraph
                 sends.append(Send("ticker_debate", {**state, "ticker": t}))
         return sends
 
-    # ── BullResearcher (per-ticker via Send, rounds=0 only) ─────
+    # ── Bull / Bear / Debate nodes ──────────────────────────────
 
     async def bull_researcher_node(state: dict[str, Any]) -> dict[str, Any]:
-        """Run BullResearcher for a single ticker. Called via Send (rounds=0)."""
         ticker = state["ticker"]
         logger.info("BullResearcher starting", ticker=ticker)
         try:
@@ -302,10 +337,7 @@ def build_intelligence_graph(
             logger.exception("BullResearcher failed", ticker=ticker)
             return {"bull_analyses": [{"ticker": ticker, "error": True}]}
 
-    # ── BearResearcher (per-ticker via Send, rounds=0 only) ─────
-
     async def bear_researcher_node(state: dict[str, Any]) -> dict[str, Any]:
-        """Run BearResearcher for a single ticker. Called via Send (rounds=0)."""
         ticker = state["ticker"]
         logger.info("BearResearcher starting", ticker=ticker)
         try:
@@ -317,14 +349,7 @@ def build_intelligence_graph(
             logger.exception("BearResearcher failed", ticker=ticker)
             return {"bear_analyses": [{"ticker": ticker, "error": True}]}
 
-    # ── Ticker Debate (per-ticker subgraph, rounds>=1) ──────────
-
-    debate_subgraph = build_debate_subgraph()
-
     async def ticker_debate_node(state: dict[str, Any]) -> dict[str, Any]:
-        """Run multi-round debate subgraph for a single ticker. Called via Send."""
-        from synesis.config import get_settings
-
         ticker = state["ticker"]
         try:
             rounds = get_settings().debate_rounds
@@ -336,7 +361,8 @@ def build_intelligence_graph(
                 "news_analysis": state.get("news_analysis", {}),
                 "company_analyses": state.get("company_analyses", []),
                 "price_analyses": state.get("price_analyses", []),
-                "screener_context": state.get("screener_context", {}),
+                "watchlist_context": state.get("watchlist_context", {}),
+                "ticker_research": state.get("ticker_research", {}),
                 "debate_history": [],
                 "round": 0,
                 "max_rounds": rounds,
@@ -362,10 +388,9 @@ def build_intelligence_graph(
                 "bear_analyses": [{"ticker": ticker, "error": True}],
             }
 
-    # ── Trader Gate (waits for all debate output) ──────────────────
+    # ── Trader gate + routing ───────────────────────────────────
 
-    async def trader_gate_node(state: IntelligenceState) -> dict[str, Any]:
-        """Sync barrier: waits for all debate output (defer=True)."""
+    async def trader_gate_node(state: AnalyzeState) -> dict[str, Any]:
         logger.info(
             "Trader gate complete",
             bull_analyses=len(state.get("bull_analyses", [])),
@@ -373,14 +398,10 @@ def build_intelligence_graph(
         )
         return {}
 
-    def trader_router(state: IntelligenceState) -> list[str | Send]:
-        """Route to per-ticker or portfolio Trader based on config."""
-        from synesis.config import get_settings
-
+    def trader_router(state: AnalyzeState) -> list[str | Send]:
         tickers = state.get("target_tickers", [])
         if not tickers:
-            logger.info("No tickers — skipping trader, going to compiler")
-            return ["compiler"]
+            return ["analyze_compiler"]
 
         mode = get_settings().trader_mode
         if mode == "portfolio":
@@ -390,10 +411,7 @@ def build_intelligence_graph(
             logger.info("Routing to Trader (per_ticker)", tickers=tickers)
             return [Send("trader", {**state, "ticker": t, "mode": "per_ticker"}) for t in tickers]
 
-    # ── Trader (per-ticker or portfolio via Send) ────────────────
-
     async def trader_node(state: dict[str, Any]) -> dict[str, Any]:
-        """Run Trader for one ticker or all tickers. Called via Send."""
         mode = state.get("mode", "per_ticker")
         ticker = state.get("ticker", "UNKNOWN")
         tickers = state.get("tickers", [])
@@ -427,78 +445,60 @@ def build_intelligence_graph(
                 logger.exception("Trader failed", ticker=ticker)
                 return {"trade_ideas": [{"tickers": [ticker], "error": True}]}
 
-    # ── Compiler ─────────────────────────────────────────────────
+    # ── Compiler ────────────────────────────────────────────────
 
-    async def compiler_node(state: IntelligenceState) -> dict[str, Any]:
-        """Assemble the final brief from all pipeline outputs."""
+    async def analyze_compiler_node(state: AnalyzeState) -> dict[str, Any]:
         try:
             brief = compile_brief(dict(state))
             return {"brief": brief}
         except Exception:
-            logger.exception("Compiler failed", date=state.get("current_date"))
+            logger.exception("Analyze compiler failed", date=state.get("current_date"))
             return {"brief": {}}
 
     # ── Build Graph ──────────────────────────────────────────────
 
-    graph = StateGraph(IntelligenceState)
+    graph = StateGraph(AnalyzeState)
 
-    # Add nodes
-    graph.add_node("social_sentiment", social_sentiment_node)
-    graph.add_node("news_analyst", news_analyst_node)
-    graph.add_node("extract_tickers", extract_tickers_node)
+    graph.add_node("ticker_research", ticker_research_node)
     graph.add_node("company_analyst", company_analyst_node)  # type: ignore[type-var]
     graph.add_node("price_analyst", price_analyst_node)  # type: ignore[type-var]
-    graph.add_node("macro_strategist", macro_strategist_node)
     graph.add_node("l2_join", l2_join_node, defer=True)
     graph.add_node("bull_researcher", bull_researcher_node)  # type: ignore[type-var]
     graph.add_node("bear_researcher", bear_researcher_node)  # type: ignore[type-var]
     graph.add_node("ticker_debate", ticker_debate_node)  # type: ignore[type-var]
     graph.add_node("trader_gate", trader_gate_node, defer=True)
     graph.add_node("trader", trader_node)  # type: ignore[type-var]
-    graph.add_node("compiler", compiler_node, defer=True)
+    graph.add_node("analyze_compiler", analyze_compiler_node, defer=True)
 
-    # Layer 1: parallel fan-out from START
-    graph.add_edge(START, "social_sentiment")
-    graph.add_edge(START, "news_analyst")
-
-    # Fan-in: both Layer 1 nodes must complete before ticker extraction
-    graph.add_edge("social_sentiment", "extract_tickers")
-    graph.add_edge("news_analyst", "extract_tickers")
-
-    # MacroStrategist: regime assessment + ticker screening (runs before Layer 2)
-    graph.add_edge("extract_tickers", "macro_strategist")
-
-    # Dynamic fan-out: CompanyAnalyst + PriceAnalyst per screened ticker
-    # Falls through to "compiler" if no tickers after screening
+    # START → ticker_research (all tickers) in parallel with L2 fan-out
+    graph.add_edge(START, "ticker_research")
     graph.add_conditional_edges(
-        "macro_strategist", route_to_L2, ["company_analyst", "price_analyst", "compiler"]
+        START, route_to_L2, ["company_analyst", "price_analyst", "analyze_compiler"]
     )
 
-    # Join: all Layer 2 analysts feed into l2_join (defer waits for all)
+    graph.add_edge("ticker_research", "l2_join")
     graph.add_edge("company_analyst", "l2_join")
     graph.add_edge("price_analyst", "l2_join")
 
-    # Layer 3: route to debate (rounds>=1) or parallel bull/bear (rounds=0)
+    # Debate routing
     graph.add_conditional_edges(
         "l2_join",
-        l2_router,
-        ["bull_researcher", "bear_researcher", "ticker_debate", "compiler"],
+        debate_router,
+        ["bull_researcher", "bear_researcher", "ticker_debate", "analyze_compiler"],
     )
 
-    # Debate paths feed into trader_gate (defer waits for all debate output)
     graph.add_edge("bull_researcher", "trader_gate")
     graph.add_edge("bear_researcher", "trader_gate")
     graph.add_edge("ticker_debate", "trader_gate")
 
-    # Trader routing: per-ticker Sends or portfolio Send, or skip to compiler
+    # Trader routing
     graph.add_conditional_edges(
         "trader_gate",
         trader_router,
-        ["trader", "compiler"],
+        ["trader", "analyze_compiler"],
     )
 
-    # Trader feeds into compiler (defer waits for all trader Sends)
-    graph.add_edge("trader", "compiler")
-    graph.add_edge("compiler", END)
+    graph.add_edge("trader", "analyze_compiler")
+    graph.add_edge("analyze_compiler", END)
 
     return graph.compile()

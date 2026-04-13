@@ -32,8 +32,8 @@ from synesis.agent.scheduler import (
     create_scheduler,
     event_digest_job,
     event_fetch_job,
-    intelligence_brief_job,
     market_movers_job,
+    scan_brief_job,
     watchlist_cleanup_job,
 )
 from synesis.config import Settings
@@ -274,7 +274,6 @@ async def agent_lifespan(
         nasdaq_client = None
         sec_edgar_client = None
         yfinance_client = None
-        massive_client = None
         if db:
             from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
             from synesis.providers.nasdaq import NasdaqClient
@@ -294,29 +293,23 @@ async def agent_lifespan(
 
             yfinance_client = YFinanceClient(redis=redis)
 
-            if settings.massive_api_key:
-                from synesis.providers.massive.client import MassiveClient
-
-                massive_client = MassiveClient(redis=redis)
-
-            # Intelligence brief: 9am SGT (1am UTC) daily
+            # Scan brief: 9am SGT (1am UTC) daily
             if settings.intelligence_pipeline_enabled:
                 scheduler.add_job(
-                    intelligence_brief_job,
+                    scan_brief_job,
                     CronTrigger(hour=1, minute=0, timezone="UTC"),
                     args=[
                         db,
                         sec_edgar_client,
                         yfinance_client,
                         fred_client,
-                        massive_client,
                         crawler_instance,
                     ],
-                    id="intelligence_brief",
+                    id="scan_brief",
                     max_instances=1,
                 )
                 logger.info(
-                    "Intelligence brief scheduled",
+                    "Scan brief scheduled",
                     schedule="9am SGT (1am UTC) daily",
                 )
             else:
@@ -355,19 +348,6 @@ async def agent_lifespan(
             max_instances=1,
         )
         logger.info("Market movers scheduled", schedule="10:30am ET daily")
-
-        # Trade idea tracking review: Friday 4pm ET (after market close)
-        if db and yfinance_client:
-            from synesis.agent.scheduler import tracking_review_job
-
-            scheduler.add_job(
-                tracking_review_job,
-                CronTrigger(day_of_week="fri", hour=16, minute=0, timezone="America/New_York"),
-                args=[db, yfinance_client],
-                id="tracking_review",
-                max_instances=1,
-            )
-            logger.info("Tracking review scheduled", schedule="Friday 4pm ET weekly")
 
         # Ticker list refresh: every Monday 6am UTC
         from synesis.agent.scheduler import refresh_tickers_job
@@ -460,19 +440,18 @@ async def agent_lifespan(
             trigger_fns["event_digest"] = _trigger_event_digest
 
         if db and sec_edgar_client and yfinance_client:
-            from synesis.processing.intelligence.job import run_intelligence_brief
+            from synesis.processing.intelligence.job import run_scan_brief
 
-            async def _trigger_intelligence_brief() -> dict[str, Any]:
-                return await run_intelligence_brief(
+            async def _trigger_scan_brief() -> dict[str, Any]:
+                return await run_scan_brief(
                     db=db,
                     sec_edgar=sec_edgar_client,
                     yfinance=yfinance_client,
                     fred=fred_client,
-                    massive=massive_client,
                     crawler=crawler_instance,
                 )
 
-            trigger_fns["intelligence_brief"] = _trigger_intelligence_brief
+            trigger_fns["scan_brief"] = _trigger_scan_brief
 
         yield AgentState(
             redis=redis,
@@ -516,13 +495,6 @@ async def agent_lifespan(
                 logger.debug("Telegram listener stopped")
             except Exception:
                 logger.error("Error stopping Telegram listener", exc_info=True)
-
-        if massive_client:
-            try:
-                await massive_client.close()
-                logger.debug("MassiveClient closed")
-            except Exception:
-                logger.error("Error closing MassiveClient", exc_info=True)
 
         if price_service:
             try:

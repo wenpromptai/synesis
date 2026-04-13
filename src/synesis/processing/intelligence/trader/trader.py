@@ -30,7 +30,7 @@ from synesis.processing.intelligence.models import TraderOutput
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 7
+_WEB_SEARCH_CAP = 5
 
 
 _SEARCH_DESC = (

@@ -10,41 +10,53 @@ from operator import add
 from typing import Annotated, Any, TypedDict
 
 
-class IntelligenceState(TypedDict):
-    """Shared state for the daily intelligence pipeline.
+class ScanState(TypedDict):
+    """State for the daily scan pipeline.
 
-    Keys without reducers are overwritten by the last writer.
-    Keys with Annotated[list, add] append from each writer (safe for parallel nodes).
+    Social/news signal discovery → MacroStrategist regime + ticker screening.
+    No Send fan-outs, so no reducers needed.
     """
 
-    # Input (set at invocation)
     current_date: str
 
-    # Layer 1 outputs (one writer each, no reducer needed)
+    # Layer 1 outputs
     social_analysis: dict[str, Any]
     news_analysis: dict[str, Any]
 
-    # Ticker extraction (deterministic)
+    # Ticker extraction
     target_tickers: list[str]
-
-    # Pre-screening ticker pool (preserved for brief visibility)
     l1_tickers: list[str]
 
-    # Screener output (thematic context for downstream debate agents)
-    screener_context: dict[str, Any]
+    # MacroStrategist output
+    watchlist_context: dict[str, Any]
+    macro_view: dict[str, Any]
 
-    # Layer 2 outputs (multiple parallel writers via Send, needs reducer)
+    # Final output
+    brief: dict[str, Any]
+
+
+class AnalyzeState(TypedDict):
+    """State for the on-demand ticker analysis pipeline.
+
+    Takes tickers as input → company/price analysis → debate → trader.
+    Uses Annotated[list, add] reducers for parallel Send fan-out fields.
+    """
+
+    current_date: str
+    target_tickers: list[str]
+
+    # Ticker research (single writer — runs parallel with L2, no reducer)
+    ticker_research: dict[str, Any]
+
+    # Layer 2 outputs (parallel Send writers)
     company_analyses: Annotated[list[dict[str, Any]], add]
     price_analyses: Annotated[list[dict[str, Any]], add]
 
-    # MacroStrategist output (parallel with Layer 2, one writer, no reducer needed)
-    macro_view: dict[str, Any]
-
-    # Layer 3: Debate outputs (multiple parallel writers via Send, needs reducer)
+    # Debate outputs (parallel Send writers)
     bull_analyses: Annotated[list[dict[str, Any]], add]
     bear_analyses: Annotated[list[dict[str, Any]], add]
 
-    # Trader output (multiple parallel writers in per_ticker mode, needs reducer)
+    # Trader outputs (parallel Send writers in per_ticker mode)
     trade_ideas: Annotated[list[dict[str, Any]], add]
     portfolio_note: str
 

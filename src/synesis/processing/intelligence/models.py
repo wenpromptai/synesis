@@ -40,6 +40,31 @@ class MacroTheme(BaseModel):
 
 
 # =============================================================================
+# Ticker Research Output (analyze graph — social + news pre-gathering)
+# =============================================================================
+
+
+class TickerResearchItem(BaseModel):
+    """Per-ticker social + news research context for debate agents."""
+
+    ticker: str
+    social_highlights: list[str] = Field(default_factory=list)
+    news_highlights: list[str] = Field(default_factory=list)
+    key_narratives: str = ""
+    sentiment_lean: str = ""  # bullish, bearish, mixed, neutral
+    verified_claims: list[str] = Field(default_factory=list)
+    unverified_claims: list[str] = Field(default_factory=list)
+
+
+class TickerResearchAnalysis(BaseModel):
+    """Output from the TickerResearchAnalyst."""
+
+    research: list[TickerResearchItem] = Field(default_factory=list)
+    summary: str = ""
+    analysis_date: date
+
+
+# =============================================================================
 # Company Analyst Output
 # =============================================================================
 
@@ -230,8 +255,8 @@ class ThematicTilt(BaseModel):
     etf: str | None = None
 
 
-class ScreenedTicker(BaseModel):
-    """A ticker selected by the screener for deep analysis."""
+class WatchlistTicker(BaseModel):
+    """A ticker selected for the watchlist for deep analysis."""
 
     ticker: str
     thematic_angle: str
@@ -257,8 +282,8 @@ class MacroView(BaseModel):
     event_analysis: str = ""
     positioning_signals: str = ""
 
-    # Ticker screening (populated when tickers are present in Layer 1)
-    screener_picks: list[ScreenedTicker] = Field(default_factory=list, max_length=5)
+    # Watchlist picks (populated when tickers are present in Layer 1)
+    watchlist_picks: list[WatchlistTicker] = Field(default_factory=list)
     tickers_dropped: list[str] = Field(default_factory=list)
     drop_reasons: list[str] = Field(default_factory=list)
 

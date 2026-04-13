@@ -27,19 +27,20 @@ from synesis.processing.intelligence.context import (
     format_debate_history,
     format_news_context_for_ticker,
     format_price_context_for_ticker,
-    format_screener_context_for_ticker,
+    format_ticker_research_for_ticker,
+    format_watchlist_context_for_ticker,
     format_social_context_for_ticker,
 )
 from synesis.processing.intelligence.models import TickerDebate
 
 logger = get_logger(__name__)
 
-_WEB_SEARCH_CAP = 2
+_WEB_SEARCH_CAP = 1
 
 
 _SEARCH_DESC = (
-    "find analyst downgrades, competitive threats, regulatory actions, insider "
-    "selling, earnings misses, or risks the analysts missed"
+    "verify specific claims, find contrarian angles, or research risks "
+    "not covered by the pre-gathered social and news context"
 )
 
 SYSTEM_PROMPT = """\
@@ -168,13 +169,16 @@ async def research_bear(
     deps = BearResearcherDeps(current_date=current_date)
 
     # Build prompt from per-ticker context (no macro — deferred to Trader)
-    screener_ctx = format_screener_context_for_ticker(state, ticker)
+    watchlist_ctx = format_watchlist_context_for_ticker(state, ticker)
+    research_ctx = format_ticker_research_for_ticker(state, ticker)
     prompt_parts = [
         f"## Ticker: {ticker}",
         format_consensus_context_for_ticker(state, ticker),
     ]
-    if screener_ctx:
-        prompt_parts.append(screener_ctx)
+    if watchlist_ctx:
+        prompt_parts.append(watchlist_ctx)
+    if research_ctx:
+        prompt_parts.append(research_ctx)
     prompt_parts.extend(
         [
             format_social_context_for_ticker(state, ticker),

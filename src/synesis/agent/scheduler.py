@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
     from synesis.providers.fred import FREDClient
-    from synesis.providers.massive.client import MassiveClient
     from synesis.providers.nasdaq import NasdaqClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
     from synesis.providers.yfinance.client import YFinanceClient
@@ -27,10 +26,9 @@ __all__ = [
     "create_scheduler",
     "event_digest_job",
     "event_fetch_job",
-    "intelligence_brief_job",
     "market_movers_job",
     "refresh_tickers_job",
-    "tracking_review_job",
+    "scan_brief_job",
     "watchlist_cleanup_job",
 ]
 
@@ -96,52 +94,31 @@ async def event_digest_job(
         logger.exception("Event digest job failed")
 
 
-async def intelligence_brief_job(
+async def scan_brief_job(
     db: Database,
     sec_edgar: SECEdgarClient,
     yfinance: YFinanceClient,
     fred: FREDClient | None = None,
-    massive: MassiveClient | None = None,
     crawler: Crawl4AICrawlerProvider | None = None,
 ) -> None:
-    """Run the daily intelligence pipeline and send brief to Discord."""
-    from synesis.processing.intelligence.job import run_intelligence_brief
+    """Run the daily scan pipeline (macro + watchlist) and send to Discord."""
+    from synesis.processing.intelligence.job import run_scan_brief
 
     try:
-        brief = await run_intelligence_brief(
+        brief = await run_scan_brief(
             db=db,
             sec_edgar=sec_edgar,
             yfinance=yfinance,
             fred=fred,
-            massive=massive,
             crawler=crawler,
         )
         logger.info(
-            "Intelligence brief job complete",
-            tickers=len(brief.get("tickers_analyzed", [])),
-            trade_ideas=len(brief.get("trade_ideas", [])),
+            "Scan brief job complete",
+            regime=brief.get("macro", {}).get("regime"),
+            watchlist_tickers=len(brief.get("watchlist", {}).get("selected", [])),
         )
     except Exception:
-        logger.exception("Intelligence brief job failed")
-
-
-async def tracking_review_job(
-    db: Database,
-    yfinance: YFinanceClient,
-) -> None:
-    """Weekly review of open trade ideas — update prices, check target/stop hits."""
-    from synesis.processing.intelligence.tracking import run_tracking_review
-
-    try:
-        summary = await run_tracking_review(db, yfinance)
-        logger.info(
-            "Tracking review job complete",
-            reviewed=summary.get("reviewed", 0),
-            closed=summary.get("closed", 0),
-            updated=summary.get("updated", 0),
-        )
-    except Exception:
-        logger.exception("Tracking review job failed")
+        logger.exception("Scan brief job failed")
 
 
 async def refresh_tickers_job() -> None:

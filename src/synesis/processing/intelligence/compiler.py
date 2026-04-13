@@ -37,11 +37,111 @@ def _sanitize_brief(obj: Any) -> Any:
     return obj
 
 
+def _extract_macro_dict(macro: dict[str, Any]) -> dict[str, Any]:
+    """Extract the macro regime section from a macro_view state dict."""
+    return {
+        "regime": macro.get("regime", "uncertain"),
+        "sentiment_score": macro.get("sentiment_score", 0.0),
+        "key_drivers": macro.get("key_drivers", []),
+        "thematic_tilts": macro.get("thematic_tilts", []),
+        "event_analysis": macro.get("event_analysis", ""),
+        "positioning_signals": macro.get("positioning_signals", ""),
+        "risks": macro.get("risks", []),
+    }
+
+
+def _extract_watchlist_dict(state: dict[str, Any], watchlist_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Extract the watchlist section from state + watchlist context."""
+    return {
+        "l1_tickers": state.get("l1_tickers", []),
+        "selected": watchlist_ctx.get("selected", []),
+        "themes": watchlist_ctx.get("themes", []),
+        "dropped": watchlist_ctx.get("dropped", []),
+        "drop_reasons": watchlist_ctx.get("drop_reasons", []),
+    }
+
+
+def _format_macro_regime_markdown(macro: dict[str, Any]) -> list[str]:
+    """Format macro regime section as markdown lines."""
+    regime = macro.get("regime", "unknown")
+    sentiment = macro.get("sentiment_score", 0.0)
+    lines: list[str] = []
+
+    lines.append("## Macro Regime")
+    lines.append(f"- **Regime:** {regime} (sentiment: {sentiment:+.1f})")
+    for driver in macro.get("key_drivers", []):
+        lines.append(f"- **Driver:** {driver}")
+
+    event_analysis = macro.get("event_analysis", "")
+    if event_analysis:
+        lines.append(f"\n### Event Analysis\n{event_analysis}")
+
+    positioning = macro.get("positioning_signals", "")
+    if positioning:
+        lines.append(f"\n### Positioning Signals\n{positioning}")
+
+    tilts = macro.get("thematic_tilts", [])
+    if tilts:
+        lines.append("\n### Thematic Tilts")
+        for tilt in tilts:
+            theme = tilt.get("theme", "?")
+            tilt_score = tilt.get("sentiment_score", 0.0)
+            reasoning = tilt.get("reasoning", "")
+            etf = tilt.get("etf")
+            etf_str = f" [{etf}]" if etf else ""
+            lines.append(f"- **{theme}**{etf_str} ({tilt_score:+.1f}) — {reasoning}")
+
+    for risk in macro.get("risks", []):
+        lines.append(f"- **Risk:** {risk}")
+    lines.append("")
+
+    return lines
+
+
+def _format_watchlist_markdown(watchlist: dict[str, Any]) -> list[str]:
+    """Format watchlist section as markdown lines."""
+    l1_pool = watchlist.get("l1_tickers", [])
+    picks = watchlist.get("selected", [])
+    if not l1_pool and not picks:
+        return []
+
+    lines: list[str] = []
+    lines.append("## Watchlist")
+    lines.append(f"**Signal pool:** {len(l1_pool)} tickers from Layer 1")
+    lines.append(f"**Selected:** {len(picks)} for deep analysis")
+    themes = watchlist.get("themes", [])
+    if themes:
+        lines.append(f"**Themes:** {', '.join(themes)}")
+    lines.append("")
+    if picks:
+        lines.append("### Selected")
+        for pick in picks:
+            direction = pick.get("direction_lean", "?")
+            wildcard = " (wildcard)" if pick.get("is_wildcard") else ""
+            lines.append(
+                f"- **{pick.get('ticker', '?')}** ({direction}{wildcard}) — "
+                f"{pick.get('thematic_angle', '')}"
+            )
+            if pick.get("research_note"):
+                lines.append(f"  {pick['research_note']}")
+        lines.append("")
+    dropped = watchlist.get("dropped", [])
+    drop_reasons = watchlist.get("drop_reasons", [])
+    if dropped:
+        lines.append("### Dropped")
+        for i, ticker in enumerate(dropped):
+            reason = drop_reasons[i] if i < len(drop_reasons) else ""
+            lines.append(f"- {ticker} — {reason}")
+        lines.append("")
+
+    return lines
+
+
 def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
     """Assemble an intelligence brief from pipeline state.
 
     Args:
-        state: The full IntelligenceState dict.
+        state: The full AnalyzeState dict.
 
     Returns:
         Structured brief dict with macro regime, debates per ticker,
@@ -49,12 +149,13 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
     """
     social = state.get("social_analysis", {})
     news = state.get("news_analysis", {})
+    ticker_research = state.get("ticker_research", {})
     companies = state.get("company_analyses", [])
     valid_companies = [c for c in companies if not c.get("error")]
     prices = state.get("price_analyses", [])
     valid_prices = [p for p in prices if not p.get("error")]
     macro = state.get("macro_view", {})
-    screener_ctx = state.get("screener_context", {})
+    watchlist_ctx = state.get("watchlist_context", {})
     trade_ideas_raw = state.get("trade_ideas", [])
     valid_trade_ideas = [t for t in trade_ideas_raw if not t.get("error")]
     portfolio_note = state.get("portfolio_note", "")
@@ -109,33 +210,22 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
         _sanitize_brief(
             {
                 "date": state.get("current_date", ""),
-                # Macro regime
-                "macro": {
-                    "regime": macro.get("regime", "uncertain"),
-                    "sentiment_score": macro.get("sentiment_score", 0.0),
-                    "key_drivers": macro.get("key_drivers", []),
-                    "thematic_tilts": macro.get("thematic_tilts", []),
-                    "event_analysis": macro.get("event_analysis", ""),
-                    "positioning_signals": macro.get("positioning_signals", ""),
-                    "risks": macro.get("risks", []),
-                },
-                # Screener (ticker screening from MacroStrategist)
-                "screener": {
-                    "l1_tickers": state.get("l1_tickers", []),
-                    "selected": screener_ctx.get("selected", []),
-                    "themes": screener_ctx.get("themes", []),
-                    "dropped": screener_ctx.get("dropped", []),
-                    "drop_reasons": screener_ctx.get("drop_reasons", []),
-                },
+                "macro": _extract_macro_dict(macro) if macro and not macro.get("error") else {},
+                "watchlist": _extract_watchlist_dict(state, watchlist_ctx)
+                if watchlist_ctx
+                else {},
                 # Debates per ticker (bull + bear arguments)
                 "debates": debates,
-                # Layer 1 summaries
+                # Layer 1 summaries (empty when not run, e.g. analyze path)
                 "l1_summary": {
                     "social": social.get("summary", ""),
                     "news": news.get("summary", ""),
                 },
                 # Supporting context
                 "tickers_analyzed": [c["ticker"] for c in valid_companies if "ticker" in c],
+                "ticker_research": ticker_research.get("research", [])
+                if not ticker_research.get("error")
+                else [],
                 "company_analyses": valid_companies,
                 "price_analyses": valid_prices,
                 "macro_themes": social.get("macro_themes", []) + news.get("macro_themes", []),
@@ -168,6 +258,7 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
                         if item.get("error") and "ticker" in item
                     ],
                     "macro_failed": macro.get("error", False),
+                    "ticker_research_failed": ticker_research.get("error", False),
                     "trader_failures": [
                         t
                         for item in trade_ideas_raw
@@ -200,8 +291,9 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
     lines.append("---")
     lines.append(f"date: {date}")
     lines.append(f"tickers: [{', '.join(tickers)}]")
-    lines.append(f"regime: {regime}")
-    lines.append(f"regime_sentiment: {sentiment}")
+    if macro:
+        lines.append(f"regime: {regime}")
+        lines.append(f"regime_sentiment: {sentiment}")
     lines.append(f"trade_count: {len(trade_ideas)}")
     has_errors = any(errors.get(k) for k in errors)
     lines.append(f"pipeline_errors: {'true' if has_errors else 'false'}")
@@ -210,68 +302,12 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
     lines.append(f"# Intelligence Brief — {date}")
     lines.append("")
 
-    # Macro
-    lines.append("## Macro Regime")
-    lines.append(f"- **Regime:** {regime} (sentiment: {sentiment:+.1f})")
-    for driver in macro.get("key_drivers", []):
-        lines.append(f"- **Driver:** {driver}")
+    # Macro (skip if not populated, e.g. analyze-only path)
+    if macro:
+        lines.extend(_format_macro_regime_markdown(macro))
 
-    event_analysis = macro.get("event_analysis", "")
-    if event_analysis:
-        lines.append(f"\n### Event Analysis\n{event_analysis}")
-
-    positioning = macro.get("positioning_signals", "")
-    if positioning:
-        lines.append(f"\n### Positioning Signals\n{positioning}")
-
-    tilts = macro.get("thematic_tilts", [])
-    if tilts:
-        lines.append("\n### Thematic Tilts")
-        for tilt in tilts:
-            theme = tilt.get("theme", "?")
-            tilt_score = tilt.get("sentiment_score", 0.0)
-            reasoning = tilt.get("reasoning", "")
-            etf = tilt.get("etf")
-            etf_str = f" [{etf}]" if etf else ""
-            lines.append(f"- **{theme}**{etf_str} ({tilt_score:+.1f}) — {reasoning}")
-
-    for risk in macro.get("risks", []):
-        lines.append(f"- **Risk:** {risk}")
-    lines.append("")
-
-    # Trade ideas
-    # Screener
-    screener = brief.get("screener", {})
-    l1_pool = screener.get("l1_tickers", [])
-    screener_picks = screener.get("selected", [])
-    if l1_pool or screener_picks:
-        lines.append("## Screener")
-        lines.append(f"**Signal pool:** {len(l1_pool)} tickers from Layer 1")
-        lines.append(f"**Selected:** {len(screener_picks)} for deep analysis")
-        themes = screener.get("themes", [])
-        if themes:
-            lines.append(f"**Themes:** {', '.join(themes)}")
-        lines.append("")
-        if screener_picks:
-            lines.append("### Selected")
-            for pick in screener_picks:
-                direction = pick.get("direction_lean", "?")
-                wildcard = " (wildcard)" if pick.get("is_wildcard") else ""
-                lines.append(
-                    f"- **{pick.get('ticker', '?')}** ({direction}{wildcard}) — "
-                    f"{pick.get('thematic_angle', '')}"
-                )
-                if pick.get("research_note"):
-                    lines.append(f"  {pick['research_note']}")
-            lines.append("")
-        dropped = screener.get("dropped", [])
-        drop_reasons = screener.get("drop_reasons", [])
-        if dropped:
-            lines.append("### Dropped")
-            for i, ticker in enumerate(dropped):
-                reason = drop_reasons[i] if i < len(drop_reasons) else ""
-                lines.append(f"- {ticker} — {reason}")
-            lines.append("")
+    # Watchlist
+    lines.extend(_format_watchlist_markdown(brief.get("watchlist", {})))
 
     if trade_ideas:
         lines.append("## Trade Ideas")
@@ -457,6 +493,121 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
     lines.append("## Pipeline Health")
     lines.append(f"- **Tickers analyzed:** {len(tickers)}")
     lines.append(f"- **Trade ideas:** {len(trade_ideas)}")
+    if has_errors:
+        for key, val in errors.items():
+            if val:
+                lines.append(f"- **{key}:** {val}")
+    else:
+        lines.append("- **Errors:** none")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+# ── Scan brief (daily scan pipeline — no debate/trader) ─────────
+
+
+def compile_scan_brief(state: dict[str, Any]) -> dict[str, Any]:
+    """Assemble a scan brief from the daily scan pipeline state.
+
+    Contains macro regime, watchlist picks, and L1 signal summaries only.
+    No company/price analyses, debates, or trade ideas.
+    """
+    social = state.get("social_analysis", {})
+    news = state.get("news_analysis", {})
+    macro = state.get("macro_view", {})
+    watchlist_ctx = state.get("watchlist_context", {})
+
+    logger.info(
+        "Scan brief compiled",
+        regime=macro.get("regime", "unknown"),
+        l1_tickers=len(state.get("l1_tickers", [])),
+        watchlist_picks=len(watchlist_ctx.get("selected", [])),
+    )
+
+    return cast(
+        dict[str, Any],
+        _sanitize_brief(
+            {
+                "date": state.get("current_date", ""),
+                "macro": _extract_macro_dict(macro) if macro and not macro.get("error") else {},
+                "watchlist": _extract_watchlist_dict(state, watchlist_ctx)
+                if watchlist_ctx
+                else {},
+                "l1_summary": {
+                    "social": social.get("summary", ""),
+                    "news": news.get("summary", ""),
+                },
+                "macro_themes": social.get("macro_themes", []) + news.get("macro_themes", []),
+                "ticker_mentions": {
+                    "social": social.get("ticker_mentions", []),
+                    "news_clusters": news.get("story_clusters", []),
+                },
+                "messages_analyzed": news.get("messages_analyzed", 0),
+                "errors": {
+                    "social_failed": social.get("error", False),
+                    "news_failed": news.get("error", False),
+                    "macro_failed": macro.get("error", False),
+                },
+            }
+        ),
+    )
+
+
+def format_scan_brief_as_markdown(brief: dict[str, Any]) -> str:
+    """Format a scan brief as markdown for the knowledge graph.
+
+    Saved to ``docs/kg/raw/synesis_briefs/YYYY-MM-DD.md`` by the scan job.
+    Contains macro regime, watchlist, and signal summaries only.
+    """
+    date = brief.get("date", "unknown")
+    macro = brief.get("macro", {})
+    regime = macro.get("regime", "unknown")
+    sentiment = macro.get("sentiment_score", 0.0)
+    errors = brief.get("errors", {})
+
+    lines: list[str] = []
+
+    # YAML frontmatter
+    watchlist = brief.get("watchlist", {})
+    selected_tickers = [p.get("ticker", "?") for p in watchlist.get("selected", [])]
+    lines.append("---")
+    lines.append(f"date: {date}")
+    lines.append("type: scan")
+    lines.append(f"tickers: [{', '.join(selected_tickers)}]")
+    if macro:
+        lines.append(f"regime: {regime}")
+        lines.append(f"regime_sentiment: {sentiment}")
+    has_errors = any(errors.get(k) for k in errors)
+    lines.append(f"pipeline_errors: {'true' if has_errors else 'false'}")
+    lines.append("---")
+    lines.append("")
+    lines.append(f"# Market Scan — {date}")
+    lines.append("")
+
+    # Macro regime
+    if macro:
+        lines.extend(_format_macro_regime_markdown(macro))
+
+    # Watchlist
+    lines.extend(_format_watchlist_markdown(brief.get("watchlist", {})))
+
+    # Signals
+    l1 = brief.get("l1_summary", {})
+    themes_list = brief.get("macro_themes", [])
+    if l1 or themes_list:
+        lines.append("## Signals")
+        if l1.get("social"):
+            lines.append(f"- **Social:** {l1['social']}")
+        if l1.get("news"):
+            lines.append(f"- **News:** {l1['news']}")
+        for theme in themes_list:
+            lines.append(f"- **Macro theme:** {theme}")
+        lines.append("")
+
+    # Pipeline health
+    lines.append("## Pipeline Health")
+    lines.append(f"- **Messages analyzed:** {brief.get('messages_analyzed', 0)}")
     if has_errors:
         for key, val in errors.items():
             if val:

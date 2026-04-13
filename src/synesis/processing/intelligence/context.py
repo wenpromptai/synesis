@@ -543,16 +543,16 @@ def format_company_context_for_ticker(state: dict[str, Any], ticker: str) -> str
     return "\n".join(lines)
 
 
-def format_screener_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
-    """Format the screener's thematic angle for a ticker.
+def format_watchlist_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
+    """Format the watchlist thematic angle for a ticker.
 
     Gives debate agents the CIO's thesis seed — why this ticker was selected
     and what angle to investigate.
     """
-    ctx = state.get("screener_context", {})
+    ctx = state.get("watchlist_context", {})
     for pick in ctx.get("selected", []):
         if pick.get("ticker") == ticker:
-            lines = ["## Screener Thesis Seed"]
+            lines = ["## Watchlist Thesis Seed"]
             lines.append(f"**Thematic angle:** {pick.get('thematic_angle', 'N/A')}")
             lines.append(f"**Direction lean:** {pick.get('direction_lean', 'N/A')}")
             lines.append(f"**Signal strength:** {pick.get('signal_strength', 'N/A')}")
@@ -578,4 +578,55 @@ def format_price_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
 
     lines = ["## Price Analysis"]
     lines.extend(_format_single_price(match))
+    return "\n".join(lines)
+
+
+def format_ticker_research_for_ticker(state: dict[str, Any], ticker: str) -> str:
+    """Format pre-gathered social + news research for a single ticker.
+
+    Pulls from the ticker_research state field populated by TickerResearchAnalyst.
+    """
+    research = state.get("ticker_research", {})
+    if research.get("error"):
+        return ""
+
+    items = research.get("research", [])
+    match = next((r for r in items if r.get("ticker") == ticker), None)
+    if not match:
+        return ""
+
+    lines = [f"## Pre-Gathered Research for {ticker}"]
+
+    sentiment = match.get("sentiment_lean", "")
+    if sentiment:
+        lines.append(f"**Overall sentiment:** {sentiment}")
+
+    narratives = match.get("key_narratives", "")
+    if narratives:
+        lines.append(f"**Key narratives:** {narratives}")
+
+    social = match.get("social_highlights", [])
+    if social:
+        lines.append("\n### Social Highlights (Twitter, 500+ likes)")
+        for item in social:
+            lines.append(f"- {item}")
+
+    news = match.get("news_highlights", [])
+    if news:
+        lines.append("\n### News Highlights (last week)")
+        for item in news:
+            lines.append(f"- {item}")
+
+    verified = match.get("verified_claims", [])
+    if verified:
+        lines.append("\n### Verified Claims")
+        for item in verified:
+            lines.append(f"- {item}")
+
+    unverified = match.get("unverified_claims", [])
+    if unverified:
+        lines.append("\n### Unverified Claims (needs further checking)")
+        for item in unverified:
+            lines.append(f"- {item}")
+
     return "\n".join(lines)

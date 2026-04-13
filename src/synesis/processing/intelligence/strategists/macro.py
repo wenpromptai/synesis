@@ -591,31 +591,23 @@ def _format_macro_themes(state: dict[str, Any]) -> str:
 
 _SCREENING_INSTRUCTIONS = """\
 7. **Ticker Screening** (you have a ticker pool from today's signals — see below):
-   You are the CIO deciding where the analyst team spends its time. Select up to 5 \
-tickers that warrant deep fundamental, technical, and debate analysis downstream. \
-You are NOT doing the analysis yourself — you are CHOOSING which tickers are worth \
-the research team's time based on your macro view, thematic tilts, and the signal context.
+   You are the CIO tagging which tickers from today's signals are worth watching and why. \
+List ALL tickers that have a meaningful signal — do NOT cull or limit the list. Your job \
+is to categorize each ticker by its thematic angle and direction lean so the team knows \
+what to watch. Only drop tickers that are genuinely noise (single weak mention, no context).
 
-   Prioritize:
-   - **Asymmetry**: where consensus is likely wrong and a catalyst will force repricing.
-   - **Thematic fit**: tickers that express your identified thematic tilts most directly. \
-A ticker that sits at the center of a strong theme is more interesting than one with \
-no narrative. Use your regime assessment and event analysis to inform picks.
-   - **Catalyst proximity**: upcoming event that forces repricing within 30-60 days.
-   - **Cross-signal confirmation**: mentioned in both social AND news > single source.
-   - **Fresh angle**: avoid stale consensus plays where everyone already agrees.
-
-   For each pick, fill `screener_picks` with: ticker, thematic_angle (be specific — \
+   For each ticker, fill `watchlist_picks` with: ticker, thematic_angle (be specific — \
 "custom silicon displacing GPU for inference" not just "AI"), direction_lean \
 (your initial read — bullish or bearish), signal_strength (why this stands out \
 from the noise), and research_note (anything you found via web search).
 
-   **Wildcard (max 1):** If your research reveals a ticker NOT in the signal pool \
-that better expresses an identified theme, include it with is_wildcard=True. It must \
+   **Wildcards:** If your research reveals tickers NOT in the signal pool \
+that better express an identified theme, include them with is_wildcard=True. They must \
 be directly connected to a theme from today's signals.
 
-   Drop the rest into `tickers_dropped` with a one-liner reason each in `drop_reasons`. \
-Be honest — "stale consensus", "no catalyst", "single weak mention" are valid reasons."""
+   Drop only genuine noise into `tickers_dropped` with a one-liner reason each in \
+`drop_reasons`. Be honest — "single weak mention with no context" is a valid reason, \
+but "too many tickers" is NOT."""
 
 _NO_SCREENING_INSTRUCTIONS = ""
 
@@ -629,7 +621,7 @@ def _format_ticker_pool(state: dict[str, Any]) -> str:
     lines = ["## Ticker Pool for Screening"]
     lines.append(
         f"Layer 1 surfaced {len(tickers)} tickers from social + news signals. "
-        "Select up to 5 for deep analysis based on thematic conviction."
+        "Tag all meaningful tickers for the watchlist with thematic context."
     )
 
     # Social mentions with context
@@ -897,7 +889,7 @@ async def analyze_macro(
         regime=output.regime,
         sentiment=output.sentiment_score,
         tilts=len(output.thematic_tilts),
-        screener_picks=len(output.screener_picks),
+        watchlist_picks=len(output.watchlist_picks),
         tickers_dropped=len(output.tickers_dropped),
     )
 

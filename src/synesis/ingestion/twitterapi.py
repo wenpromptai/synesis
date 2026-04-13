@@ -175,6 +175,54 @@ class TwitterClient:
             raw=data,
         )
 
+    async def search_tweets(
+        self,
+        query: str,
+        query_type: str = "Latest",
+        cursor: str | None = None,
+    ) -> tuple[list[Tweet], str | None]:
+        """Search tweets using Twitter advanced search syntax.
+
+        Args:
+            query: Search query using Twitter syntax (e.g. "$AAOI", "from:elonmusk").
+            query_type: "Latest" or "Top".
+            cursor: Pagination cursor for subsequent pages.
+
+        Returns:
+            Tuple of (tweets, next_cursor). Up to 20 tweets per page.
+        """
+        client = self._get_client()
+        params: dict[str, str] = {"query": query, "queryType": query_type}
+        if cursor:
+            params["cursor"] = cursor
+
+        log = logger.bind(query=query, query_type=query_type)
+
+        try:
+            response = await client.get("/twitter/tweet/advanced_search", params=params)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            log.error("twitter_search_error", status_code=e.response.status_code)
+            raise
+        except httpx.RequestError as e:
+            log.error("twitter_search_request_error", error=str(e))
+            raise
+
+        tweets: list[Tweet] = []
+        for tweet_data in data.get("tweets", []):
+            try:
+                tweet = self._parse_tweet(tweet_data)
+                tweets.append(tweet)
+            except (KeyError, ValueError) as e:
+                log.warning("tweet_parse_error", error=str(e), tweet_id=tweet_data.get("id"))
+                continue
+
+        next_cursor = data.get("next_cursor")
+        log.debug("search_results", count=len(tweets), has_next=data.get("has_next_page", False))
+
+        return tweets, next_cursor
+
     async def _fetch_account_tweets(self, username: str) -> list[Tweet]:
         """Fetch new tweets for a single account."""
         log = logger.bind(username=username)

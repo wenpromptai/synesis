@@ -1,7 +1,13 @@
-"""Intelligence pipeline job — run the LangGraph pipeline and send to Discord.
+"""Intelligence pipeline jobs.
 
-Also saves each brief as markdown to the knowledge graph at
-``docs/kg/raw/synesis_briefs/`` for future LLM compilation.
+Two entry points:
+
+1. ``run_scan_brief`` — daily scheduled scan. Discovers signals, runs
+   MacroStrategist for regime + watchlist, saves brief to KG, sends to Discord.
+
+2. ``run_ticker_analysis`` — on-demand deep analysis. Takes specific tickers,
+   runs company/price/debate/trader, saves brief to KG as
+   ``{date}-tradeideas.md``, and returns the full result.
 """
 
 from __future__ import annotations
@@ -10,14 +16,18 @@ import asyncio
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
 from synesis.notifications.discord import send_discord
-from synesis.processing.intelligence.compiler import format_brief_as_markdown
-from synesis.processing.intelligence.discord_format import format_intelligence_brief
-from synesis.processing.intelligence.graph import build_intelligence_graph
+from synesis.processing.intelligence.compiler import (
+    format_brief_as_markdown,
+    format_scan_brief_as_markdown,
+)
+from synesis.processing.intelligence.discord_format import format_scan_brief
+from synesis.processing.intelligence.graph import build_analyze_graph, build_scan_graph
 
 if TYPE_CHECKING:
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
@@ -30,35 +40,38 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-async def run_intelligence_brief(
+# ═══════════════════════════════════════════════════════════════════
+#  Scan Brief — daily scheduled pipeline
+# ═══════════════════════════════════════════════════════════════════
+
+
+async def run_scan_brief(
     db: Database,
     sec_edgar: SECEdgarClient,
     yfinance: YFinanceClient,
     fred: FREDClient | None = None,
-    massive: MassiveClient | None = None,
     crawler: Crawl4AICrawlerProvider | None = None,
 ) -> dict[str, Any]:
-    """Run the daily intelligence pipeline and send brief to Discord.
+    """Run the daily scan pipeline and send brief to Discord.
 
-    Returns the compiled brief dict.
+    Returns the compiled scan brief dict.
     """
     start = time.monotonic()
     current_date = datetime.now(UTC).date()
 
-    logger.info("Intelligence pipeline starting", date=current_date.isoformat())
+    logger.info("Scan pipeline starting", date=current_date.isoformat())
 
-    graph = build_intelligence_graph(
+    graph = build_scan_graph(
         db=db,
         sec_edgar=sec_edgar,
         yfinance=yfinance,
         fred=fred,
-        massive=massive,
         crawler=crawler,
     )
 
     result = await graph.ainvoke(
         {"current_date": current_date.isoformat()},
-        config={"recursion_limit": 50},
+        config={"recursion_limit": 20},
     )
 
     brief: dict[str, Any] = result.get("brief", {})
@@ -66,49 +79,33 @@ async def run_intelligence_brief(
 
     if not brief.get("date"):
         logger.error(
-            "Intelligence pipeline produced no brief",
+            "Scan pipeline produced no brief",
             date=current_date.isoformat(),
             elapsed_s=round(elapsed, 1),
         )
         return brief
 
-    tickers = brief.get("tickers_analyzed", [])
-    trade_ideas = brief.get("trade_ideas", [])
     errors = brief.get("errors", {})
-
     logger.info(
-        "Intelligence pipeline complete",
+        "Scan pipeline complete",
         date=current_date.isoformat(),
-        tickers_analyzed=len(tickers),
-        trade_ideas=len(trade_ideas),
+        regime=brief.get("macro", {}).get("regime"),
+        watchlist_tickers=len(brief.get("watchlist", {}).get("selected", [])),
         elapsed_s=round(elapsed, 1),
-        had_errors=any(errors.get(k) for k in ("social_failed", "news_failed", "macro_failed"))
-        or any(
-            errors.get(k)
-            for k in (
-                "company_failures",
-                "price_failures",
-                "bull_failures",
-                "bear_failures",
-                "trader_failures",
-            )
-        ),
+        had_errors=any(errors.get(k) for k in errors),
     )
 
-    # Save brief to KG for future compilation (never raises)
-    _save_brief_to_kg(brief)
+    # Save brief to KG
+    _save_brief_to_kg(brief, format_scan_brief_as_markdown)
 
-    # Save trade ideas to DB for outcome tracking (never raises)
-    await _save_trade_ideas_to_db(brief, db)
-
-    # Send to Discord (isolate batch failures so remaining batches still send)
+    # Send to Discord
     settings = get_settings()
     webhook = settings.discord_brief_webhook_url or settings.discord_webhook_url
     if not webhook:
-        logger.error("No Discord webhook configured — intelligence brief will not be delivered")
+        logger.error("No Discord webhook configured — scan brief will not be delivered")
         return brief
 
-    batches = format_intelligence_brief(brief)
+    batches = format_scan_brief(brief)
     for i, batch in enumerate(batches):
         if batch:
             try:
@@ -123,70 +120,91 @@ async def run_intelligence_brief(
     return brief
 
 
-def _parse_direction(trade_structure: str) -> str:
-    """Parse direction from trade_structure string."""
-    if trade_structure.lower().strip().startswith("short"):
-        return "short"
-    return "long"
+# ═══════════════════════════════════════════════════════════════════
+#  Ticker Analysis — on-demand deep analysis
+# ═══════════════════════════════════════════════════════════════════
 
 
-async def _save_trade_ideas_to_db(brief: dict[str, Any], db: "Database") -> None:
-    """Persist trade ideas to DB for outcome tracking. Never raises."""
-    try:
-        trade_ideas = brief.get("trade_ideas", [])
-        if not trade_ideas:
-            return
+async def run_ticker_analysis(
+    tickers: list[str],
+    sec_edgar: SECEdgarClient,
+    yfinance: YFinanceClient,
+    massive: MassiveClient | None = None,
+    crawler: Crawl4AICrawlerProvider | None = None,
+    twitter_api_key: str | None = None,
+) -> dict[str, Any]:
+    """Run deep ticker analysis and return the compiled brief.
 
-        brief_date_str = brief.get("date", "")
-        if not brief_date_str:
-            logger.warning("Brief has no date — skipping trade idea tracking")
-            return
+    Saves brief to KG as
+    ``{date}-tradeideas.md``.
+    """
+    start = time.monotonic()
+    current_date = datetime.now(UTC).date()
 
-        try:
-            from datetime import date as date_type
+    logger.info(
+        "Ticker analysis starting",
+        date=current_date.isoformat(),
+        tickers=tickers,
+    )
 
-            brief_date = date_type.fromisoformat(brief_date_str)
-        except (ValueError, TypeError):
-            logger.warning("Invalid brief date for tracking", date=brief_date_str)
-            return
+    graph = build_analyze_graph(
+        sec_edgar=sec_edgar,
+        yfinance=yfinance,
+        massive=massive,
+        crawler=crawler,
+        twitter_api_key=twitter_api_key,
+    )
 
-        saved = 0
-        for idea in trade_ideas:
-            tickers = idea.get("tickers", [])
-            if not tickers:
-                continue
-            try:
-                result = await db.insert_trade_idea(
-                    {
-                        "brief_date": brief_date,
-                        "ticker": tickers[0],
-                        "direction": _parse_direction(idea.get("trade_structure", "")),
-                        "trade_structure": idea.get("trade_structure", ""),
-                        "thesis": idea.get("thesis", ""),
-                        "catalyst": idea.get("catalyst", ""),
-                        "conviction_tier": idea.get("conviction_tier"),
-                        "entry_price": idea.get("entry_price"),
-                        "target_price": idea.get("target_price"),
-                        "stop_price": idea.get("stop_price"),
-                        "risk_reward_ratio": idea.get("risk_reward_ratio"),
-                    }
-                )
-                if result is not None:
-                    saved += 1
-            except Exception:
-                logger.exception("Failed to save trade idea", ticker=tickers[0])
+    result = await graph.ainvoke(
+        {"current_date": current_date.isoformat(), "target_tickers": tickers},
+        config={"recursion_limit": 50},
+    )
 
-        if saved:
-            logger.info("Trade ideas saved for tracking", count=saved)
-    except Exception:
-        logger.exception("Failed to save trade ideas to DB")
+    brief: dict[str, Any] = result.get("brief", {})
+    elapsed = time.monotonic() - start
+
+    if not brief.get("date"):
+        logger.error(
+            "Ticker analysis produced no brief",
+            date=current_date.isoformat(),
+            tickers=tickers,
+            elapsed_s=round(elapsed, 1),
+        )
+        return brief
+
+    trade_ideas = brief.get("trade_ideas", [])
+    logger.info(
+        "Ticker analysis complete",
+        date=current_date.isoformat(),
+        tickers_analyzed=len(brief.get("tickers_analyzed", [])),
+        trade_ideas=len(trade_ideas),
+        elapsed_s=round(elapsed, 1),
+    )
+
+    # Save brief to KG as {date}-tradeideas.md
+    _save_brief_to_kg(brief, format_brief_as_markdown, suffix="-tradeideas")
+
+    return brief
 
 
-def _save_brief_to_kg(brief: dict[str, Any]) -> None:
+# ═══════════════════════════════════════════════════════════════════
+#  Shared helpers
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _save_brief_to_kg(
+    brief: dict[str, Any],
+    formatter: Callable[[dict[str, Any]], str],
+    suffix: str = "",
+) -> None:
     """Save compiled brief as markdown to the knowledge graph raw directory.
 
-    Synchronous — logs error on failure, never raises.
-    Output: ``docs/kg/raw/synesis_briefs/YYYY-MM-DD.md``
+    Args:
+        brief: Compiled brief dict.
+        formatter: Converts brief dict to markdown string.
+        suffix: Optional filename suffix (e.g. "-tradeideas").
+
+    Output: ``docs/kg/raw/synesis_briefs/{date}{suffix}.md``
     """
     brief_date = brief.get("date", "")
     if not brief_date:
@@ -200,8 +218,8 @@ def _save_brief_to_kg(brief: dict[str, Any]) -> None:
             project_root = Path.cwd()
             kg_dir = project_root / kg_dir
         kg_dir.mkdir(parents=True, exist_ok=True)
-        brief_path = kg_dir / f"{brief_date}.md"
-        brief_path.write_text(format_brief_as_markdown(brief), encoding="utf-8")
+        brief_path = kg_dir / f"{brief_date}{suffix}.md"
+        brief_path.write_text(formatter(brief), encoding="utf-8")
         logger.info("Brief saved to KG", path=str(brief_path))
     except Exception:
         logger.error("Failed to save brief to KG", brief_date=brief_date, exc_info=True)

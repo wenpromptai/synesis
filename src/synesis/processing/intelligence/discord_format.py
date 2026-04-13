@@ -1,4 +1,4 @@
-"""Discord embed formatter for the daily intelligence brief."""
+"""Discord embed formatter for intelligence briefs."""
 
 from __future__ import annotations
 
@@ -29,16 +29,62 @@ _REGIME_LABELS: dict[str, str] = {
 }
 
 
-def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]]]:
-    """Format compiled brief into Discord embed batches.
+def _build_watchlist_embed(brief: dict[str, Any], color: int) -> dict[str, Any] | None:
+    """Build a watchlist Discord embed from the brief's watchlist data.
 
-    Returns a list of embed batches (each batch <= 10 embeds) to send
-    as separate webhook calls.
+    Returns None if the watchlist has no selected picks.
+    """
+    watchlist = brief.get("watchlist", {})
+    picks = watchlist.get("selected", [])
+    if not picks:
+        return None
+
+    l1_pool = watchlist.get("l1_tickers", [])
+    pick_lines = []
+    for pick in picks:
+        direction = pick.get("direction_lean", "?")
+        emoji = "\U0001f7e2" if direction == "bullish" else "\U0001f534"
+        wildcard = " \u26a1 wildcard" if pick.get("is_wildcard") else ""
+        line = f"{emoji} **{pick.get('ticker', '?')}** \u2014 {pick.get('thematic_angle', '')}{wildcard}"
+        note = pick.get("signal_strength", "")
+        if note:
+            line += f"\n   {note}"
+        pick_lines.append(line)
+
+    fields: list[dict[str, Any]] = [
+        {"name": "Tickers", "value": "\n".join(pick_lines)[:1024], "inline": False}
+    ]
+
+    dropped = watchlist.get("dropped", [])
+    drop_reasons = watchlist.get("drop_reasons", [])
+    if dropped:
+        drop_parts = []
+        for i, t in enumerate(dropped):
+            reason = drop_reasons[i] if i < len(drop_reasons) else ""
+            drop_parts.append(f"{t} ({reason})" if reason else t)
+        fields.append({"name": "Dropped", "value": ", ".join(drop_parts)[:1024], "inline": False})
+
+    title_str = f"\U0001f4cb Watchlist \u2014 {len(picks)} tickers ({len(l1_pool)} from signals)"
+    embed: dict[str, Any] = {
+        "title": title_str,
+        "color": color,
+        "fields": fields,
+    }
+    themes = watchlist.get("themes", [])
+    if themes:
+        embed["description"] = " | ".join(themes[:5])
+    return embed
+
+
+def format_scan_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]]]:
+    """Format scan brief into Discord embed batches.
+
+    Scan-only output: macro regime, signal summaries, and watchlist.
+    No debates or trade ideas.
     """
     embeds: list[dict[str, Any]] = []
     now = datetime.now(timezone.utc).isoformat()
 
-    # ── Embed 1: Header + Macro ─────────────────────────────────
     macro = brief.get("macro", {})
     regime = macro.get("regime", "uncertain")
     color = _REGIME_COLORS.get(regime, COLOR_HEADER)
@@ -50,18 +96,13 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
     except (ValueError, TypeError):
         display_date = brief_date
 
+    # ── Header + Macro ─────────────────────────────────────────
     macro_fields: list[dict[str, Any]] = [
-        {
-            "name": "Regime",
-            "value": _REGIME_LABELS.get(regime, regime),
-            "inline": True,
-        },
+        {"name": "Regime", "value": _REGIME_LABELS.get(regime, regime), "inline": True},
     ]
-
     sentiment = macro.get("sentiment_score")
     if sentiment is not None:
         macro_fields.append({"name": "Sentiment", "value": f"{sentiment:+.2f}", "inline": True})
-
     drivers = macro.get("key_drivers", [])
     if drivers:
         macro_fields.append(
@@ -71,7 +112,6 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
                 "inline": False,
             }
         )
-
     tilts = macro.get("thematic_tilts", [])
     if tilts:
         tilt_lines = []
@@ -84,7 +124,6 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
         macro_fields.append(
             {"name": "Thematic Tilts", "value": "\n".join(tilt_lines)[:1024], "inline": False}
         )
-
     risks = macro.get("risks", [])
     if risks:
         macro_fields.append(
@@ -94,17 +133,16 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
                 "inline": False,
             }
         )
-
     embeds.append(
         {
-            "title": f"\U0001f4ca Daily Brief \u2014 {display_date}",
+            "title": f"\U0001f4e1 Market Scan \u2014 {display_date}",
             "color": color,
             "fields": macro_fields,
             "timestamp": now,
         }
     )
 
-    # ── Layer 1 summaries ───────────────────────────────────────
+    # ── L1 Signal Summary ──────────────────────────────────────
     l1 = brief.get("l1_summary", {})
     social_summary = l1.get("social", "")
     news_summary = l1.get("news", "")
@@ -115,138 +153,13 @@ def format_intelligence_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]
         if news_summary:
             l1_fields.append({"name": "News", "value": news_summary[:1024], "inline": False})
         embeds.append(
-            {
-                "title": "\U0001f4e1 Signal Summary",
-                "color": COLOR_HEADER,
-                "fields": l1_fields,
-            }
+            {"title": "\U0001f4e1 Signal Summary", "color": COLOR_HEADER, "fields": l1_fields}
         )
 
-    # ── Screener embed ──────────────────────────────────────────
-    screener = brief.get("screener", {})
-    screener_picks = screener.get("selected", [])
-    l1_pool = screener.get("l1_tickers", [])
-    if screener_picks:
-        pick_lines = []
-        for pick in screener_picks:
-            direction = pick.get("direction_lean", "?")
-            emoji = "\U0001f7e2" if direction == "bullish" else "\U0001f534"
-            wildcard = " \u26a1 wildcard" if pick.get("is_wildcard") else ""
-            line = f"{emoji} **{pick.get('ticker', '?')}** \u2014 {pick.get('thematic_angle', '')}{wildcard}"
-            note = pick.get("signal_strength", "")
-            if note:
-                line += f"\n   {note}"
-            pick_lines.append(line)
-
-        screener_fields: list[dict[str, Any]] = [
-            {"name": "Selected", "value": "\n".join(pick_lines)[:1024], "inline": False}
-        ]
-
-        dropped = screener.get("dropped", [])
-        drop_reasons = screener.get("drop_reasons", [])
-        if dropped:
-            drop_parts = []
-            for i, t in enumerate(dropped):
-                reason = drop_reasons[i] if i < len(drop_reasons) else ""
-                drop_parts.append(f"{t} ({reason})" if reason else t)
-            screener_fields.append(
-                {"name": "Dropped", "value": ", ".join(drop_parts)[:1024], "inline": False}
-            )
-
-        themes = screener.get("themes", [])
-        title_str = f"\U0001f4cb Screener \u2014 {len(screener_picks)} of {len(l1_pool)} tickers"
-        screener_embed: dict[str, Any] = {
-            "title": title_str,
-            "color": color,
-            "fields": screener_fields,
-        }
-        if themes:
-            screener_embed["description"] = " | ".join(themes[:5])
-        embeds.append(screener_embed)
-
-    # ── Per-ticker Debate embeds ────────────────────────────────
-    debates = brief.get("debates", [])
-    trade_ideas = brief.get("trade_ideas", [])
-
-    for debate in debates:
-        ticker = debate.get("ticker", "?")
-        fields: list[dict[str, Any]] = []
-
-        bull = debate.get("bull", {})
-        bear = debate.get("bear", {})
-
-        # Bull argument — variant + argument + evidence
-        bull_arg = bull.get("argument", "")
-        if bull_arg:
-            bull_text = _format_debate_side_with_variant(bull)
-            fields.extend(_split_field("\U0001f7e2 Bull Case", bull_text, inline=False))
-
-        # Bear argument
-        bear_arg = bear.get("argument", "")
-        if bear_arg:
-            bear_text = _format_debate_side_with_variant(bear)
-            fields.extend(_split_field("\U0001f534 Bear Case", bear_text, inline=False))
-
-        embeds.append(
-            {
-                "title": f"\u2694\ufe0f {ticker}",
-                "color": color,
-                "fields": fields[:25],
-            }
-        )
-
-    # ── Trade Ideas (unified section) ──────────────────────────
-    if trade_ideas:
-        portfolio_note = brief.get("portfolio_note", "")
-        ti_fields: list[dict[str, Any]] = []
-        for idea in trade_ideas:
-            tickers_str = " / ".join(idea.get("tickers", []))
-            idea_text = f"**{idea.get('trade_structure', '')}**"
-            # R/R line
-            entry = idea.get("entry_price")
-            target = idea.get("target_price")
-            stop = idea.get("stop_price")
-            rr = idea.get("risk_reward_ratio")
-            if entry is not None and target is not None and stop is not None:
-                rr_str = f" (R/R {rr:.1f}:1)" if rr is not None else ""
-                idea_text += (
-                    f"\nEntry ${entry:.2f} \u2192 Target ${target:.2f} | Stop ${stop:.2f}{rr_str}"
-                )
-            # Conviction
-            tier = idea.get("conviction_tier")
-            rationale = idea.get("conviction_rationale", "")
-            if tier is not None:
-                idea_text += f"\nConviction: Tier {tier} \u2014 {rationale}"
-            # Thesis
-            thesis = idea.get("thesis", "")
-            if thesis:
-                idea_text += f"\n{thesis}"
-            meta_parts = []
-            catalyst = idea.get("catalyst", "")
-            timeframe = idea.get("timeframe", "")
-            if catalyst:
-                tf_str = f" ({timeframe})" if timeframe else ""
-                meta_parts.append(f"**Catalyst:** {catalyst}{tf_str}")
-            elif timeframe:
-                meta_parts.append(f"**Timeframe:** {timeframe}")
-            key_risk = idea.get("key_risk", "")
-            if key_risk:
-                meta_parts.append(f"**Risk:** {key_risk}")
-            expression = idea.get("expression_note", "")
-            if expression:
-                meta_parts.append(f"**Vol:** {expression}")
-            if meta_parts:
-                idea_text += "\n" + " \u2022 ".join(meta_parts)
-            ti_fields.extend(_split_field(f"\U0001f4a1 {tickers_str}", idea_text, inline=False))
-
-        trade_embed: dict[str, Any] = {
-            "title": "\U0001f4bc Trade Ideas",
-            "color": color,
-            "fields": ti_fields[:25],
-        }
-        if portfolio_note:
-            trade_embed["description"] = portfolio_note[:4096]
-        embeds.append(trade_embed)
+    # ── Watchlist ──────────────────────────────────────────────
+    wl_embed = _build_watchlist_embed(brief, color)
+    if wl_embed is not None:
+        embeds.append(wl_embed)
 
     return _split_into_batches(embeds)
 
