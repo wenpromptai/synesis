@@ -30,7 +30,6 @@ The hyperscaler AI capex cycle is increasingly funded through intermediaries (Co
 
 1. **Leverage concentration**: CoreWeave is a single point of failure with $35B+ in commitments funded by debt/converts, not operating cash flow
 2. **Macro feedback loop**: Oil >$100 → inflation → higher rates → tighter credit → harder for CoreWeave to refinance → demand risk for NVDA/MRVL
-3. **Hidden correlation**: Portfolio with META + NVDA + MRVL call spreads is effectively triple-long CoreWeave's ability to fund AI buildout
 4. **Contrast with direct builders**: Meta chose CoreWeave (OPEX) over building in-house (CAPEX). If CoreWeave stumbles, Meta's AI training timeline slips.
 
 ## Monitoring

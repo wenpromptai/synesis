@@ -89,7 +89,17 @@ def _format_macro_regime_markdown(macro: dict[str, Any]) -> list[str]:
             reasoning = tilt.get("reasoning", "")
             etf = tilt.get("etf")
             etf_str = f" [{etf}]" if etf else ""
-            lines.append(f"- **{theme}**{etf_str} ({tilt_score:+.1f}) — {reasoning}")
+            persistence = tilt.get("persistence", "")
+            pers_str = f" ({persistence})" if persistence else ""
+            lines.append(f"- **{theme}**{etf_str}{pers_str} ({tilt_score:+.1f}) — {reasoning}")
+            for evidence in tilt.get("key_evidence", []):
+                lines.append(f"  - {evidence}")
+            related = tilt.get("related_tickers", [])
+            if related:
+                lines.append(f"  - Tickers: {', '.join(related)}")
+            catalyst = tilt.get("catalyst_date", "")
+            if catalyst:
+                lines.append(f"  - Catalyst: {catalyst}")
 
     for risk in macro.get("risks", []):
         lines.append(f"- **Risk:** {risk}")
@@ -211,9 +221,7 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "date": state.get("current_date", ""),
                 "macro": _extract_macro_dict(macro) if macro and not macro.get("error") else {},
-                "watchlist": _extract_watchlist_dict(state, watchlist_ctx)
-                if watchlist_ctx
-                else {},
+                "watchlist": _extract_watchlist_dict(state, watchlist_ctx) if watchlist_ctx else {},
                 # Debates per ticker (bull + bear arguments)
                 "debates": debates,
                 # Layer 1 summaries (empty when not run, e.g. analyze path)
@@ -221,6 +229,8 @@ def compile_brief(state: dict[str, Any]) -> dict[str, Any]:
                     "social": social.get("summary", ""),
                     "news": news.get("summary", ""),
                 },
+                "social_research_context": social.get("research_context", []),
+                "social_discovered_themes": social.get("discovered_themes", []),
                 # Supporting context
                 "tickers_analyzed": [c["ticker"] for c in valid_companies if "ticker" in c],
                 "ticker_research": ticker_research.get("research", [])
@@ -486,7 +496,26 @@ def format_brief_as_markdown(brief: dict[str, Any]) -> str:
         if l1.get("news"):
             lines.append(f"- **News:** {l1['news']}")
         for theme in themes:
-            lines.append(f"- **Macro theme:** {theme}")
+            if isinstance(theme, dict):
+                name = theme.get("theme", "?")
+                ctx = theme.get("context", "")
+                accounts = theme.get("source_accounts", [])
+                acct_str = f" [from: {', '.join(accounts)}]" if accounts else ""
+                lines.append(f"- **Macro theme:** {name} — {ctx}{acct_str}")
+            else:
+                lines.append(f"- **Macro theme:** {theme}")
+
+        # Thematic research from social analysis
+        research = brief.get("social_research_context", [])
+        if research:
+            lines.append("\n### Thematic Research")
+            for item in research:
+                lines.append(f"- {item}")
+        discovered = brief.get("social_discovered_themes", [])
+        if discovered:
+            lines.append("\n### Discovered Themes")
+            for item in discovered:
+                lines.append(f"- {item}")
         lines.append("")
 
     # Pipeline health
@@ -531,13 +560,13 @@ def compile_scan_brief(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "date": state.get("current_date", ""),
                 "macro": _extract_macro_dict(macro) if macro and not macro.get("error") else {},
-                "watchlist": _extract_watchlist_dict(state, watchlist_ctx)
-                if watchlist_ctx
-                else {},
+                "watchlist": _extract_watchlist_dict(state, watchlist_ctx) if watchlist_ctx else {},
                 "l1_summary": {
                     "social": social.get("summary", ""),
                     "news": news.get("summary", ""),
                 },
+                "social_research_context": social.get("research_context", []),
+                "social_discovered_themes": social.get("discovered_themes", []),
                 "macro_themes": social.get("macro_themes", []) + news.get("macro_themes", []),
                 "ticker_mentions": {
                     "social": social.get("ticker_mentions", []),
@@ -602,7 +631,26 @@ def format_scan_brief_as_markdown(brief: dict[str, Any]) -> str:
         if l1.get("news"):
             lines.append(f"- **News:** {l1['news']}")
         for theme in themes_list:
-            lines.append(f"- **Macro theme:** {theme}")
+            if isinstance(theme, dict):
+                name = theme.get("theme", "?")
+                ctx = theme.get("context", "")
+                accounts = theme.get("source_accounts", [])
+                acct_str = f" [from: {', '.join(accounts)}]" if accounts else ""
+                lines.append(f"- **Macro theme:** {name} — {ctx}{acct_str}")
+            else:
+                lines.append(f"- **Macro theme:** {theme}")
+
+        # Thematic research from social analysis
+        research = brief.get("social_research_context", [])
+        if research:
+            lines.append("\n### Thematic Research")
+            for item in research:
+                lines.append(f"- {item}")
+        discovered = brief.get("social_discovered_themes", [])
+        if discovered:
+            lines.append("\n### Discovered Themes")
+            for item in discovered:
+                lines.append(f"- {item}")
         lines.append("")
 
     # Pipeline health

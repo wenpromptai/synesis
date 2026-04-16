@@ -52,6 +52,7 @@ dependencies = [
     "lxml>=6.0.2",
     "langgraph>=1.1.6",
     "pandas-ta>=0.4.71b0",
+    "hmmlearn>=0.3.3",
 ]
 
 [project.scripts]
@@ -103,6 +104,8 @@ module = [
     "scipy.*",
     "pandas_ta",
     "pandas_ta.*",
+    "hmmlearn",
+    "hmmlearn.*",
 ]
 ignore_missing_imports = true
 

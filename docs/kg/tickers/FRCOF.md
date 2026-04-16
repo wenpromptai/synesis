@@ -11,7 +11,6 @@ tags: [ticker, retail, japan]
 # FRCOF — Fast Retailing (OTC)
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — stay flat
 
 ## 2026-04-10
 - Extended post guide-up (z +2.12, %B 1.03) on light volume 0.38x

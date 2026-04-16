@@ -11,7 +11,6 @@ tags: [ticker, semiconductor, ai, ip]
 # ARM — Arm Holdings
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade (details in debate section of brief)
 
 ## 2026-04-10
 - Analyzed in brief — bull/bear debate present

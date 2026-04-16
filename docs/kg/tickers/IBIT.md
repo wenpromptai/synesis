@@ -11,7 +11,6 @@ tags: [ticker, crypto, etf]
 # IBIT — iShares Bitcoin Trust ETF
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — stand aside; if needed, use collar/put hedge
 
 ## 2026-04-10
 - Essentially BTC beta minus fee drag; bull points (scale, liquidity, EMA cross) don't create edge on BTC direction

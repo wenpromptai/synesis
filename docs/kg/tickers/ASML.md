@@ -11,7 +11,6 @@ tags: [ticker, semiconductor, equipment, euv, lithography]
 # ASML — ASML Holding N.V.
 
 **As of 2026-04-11 | Regime: transitioning**
-Decision: Long ASML / Short TSM equity pair (dollar-neutral)
 
 ## 2026-04-11 (automated pipeline)
 - EUV lithography monopoly — competitors Nikon/Canon "significantly behind"
@@ -23,9 +22,7 @@ Decision: Long ASML / Short TSM equity pair (dollar-neutral)
 - No insider activity reported
 - Bull: Picks-and-shovels monopoly for leading-edge nodes. Secular EUV/High-NA tailwinds. Scarcity value in downturns.
 - Bear: Revenue dictated by handful of customers' lumpy capex cycles. Export controls (especially China) can cap growth. High-NA ramp timeline unclear — aspiration vs near-term earnings support. Crowded call positioning raises bar for beat.
-- Trade: Equity L/S pair LONG ASML / SHORT TSM, dollar-neutral. Stop if pair moves -5%. Take profit at +10%.
 - Thesis: ASML's durable EUV monopoly + stronger earnings quality vs TSM's single monthly revenue print with missing margin/FCF detail
-- Timeframe: 1-3 months
 - Source: [[sources/brief-2026-04-11]]
 
 ## 2026-04-11 (manual brief — catalyst note)
@@ -36,7 +33,6 @@ Decision: Long ASML / Short TSM equity pair (dollar-neutral)
 ## 2026-04-12 (manual brief) — HOLD PAIR
 - Spot $1,478.28 (+2.05%). RV 30d: 52.3%.
 - Morgan Stanley note on TSM: ABF substrate and HBM supply are gating factors — not foundry capacity. This benefits ASML: equipment monopoly is more durable than TSM's revenue growth.
-- **Decision: Hold ASML/TSM pair.** Pair thesis intact.
 - Source: [[sources/brief-2026-04-12-manual]]
 
 > [!quote]- Sources

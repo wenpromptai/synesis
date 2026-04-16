@@ -11,7 +11,6 @@ tags: [ticker, ems, manufacturing]
 # JBL — Jabil
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade (details in debate section of brief)
 
 ## 2026-04-10
 - Analyzed in brief

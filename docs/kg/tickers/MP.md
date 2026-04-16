@@ -11,7 +11,6 @@ tags: [ticker, rare-earth, strategic-materials]
 # MP — MP Materials
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — pass (insufficient edge)
 
 ## 2026-04-10
 - FY2025 CFO -$155.8M; FCF -$303.9M; Q4 gross profit negative (-$17.0M on $52.7M rev)

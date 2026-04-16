@@ -1,19 +1,23 @@
 """MacroStrategist — assesses market regime from multi-source context.
 
-Pre-fetches:
-  1. FRED economic indicators (VIX, yields, fed funds, unemployment)
-  2. Benchmark quotes via yfinance (indices, bonds, commodities, dollar, credit, sectors)
-  3. Yesterday's calendar events enriched with actual outcomes (earnings 8-K,
-     FRED actuals, Fed minutes/statements, 13F position changes)
+Pre-fetches (all in parallel):
+  1. FRED economic indicators (VIX, yields, credit spreads, NFCI, Sahm Rule, claims)
+  2. Benchmark quotes via yfinance (indices, bonds, commodities incl. copper, dollar, credit, sectors)
+  3. Yesterday's calendar events enriched with outcomes (earnings 8-K, FRED actuals,
+     Fed minutes/statements, 13F position changes)
   4. Upcoming catalysts from DB (next 7 days)
-  5. Layer 1 macro themes (social + news)
+  5. CFTC COT futures positioning (hedge fund net positioning on ES, NQ, ZN, GC, CL, DX)
+  6. HMM regime model (statistical regime probabilities from 10yr weekly cross-asset data)
 
-The LLM synthesizes all context into a regime assessment, sector tilts, and risks.
-This replaces the separate yesterday brief pipeline — the MacroStrategist is the
-single source of truth for "what happened + what it means + what's the regime."
+Computes derived signals:
+  - Cross-asset signals (HYG/LQD ratio, copper/gold, credit spread direction, NFCI reading)
+  - Deterministic regime prior (threshold-based: VIX, NFCI, HY OAS, SPY vs 200d, yield curve, Sahm)
 
-Web search (budget: 3) is reserved for what data can't tell you: Fed rhetoric,
-geopolitical shifts, and breaking policy changes.
+The LLM receives all context + both regime priors (threshold + HMM) and synthesizes
+into a regime assessment, thematic tilts, positioning signals, and risks.
+
+Web search (budget: 5) is reserved for what data can't tell you: Fed rhetoric,
+geopolitical shifts, thematic validation, and breaking developments.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from pydantic_ai import Agent, RunContext
 from synesis.core.constants import FRED_OUTCOME_SERIES
 from synesis.core.logging import get_logger
 from synesis.processing.common.llm import create_model, web_search_config
+from synesis.config import get_settings
 from synesis.processing.common.web_search import (
     Recency,
     format_search_results,
@@ -36,8 +41,11 @@ from synesis.processing.common.web_search import (
 )
 from synesis.processing.events.fetchers import load_hedge_fund_registry
 from synesis.processing.intelligence.models import MacroView
+from synesis.processing.regime.detector import RegimeDetector
+from synesis.providers.cftc.client import CFTCClient
 
 if TYPE_CHECKING:
+    from synesis.providers.cftc.models import COTReport
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
     from synesis.providers.fred.client import FREDClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
@@ -51,6 +59,7 @@ _WEB_SEARCH_CAP = 5
 
 _SEARCH_DESC = (
     "look up Fed rhetoric, geopolitical developments, trade policy shifts, "
+    "validate thematic theses (supply chain, subsector trends, earnings backing), "
     "or breaking events not yet reflected in the data"
 )
 
@@ -61,6 +70,18 @@ _FRED_SERIES = {
     "DGS2": "2-Year Treasury Yield",
     "FEDFUNDS": "Federal Funds Rate",
     "UNRATE": "Unemployment Rate",
+    # Credit & financial stress
+    "BAMLH0A0HYM2": "HY Credit Spread (OAS)",
+    "BAMLC0A0CM": "IG Credit Spread (OAS)",
+    "NFCI": "Chicago Fed Financial Conditions Index",
+    "T10Y3M": "Yield Curve Spread (10Y - 3M)",
+    # Recession indicators
+    "SAHMREALTIME": "Sahm Rule Recession Indicator",
+    "ICSA": "Initial Jobless Claims",
+    # Financial stress
+    "STLFSI4": "St. Louis Fed Financial Stress Index",
+    # Macro
+    "DTWEXBGS": "Trade-Weighted Dollar Index",
 }
 
 
@@ -73,6 +94,7 @@ _BENCHMARKS: dict[str, tuple[str, str]] = {
     "SHY": ("1-3 Year Treasury", "treasuries"),
     "GLD": ("Gold", "commodities"),
     "USO": ("Crude Oil", "commodities"),
+    "HG=F": ("Copper", "commodities"),
     "UUP": ("US Dollar", "dollar"),
     "HYG": ("High Yield Corp", "credit"),
     "LQD": ("Investment Grade Corp", "credit"),
@@ -563,28 +585,387 @@ def _format_event_context(
     return "\n".join(lines)
 
 
-def _format_macro_themes(state: dict[str, Any]) -> str:
-    """Format Layer 1 macro themes for the LLM prompt."""
-    lines = ["## Macro Themes from Layer 1 Analysts"]
+def _format_l1_intelligence(state: dict[str, Any]) -> str:
+    """Format full Layer 1 intelligence for the MacroStrategist.
+
+    Includes ticker mentions, macro themes, thematic research, discovered
+    themes, and news clusters — everything the social and news analysts
+    surfaced. The strategist uses this alongside FRED/benchmarks/events to
+    form regime assessments and thematic tilts.
+    """
+    lines = ["## Layer 1 Intelligence (Social + News)"]
 
     social = state.get("social_analysis", {})
-    for theme in social.get("macro_themes", []):
-        lines.append(f"- [Social] {theme.get('theme', '?')} — {theme.get('context', '')}")
-
     news = state.get("news_analysis", {})
-    for theme in news.get("macro_themes", []):
-        lines.append(f"- [News] {theme.get('theme', '?')} — {theme.get('context', '')}")
 
-    # Include high-urgency macro news clusters
-    for cluster in news.get("story_clusters", []):
-        if cluster.get("event_type") == "macro":
-            lines.append(
-                f"- [News cluster] {cluster.get('headline', '?')} "
-                f"(urgency: {cluster.get('urgency', '?')})"
-            )
+    # ── Social ticker mentions with context ────────────────────
+    social_mentions = social.get("ticker_mentions", [])
+    if social_mentions:
+        lines.append("\n### Social Ticker Signals")
+        for mention in social_mentions:
+            ticker = mention.get("ticker", "")
+            context = mention.get("context", "")
+            accounts = ", ".join(mention.get("source_accounts", []))
+            acct_str = f" [from: {accounts}]" if accounts else ""
+            lines.append(f"- **{ticker}**: {context}{acct_str}")
+
+    # ── Social macro themes ────────────────────────────────────
+    social_themes = social.get("macro_themes", [])
+    if social_themes:
+        lines.append("\n### Social Macro Themes")
+        for theme in social_themes:
+            accounts = ", ".join(theme.get("source_accounts", []))
+            acct_str = f" [from: {accounts}]" if accounts else ""
+            lines.append(f"- {theme.get('theme', '?')} — {theme.get('context', '')}{acct_str}")
+
+    # ── Thematic research (web-verified findings) ──────────────
+    research = social.get("research_context", [])
+    if research:
+        lines.append("\n### Thematic Research (verified via web search)")
+        for item in research:
+            lines.append(f"- {item}")
+
+    # ── Discovered themes (found through research) ─────────────
+    discovered = social.get("discovered_themes", [])
+    if discovered:
+        lines.append("\n### Discovered Themes")
+        for item in discovered:
+            lines.append(f"- {item}")
+
+    # ── News macro themes ──────────────────────────────────────
+    news_themes = news.get("macro_themes", [])
+    if news_themes:
+        lines.append("\n### News Macro Themes")
+        for theme in news_themes:
+            lines.append(f"- {theme.get('theme', '?')} — {theme.get('context', '')}")
+
+    # ── News story clusters ────────────────────────────────────
+    clusters = news.get("story_clusters", [])
+    if clusters:
+        lines.append("\n### News Clusters")
+        for cluster in clusters:
+            urgency = cluster.get("urgency", "normal")
+            event_type = cluster.get("event_type", "other")
+            headline = cluster.get("headline", "?")
+            cluster_tickers = [t.get("ticker", "") for t in cluster.get("tickers", [])]
+            ticker_str = f" [{', '.join(cluster_tickers)}]" if cluster_tickers else ""
+            lines.append(f"- **[{event_type}, {urgency}]** {headline}{ticker_str}")
+            for fact in cluster.get("key_facts", [])[:4]:
+                lines.append(f"  - {fact}")
 
     if len(lines) == 1:
-        lines.append("- No macro themes identified by Layer 1 analysts.")
+        lines.append("- No signals from Layer 1 analysts.")
+
+    return "\n".join(lines)
+
+
+def _compute_cross_asset_signals(
+    fred_data: dict[str, Any], benchmark_data: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Compute cross-asset relationship signals from existing data."""
+    signals: dict[str, Any] = {}
+
+    # HYG/LQD price ratio (credit risk appetite)
+    hyg = benchmark_data.get("HYG", {})
+    lqd = benchmark_data.get("LQD", {})
+    if hyg.get("last") and lqd.get("last") and lqd["last"] > 0:
+        signals["hyg_lqd_ratio"] = round(hyg["last"] / lqd["last"], 4)
+
+    # HY credit spread direction (from FRED history)
+    hy_oas = fred_data.get("BAMLH0A0HYM2", {})
+    if hy_oas.get("history") and len(hy_oas["history"]) >= 2:
+        latest_oas = hy_oas["history"][0]["value"]
+        prev_oas = hy_oas["history"][1]["value"]
+        if latest_oas is not None and prev_oas is not None:
+            try:
+                signals["hy_oas_level"] = float(latest_oas)
+                signals["hy_oas_direction"] = "tightening" if float(latest_oas) < float(prev_oas) else "widening"
+            except (ValueError, TypeError):
+                pass
+
+    # NFCI reading
+    nfci = fred_data.get("NFCI", {})
+    if nfci.get("value") is not None:
+        try:
+            val = float(nfci["value"])
+            signals["nfci_level"] = val
+            signals["nfci_reading"] = "loose" if val < 0 else "tight"
+        except (ValueError, TypeError):
+            pass
+
+    # Yield curve signals
+    t10y3m = fred_data.get("T10Y3M", {})
+    if t10y3m.get("value") is not None:
+        try:
+            signals["yield_curve_10y3m"] = float(t10y3m["value"])
+        except (ValueError, TypeError):
+            pass
+
+    # Copper/Gold ratio (risk appetite proxy)
+    copper = benchmark_data.get("HG=F", {})
+    gold = benchmark_data.get("GLD", {})
+    if copper.get("last") and gold.get("last") and gold["last"] > 0:
+        signals["copper_gold_ratio"] = round(copper["last"] / gold["last"], 4)
+
+    # SPY vs 200d MA
+    spy = benchmark_data.get("SPY", {})
+    if spy.get("last") and spy.get("avg_200d"):
+        signals["spy_above_200d"] = spy["last"] > spy["avg_200d"]
+        signals["spy_200d_pct"] = round((spy["last"] / spy["avg_200d"] - 1) * 100, 2)
+
+    return signals
+
+
+def _format_cross_asset_signals(signals: dict[str, Any]) -> str:
+    """Format cross-asset signals as markdown context for the LLM."""
+    if not signals:
+        return ""
+
+    lines = ["## Cross-Asset Signals"]
+
+    if "hy_oas_level" in signals:
+        direction = signals.get("hy_oas_direction", "?")
+        lines.append(f"- **HY Credit Spread (OAS):** {signals['hy_oas_level']:.0f}bp ({direction})")
+
+    if "nfci_level" in signals:
+        reading = signals.get("nfci_reading", "?")
+        lines.append(f"- **Financial Conditions (NFCI):** {signals['nfci_level']:.2f} ({reading})")
+
+    if "yield_curve_10y3m" in signals:
+        val = signals["yield_curve_10y3m"]
+        status = "inverted" if val < 0 else "positive"
+        lines.append(f"- **Yield Curve (10Y-3M):** {val:+.2f}% ({status})")
+
+    if "hyg_lqd_ratio" in signals:
+        lines.append(f"- **HYG/LQD Ratio:** {signals['hyg_lqd_ratio']:.4f}")
+
+    if "copper_gold_ratio" in signals:
+        lines.append(f"- **Copper/Gold Ratio:** {signals['copper_gold_ratio']:.4f}")
+
+    if "spy_above_200d" in signals:
+        above = "above" if signals["spy_above_200d"] else "below"
+        lines.append(f"- **SPY vs 200d MA:** {above} ({signals.get('spy_200d_pct', 0):+.1f}%)")
+
+    return "\n".join(lines)
+
+
+def _compute_regime_prior(
+    fred_data: dict[str, Any],
+    benchmark_data: dict[str, dict[str, Any]],
+    cross_asset: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute a deterministic regime prior from quantitative signals.
+
+    Each signal scored as: +1 (risk_on), 0 (neutral), -1 (risk_off).
+    Average score maps to a regime suggestion.
+    """
+    scores: dict[str, tuple[int, str]] = {}
+
+    # VIX
+    vix = fred_data.get("VIXCLS", {}).get("value")
+    if vix is not None:
+        try:
+            v = float(vix)
+            if v < 18:
+                scores["VIX"] = (+1, f"{v:.1f} (low)")
+            elif v <= 25:
+                scores["VIX"] = (0, f"{v:.1f} (normal)")
+            else:
+                scores["VIX"] = (-1, f"{v:.1f} (elevated)")
+        except (ValueError, TypeError):
+            pass
+
+    # NFCI
+    nfci = cross_asset.get("nfci_level")
+    if nfci is not None:
+        if nfci < -0.2:
+            scores["NFCI"] = (+1, f"{nfci:.2f} (loose)")
+        elif nfci <= 0.2:
+            scores["NFCI"] = (0, f"{nfci:.2f} (neutral)")
+        else:
+            scores["NFCI"] = (-1, f"{nfci:.2f} (tight)")
+
+    # HY OAS
+    hy_oas = cross_asset.get("hy_oas_level")
+    if hy_oas is not None:
+        if hy_oas < 400:
+            scores["HY Spread"] = (+1, f"{hy_oas:.0f}bp (tight)")
+        elif hy_oas <= 500:
+            scores["HY Spread"] = (0, f"{hy_oas:.0f}bp (normal)")
+        else:
+            scores["HY Spread"] = (-1, f"{hy_oas:.0f}bp (stressed)")
+
+    # SPY vs 200d MA
+    spy_above = cross_asset.get("spy_above_200d")
+    spy_pct = cross_asset.get("spy_200d_pct", 0)
+    if spy_above is not None:
+        scores["SPY vs 200d"] = (+1 if spy_above else -1, f"{'above' if spy_above else 'below'} ({spy_pct:+.1f}%)")
+
+    # Yield curve (10Y-3M)
+    yc = cross_asset.get("yield_curve_10y3m")
+    if yc is not None:
+        if yc > 0.5:
+            scores["Yield Curve"] = (+1, f"{yc:+.2f}% (steep)")
+        elif yc >= 0:
+            scores["Yield Curve"] = (0, f"{yc:+.2f}% (flat)")
+        else:
+            scores["Yield Curve"] = (-1, f"{yc:+.2f}% (inverted)")
+
+    # Sahm Rule
+    sahm = fred_data.get("SAHMREALTIME", {}).get("value")
+    if sahm is not None:
+        try:
+            s = float(sahm)
+            if s < 0.3:
+                scores["Sahm Rule"] = (+1, f"{s:.2f} (no recession)")
+            elif s <= 0.5:
+                scores["Sahm Rule"] = (0, f"{s:.2f} (warning)")
+            else:
+                scores["Sahm Rule"] = (-1, f"{s:.2f} (recession)")
+        except (ValueError, TypeError):
+            pass
+
+    if not scores:
+        return {"regime": "uncertain", "confidence": "no data", "signals": {}}
+
+    # Average score → regime
+    avg = sum(s for s, _ in scores.values()) / len(scores)
+    if avg > 0.3:
+        regime = "risk_on"
+    elif avg < -0.3:
+        regime = "risk_off"
+    elif abs(avg) <= 0.3 and any(s != 0 for s, _ in scores.values()):
+        regime = "transitioning"
+    else:
+        regime = "uncertain"
+
+    agree = sum(1 for s, _ in scores.values() if s != 0 and (s > 0) == (avg > 0))
+    total = sum(1 for s, _ in scores.values() if s != 0)
+    confidence = f"{agree}/{total} signals agree" if total > 0 else "no directional signals"
+
+    return {
+        "regime": regime,
+        "score": round(avg, 2),
+        "confidence": confidence,
+        "signals": {k: {"score": s, "detail": d} for k, (s, d) in scores.items()},
+    }
+
+
+def _format_regime_prior(prior: dict[str, Any]) -> str:
+    """Format the quantitative regime prior as markdown."""
+    if not prior.get("signals"):
+        return ""
+
+    regime = prior["regime"]
+    score = prior.get("score", 0)
+    confidence = prior.get("confidence", "")
+
+    lines = ["## Quantitative Regime Assessment"]
+    lines.append(f"**Suggested regime:** {regime} (score: {score:+.2f}, {confidence})")
+    lines.append("")
+    lines.append("| Signal | Score | Detail |")
+    lines.append("|--------|-------|--------|")
+    for name, info in prior["signals"].items():
+        s = info["score"]
+        label = "risk_on" if s > 0 else "risk_off" if s < 0 else "neutral"
+        lines.append(f"| {name} | {s:+d} ({label}) | {info['detail']} |")
+    lines.append("")
+    lines.append("*This is a data-grounded starting point. Override with reasoning if you disagree.*")
+
+    return "\n".join(lines)
+
+
+async def _fetch_cftc_positioning() -> dict[str, COTReport]:
+    """Fetch latest CFTC COT positioning for key futures contracts."""
+    try:
+        client = CFTCClient()
+        return await client.get_latest(["ES", "NQ", "ZN", "GC", "CL", "DX"])
+    except Exception:
+        logger.warning("CFTC COT fetch failed", exc_info=True)
+        return {}
+
+
+def _format_cftc_positioning(cot_data: dict[str, COTReport]) -> str:
+    """Format CFTC COT positioning as markdown context for the LLM."""
+    if not cot_data:
+        return ""
+
+    lines = ["## Futures Positioning (CFTC COT)"]
+    lines.append(
+        "Weekly hedge fund (leveraged funds) net positioning on major futures. "
+        "Percentile = position vs 52-week range (>90% = crowded long, <10% = crowded short)."
+    )
+    lines.append("")
+    lines.append("| Contract | Net Contracts | 52wk Pctl | Z-Score | Wk Change (L/S) | Date |")
+    lines.append("|----------|--------------|-----------|---------|-----------------|------|")
+
+    for ticker, report in sorted(cot_data.items()):
+        lev = report.leveraged_funds
+        pctl = f"{report.lev_funds_net_pctl:.0f}%" if report.lev_funds_net_pctl is not None else "N/A"
+        zs = f"{report.lev_funds_net_zscore:+.2f}" if report.lev_funds_net_zscore is not None else "N/A"
+        chg = f"{lev.change_long:+,} / {lev.change_short:+,}"
+        lines.append(
+            f"| {ticker} ({report.contract_name[:30]}) "
+            f"| {lev.net_contracts:+,} | {pctl} | {zs} | {chg} | {report.report_date} |"
+        )
+
+    # Flag extremes
+    extremes = []
+    for ticker, report in cot_data.items():
+        if report.lev_funds_net_pctl is not None:
+            if report.lev_funds_net_pctl >= 90:
+                extremes.append(f"**{ticker}**: crowded LONG ({report.lev_funds_net_pctl:.0f}th pctl) — contrarian bearish")
+            elif report.lev_funds_net_pctl <= 10:
+                extremes.append(f"**{ticker}**: crowded SHORT ({report.lev_funds_net_pctl:.0f}th pctl) — contrarian bullish")
+
+    if extremes:
+        lines.append("")
+        lines.append("**Extreme positioning (contrarian signals):**")
+        for e in extremes:
+            lines.append(f"- {e}")
+
+    return "\n".join(lines)
+
+
+async def _fetch_hmm_regime(fred_api_key: str) -> dict[str, Any]:
+    """Run the HMM regime detector and return the current assessment."""
+    if not fred_api_key:
+        logger.info("HMM regime skipped — no FRED API key")
+        return {}
+
+    try:
+        detector = RegimeDetector(fred_api_key=fred_api_key)
+        await detector.fit(lookback_years=10)
+        return detector.predict_current()
+    except Exception:
+        logger.warning("HMM regime detection failed", exc_info=True)
+        return {}
+
+
+def _format_hmm_regime(hmm_result: dict[str, Any]) -> str:
+    """Format HMM regime assessment as markdown."""
+    if not hmm_result:
+        return ""
+
+    regime = hmm_result.get("regime", "unknown")
+    confidence = hmm_result.get("confidence", 0)
+    duration = hmm_result.get("duration_weeks", 0)
+    probs = hmm_result.get("probabilities", {})
+
+    lines = ["## HMM Regime Model"]
+    lines.append(
+        f"**Assessment:** {regime} ({confidence:.0%} confidence, {duration} weeks in this state)"
+    )
+
+    if probs:
+        prob_parts = [f"{r}: {p:.0%}" for r, p in sorted(probs.items(), key=lambda x: -x[1])]
+        lines.append(f"**Probabilities:** {' | '.join(prob_parts)}")
+
+    lines.append(
+        "\n*Statistical model trained on 10 years of weekly cross-asset data "
+        "(equity returns, volatility, credit spreads, yield curve, dollar). "
+        "Complements the threshold-based regime prior above.*"
+    )
 
     return "\n".join(lines)
 
@@ -664,53 +1045,121 @@ def _format_ticker_pool(state: dict[str, Any]) -> str:
 
 SYSTEM_PROMPT = """\
 You are a senior macro strategist at a multi-strategy fund.
-You assess the current market regime, analyze yesterday's events, and produce sector tilts.
+You assess the current market regime, analyze yesterday's events, and produce thematic tilts.
 
 Today's date: {current_date}
 
 ## Context Provided
 
 You receive pre-fetched data from multiple sources:
-- **FRED indicators** — VIX, yields, fed funds, unemployment, yield curve spread with trend history.
-- **Market benchmarks** — equity indices, treasuries, commodities, dollar, credit, and sector ETFs \
-with spot prices, daily changes, and moving average positioning.
+- **Quantitative regime prior** — a deterministic regime suggestion computed from VIX, NFCI, \
+HY credit spreads, yield curve, SPY vs 200d MA, and Sahm Rule. This is your starting point — \
+agree or override with reasoning.
+- **HMM regime model** — a statistical model (Hidden Markov Model) trained on 10 years of \
+weekly cross-asset data. It outputs regime probabilities (e.g., 85% risk_on, 12% transitioning). \
+Cross-reference with the threshold-based prior — if both agree, high confidence. If they \
+diverge, investigate why.
+- **FRED indicators** — VIX, yields, fed funds, unemployment, credit spreads (HY/IG OAS), \
+financial conditions (NFCI), Sahm Rule, initial claims, yield curves, dollar index — with trend history.
+- **Cross-asset signals** — computed relationships: HYG/LQD ratio, copper/gold ratio, \
+credit spread direction, financial conditions reading, SPY distance from 200d MA.
+- **CFTC futures positioning** — weekly Commitment of Traders data showing hedge fund \
+(leveraged funds) net positioning on equity indices, treasuries, gold, crude, and dollar \
+futures. Includes 52-week percentile rankings — extreme positioning (>90th or <10th pctl) \
+is a contrarian signal.
+- **Market benchmarks** — equity indices, treasuries, commodities (incl. copper), dollar, \
+credit, and sector ETFs with spot prices, daily changes, and moving average positioning.
 - **Yesterday's events with actual outcomes** — earnings results (SEC 8-K press releases), \
 economic data releases (FRED actuals vs previous), Fed statements/minutes (full text), \
 and other market-moving events. This is YOUR primary source for analyzing what happened.
 - **13F hedge fund position changes** — quarterly position disclosures showing new, exited, \
 increased, and decreased positions from tracked hedge funds.
 - **Upcoming catalysts** — next 7 days of scheduled events (FOMC, CPI, earnings, 13F).
-- **Layer 1 themes** — today's social/news macro themes from curated financial accounts.
+- **Layer 1 intelligence** — the full output from today's social sentiment and news analysts: \
+ticker mentions with context and source attribution, macro themes, thematic research (web-verified \
+findings on key theses), discovered themes (related themes found through research), and news \
+story clusters with key facts. This is your richest signal source — ticker mentions often tie \
+directly into thematic tilts, and research findings can validate or contradict price action.
+
+## How to Use Your Two Data Sources
+
+You have **structured data** (FRED, benchmarks, events, 13F) and **Layer 1 intelligence** \
+(social/news signals). These serve different purposes:
+
+- **Structured data** tells you WHAT happened — prices, yields, economic prints, earnings \
+outcomes, fund positioning. This is objective and timestamped. Use it to anchor your regime \
+assessment and validate (or invalidate) narratives.
+- **Layer 1 intelligence** tells you WHAT THE MARKET IS TALKING ABOUT — which tickers are \
+in play, which themes are forming, what the smart accounts are flagging, and what the social \
+analysts verified through web research. This is your edge for identifying emerging themes \
+before they show up in price.
+
+**Synthesize, don't silo.** A social ticker mention is more interesting when price confirms \
+the thesis. A benchmark move is more meaningful when you know the narrative driving it. \
+Thematic research findings can validate a tilt ("CoWoS capacity constraint confirmed by \
+TSMC capex guidance") or flag a risk ("social hype on POET but no institutional flow"). \
+Discovered themes point to adjacent opportunities the structured data alone won't surface.
 
 ## Your Job
 
 1. **Regime Assessment**: Classify the current market as risk_on, risk_off, transitioning, or uncertain.
    - sentiment_score: -1.0 (strongly bearish) to 1.0 (strongly bullish) for the broad market.
-   - Ground your assessment in the data provided. Cross-reference: do benchmark prices confirm \
-what FRED data and events suggest? Are equities and credit aligned or diverging?
+   - Start from the **quantitative regime prior** — it scores 6 data-driven signals. You may \
+agree or disagree, but if you override it, explain which signals you weight differently and why.
+   - Cross-reference structured data with Layer 1 signals. Divergences between data and \
+narrative are the most informative signal.
 
 2. **Key Drivers**: List 3-5 factors driving the current regime.
-   - Incorporate yesterday's event outcomes: did earnings beat/miss change sector narratives? \
-Did economic data shift rate expectations? Did Fed language signal a policy pivot?
+   - Blend structured data (event outcomes, price moves) with Layer 1 signals (narrative shifts, \
+social convergence on a theme). A driver is strongest when both sources point the same way.
 
-3. **Thematic Tilts**: Produce BOTH broad sector tilts AND granular thematic tilts.
-   - **ETF-backed tilts**: Use sector/sub-sector ETF data to validate. Set the `etf` field. \
-Examples: "Semiconductors" (etf=SMH), "Energy" (etf=XLE), "Software/Cloud" (etf=IGV).
-   - **Pure thematic tilts**: Themes with no ETF, identified from earnings, events, social, \
-news, or 13F signals. Leave `etf` null. Examples: "CPO/Optical Networking", \
-"AI Infrastructure", "HBM/Memory", "Data Center Power", "Nuclear/SMR".
+3. **Thematic Tilts**: Think thematically, not by ETF. The goal is to capture every \
+meaningful investment theme with conviction — most themes do NOT map to a single ETF.
+   - **Granularity is the point.** "AI" is too broad. Break it into the real sub-themes: \
+"HBM supply chain", "CoWoS/advanced packaging", "AI inference silicon", "optical networking \
+(CPO)", "data center power/cooling", "AI infrastructure services", "custom silicon (TPUs/ASICs)" \
+are all distinct themes with different drivers and different winners.
+   - **ETF is optional context, not the organizing principle.** If an ETF exists that tracks \
+the theme, include it in the `etf` field for reference. But most actionable themes have no ETF \
+— and that's fine. Never skip a theme just because there's no ETF for it.
+   - **Produce at least 8-12 tilts** spanning the signal set. Include macro (rates, credit, \
+dollar), sector (energy, financials), AND granular sub-themes (specific technology verticals, \
+supply chain segments, geopolitical exposure). The signal set is rich — your tilts should be too.
+   - **`key_evidence` is required for every tilt** — list 1-3 specific data points that ground \
+the tilt. Draw from BOTH sources: price levels and benchmark moves (structured), social ticker \
+convergence and thematic research findings (Layer 1), earnings outcomes and 13F positions \
+(events). The strongest tilts have evidence from multiple sources.
+   - **`persistence`** — classify each tilt as structural (multi-year, e.g. AI infrastructure \
+buildout), cyclical (quarter-to-quarter, e.g. seasonal energy demand), or event_driven \
+(resolves on a specific catalyst, e.g. FOMC decision). Default is cyclical.
+   - **`catalyst_date`** — for event_driven and cyclical tilts, when does it resolve? Reference \
+upcoming catalysts from the event calendar (e.g. "Q2 earnings July 24", "FOMC June 12", \
+"CPI May 14"). Leave empty for structural tilts that have no near-term resolution date.
+   - **`related_tickers`** — for each tilt, list 2-5 tickers that best express it. These should \
+be specific companies, not ETFs (the ETF goes in the `etf` field). This helps downstream \
+agents connect tilts to watchlist picks.
+   - **Reasoning must explain WHY, not restate WHAT.** Don't say "XLE above 50d/200d MA — \
+positive." Say "Energy bid is pricing a sustained Hormuz risk premium; XLE above trend with \
+USO +2.9% and 3 social accounts flagging supply route risk. Upstream capex beneficiaries \
+(services, E&P) have cleaner risk/reward than integrated majors."
    - sentiment_score per tilt: -1.0 (strongly underweight) to 1.0 (strongly overweight).
-   - Be granular: "Semiconductors: +0.5" AND "CPO/Optical: +0.8" are both valid — the second \
-captures a sub-theme within the first. Not all of tech is the same.
    - Note divergences: if credit (HYG) is weakening while equities are flat, flag it.
 
 4. **Event Analysis**: Synthesize yesterday's events into a brief narrative.
    - What happened (earnings, economic data, Fed, filings) and what it means for the regime.
    - Which sectors/themes were affected and how.
+   - For geopolitical and policy events (tariffs, sanctions, elections, central bank pivots):
+     - Identify key actors and their incentives.
+     - Define 2-3 scenarios with rough probability weights.
+     - For each scenario, trace the transmission: event → first-order effect → second-order → asset impact.
+     - Flag where consensus positioning is most vulnerable to a scenario shift.
 
 5. **Positioning Signals**: What are hedge funds and smart money doing?
-   - 13F position changes — new themes, exits, conviction bets.
-   - Any notable convergence across funds.
+   - **CFTC COT data** — leveraged funds net positioning on ES, NQ, ZN, GC, CL, DX futures. \
+Flag extreme percentiles (>90th = crowded long, <10th = crowded short) as contrarian signals. \
+Week-over-week changes reveal positioning momentum.
+   - **13F position changes** — quarterly filings showing new/exited/increased/decreased positions.
+   - Cross-reference: do futures positioning and 13F filings tell the same story? Divergence matters.
 
 6. **Risks**: What could shift the regime? List 2-4 scenarios.
    - Reference upcoming catalysts — an FOMC meeting or CPI release this week is a concrete risk.
@@ -725,6 +1174,10 @@ captures a sub-theme within the first. Not all of tech is the same.
 - `get_fred_data(series_id)` — Fetch a FRED economic data series (last 5 observations).
 
 ## When to web_search (budget is tight — save for what data can't tell you)
+- **Thematic validation** — verify supply chain theses, subsector trends, or earnings data \
+backing a thematic tilt. "Is the CoWoS capacity constraint real?", "What are the latest HBM4 \
+yield reports?", "Are data center power bookings accelerating?" are high-value searches that \
+turn a shallow tilt into a grounded one.
 - **Fed rhetoric** — what did Powell/Waller/Bostic say? Any shift in forward guidance or dot plot?
 - **Geopolitical / trade policy** — tariff announcements, sanctions, trade negotiations, military escalation.
 - **Breaking developments** — anything in the last 24h not yet reflected in the pre-fetched data.
@@ -732,7 +1185,10 @@ captures a sub-theme within the first. Not all of tech is the same.
 
 ## Rules
 - Ground regime assessment in the pre-fetched data, not speculation. Cite specific numbers.
-- Cross-reference sources: benchmark prices vs FRED vs events vs themes vs 13F. Flag contradictions.
+- The quantitative regime prior is a data-grounded starting point. If you override it, explain \
+which signals you weight differently and why.
+- Cross-reference sources: benchmark prices vs FRED vs credit spreads vs events vs themes vs 13F. \
+Flag contradictions — especially divergences between credit and equity signals.
 - Thematic tilts should be probabilistic, not prescriptive.
 - sentiment_score calibration: ±0.8-1.0 = high conviction, ±0.4-0.7 = moderate, ±0.1-0.3 = weak.
 """
@@ -793,32 +1249,48 @@ async def analyze_macro(
     logger.info("Starting MacroStrategist")
 
     # Pre-fetch all data sources in parallel (graceful degradation per source)
-    results = await asyncio.gather(
+    _settings = get_settings()
+    fred_api_key = _settings.fred_api_key.get_secret_value() if _settings.fred_api_key else ""
+    fred_res, bench_res, event_res, cftc_res, hmm_res = await asyncio.gather(
         _fetch_fred_data(deps.fred),
         _fetch_benchmark_data(deps.yfinance),
         _fetch_event_context(deps),
+        _fetch_cftc_positioning(),
+        _fetch_hmm_regime(fred_api_key),
         return_exceptions=True,
     )
 
-    if isinstance(results[0], BaseException):
-        logger.warning("FRED data fetch failed — proceeding without", exc_info=results[0])
+    if isinstance(fred_res, BaseException):
+        logger.warning("FRED data fetch failed — proceeding without", exc_info=fred_res)
         fred_data: dict[str, Any] = {}
     else:
-        fred_data = results[0]
+        fred_data = fred_res
 
-    if isinstance(results[1], BaseException):
-        logger.warning("Benchmark data fetch failed — proceeding without", exc_info=results[1])
+    if isinstance(bench_res, BaseException):
+        logger.warning("Benchmark data fetch failed — proceeding without", exc_info=bench_res)
         benchmark_data: dict[str, dict[str, Any]] = {}
     else:
-        benchmark_data = results[1]
+        benchmark_data = bench_res
 
-    if isinstance(results[2], BaseException):
-        logger.warning("Event context fetch failed — proceeding without", exc_info=results[2])
+    if isinstance(event_res, BaseException):
+        logger.warning("Event context fetch failed — proceeding without", exc_info=event_res)
         upcoming: list[Any] = []
         enriched_events: list[dict[str, Any]] = []
         filing_briefs: list[dict[str, Any]] = []
     else:
-        upcoming, enriched_events, filing_briefs = results[2]
+        upcoming, enriched_events, filing_briefs = event_res
+
+    if isinstance(cftc_res, BaseException):
+        logger.warning("CFTC COT fetch failed — proceeding without", exc_info=cftc_res)
+        cftc_data: dict[str, COTReport] = {}
+    else:
+        cftc_data = cftc_res
+
+    if isinstance(hmm_res, BaseException):
+        logger.warning("HMM regime fetch failed — proceeding without", exc_info=hmm_res)
+        hmm_result: dict[str, Any] = {}
+    else:
+        hmm_result = hmm_res
 
     logger.info(
         "MacroStrategist context fetched",
@@ -827,25 +1299,46 @@ async def analyze_macro(
         enriched_with_outcome=sum(1 for e in enriched_events if e.get("outcome")),
         filing_briefs=len(filing_briefs),
         upcoming_events=len(upcoming),
+        cftc_contracts=len(cftc_data),
+        hmm_regime=hmm_result.get("regime"),
+    )
+
+    # Compute derived signals
+    cross_asset = _compute_cross_asset_signals(fred_data, benchmark_data)
+    regime_prior = _compute_regime_prior(fred_data, benchmark_data, cross_asset)
+
+    logger.info(
+        "Regime prior computed",
+        regime=regime_prior.get("regime"),
+        score=regime_prior.get("score"),
+        confidence=regime_prior.get("confidence"),
     )
 
     # Format all context sections
+    regime_prior_context = _format_regime_prior(regime_prior)
+    hmm_context = _format_hmm_regime(hmm_result)
     fred_context = _format_fred_context(fred_data)
+    cross_asset_context = _format_cross_asset_signals(cross_asset)
     benchmark_context = _format_benchmark_context(benchmark_data)
+    cftc_context = _format_cftc_positioning(cftc_data)
     event_context = _format_event_context(upcoming, enriched_events, filing_briefs)
-    themes_context = _format_macro_themes(state)
+    l1_context = _format_l1_intelligence(state)
     ticker_context = _format_ticker_pool(state)
 
     has_tickers = bool(state.get("target_tickers"))
 
-    # Build prompt
+    # Build prompt (regime assessments first, then data, then signals)
     user_prompt = "\n\n".join(
         section
         for section in [
+            regime_prior_context,
+            hmm_context,
             fred_context,
+            cross_asset_context,
             benchmark_context,
+            cftc_context,
             event_context,
-            themes_context,
+            l1_context,
             ticker_context,
         ]
         if section

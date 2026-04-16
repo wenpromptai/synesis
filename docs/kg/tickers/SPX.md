@@ -11,7 +11,6 @@ tags: [ticker, index]
 # SPX — S&P 500 Index
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — keep market-neutral/hedged; add SPX put spread hedge
 
 ## 2026-04-10
 - ~6,783 near cited 6,800 dealer gamma pivot; no confirmed acceptance/hold

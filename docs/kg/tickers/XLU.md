@@ -11,7 +11,6 @@ tags: [ticker, utility, etf]
 # XLU — Utilities Select Sector SPDR
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — skip
 
 ## 2026-04-10
 - %B 0.88; z +1.53; weak ADX 18.2; breakout on below-avg volume 0.89x

@@ -11,7 +11,6 @@ tags: [ticker, optics, photonics]
 # AAOI — Applied Optoelectronics
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — pass
 
 ## 2026-04-10
 - FY2025 rev $455.7M (+82.8% YoY); GM ~30%; quarterly rev accelerated ($99.9M Q1 -> $134.3M Q4) (FY2025 10-K)
@@ -30,25 +29,30 @@ Decision: No trade — pass
 - LITE spillover demand beneficiary. See [[themes/photonics-supercycle]].
 - Insiders: MSPR -1.0 | 16 sells | $29M sold at $95-113 | Zero buys — **every insider sold well below current price**
 - 247WallSt PT $108.18 — stock 40% above their target. Zacks PS 6.68x.
-- **Decision: AVOID.** Not a portfolio manager's trade at $150. Retail momentum/squeeze name.
 - Source: [[sources/brief-2026-04-11-manual]]
 
 ## 2026-04-11 (automated pipeline)
 - Debate: bull case on AI datacenter bandwidth upgrade cycle, backlog/order fill extending into 2028, supply-constrained demand
 - Bear: backlog claim is single social post with low verifiability. No disclosed backlog numbers, no customer concentration data, no earnings-quality metrics. "Backlog" can be non-binding forecasts. Capacity additions carry execution risk.
-- No trade from pipeline — data/visibility gaps, event risk
 - Source: [[sources/brief-2026-04-11]]
 
-## 2026-04-12 Pipeline Brief — No Trade (pass)
 - **Price:** $150.60 (+13.0%), RSI 71.8 (overbought), ADX 33.2, bullish EMA cross
 - **Bull:** Operating leverage inflection on 33.9% revenue growth and ~30% gross margins. Vertically integrated model appeals to hyperscalers. Short interest 13.7% provides squeeze fuel. Fwd EPS $3.20 implies move to profitability
 - **Bear:** Still structurally unprofitable — op margin -8.6%, FCF -$383.9M. Customer concentration extreme (Digicomm 53.1%, Microsoft 28.8% = 82% of revenue). Insider selling cluster (5 insiders, 10 Form 144s in March 2026). Overbought RSI 71.8 + z-score +2.55
 - **Key data:** Revenue $455.7M (FY2025), Gross margin ~30%, Net margin -8.4%, EV/EBITDA -422.5, Piotroski 4/9, Beta 3.22
 
-**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
+## 2026-04-14 (web research enrichment)
+- **Price ~$151** (near ATH $155 from Apr 10). Up ~237% YTD.
+- Cumulative 800G single-mode orders from one hyperscaler reached ~$124M (initial $53M late Mar, upsized to $71M early Apr). Separate $200M+ 1.6T volume order confirmed.
+- **Initial 800G shipments to a second hyperscale customer have begun** — breaking single-customer dependency narrative (2026-04-14 web research)
+- Management: production capacity, not demand, is the constraint. Targeting $1B revenue in 2026 (>2x FY2025 $456M).
+- 5 analysts, Buy consensus. Rosenblatt PT $140. Stock **40% above** 24/7 Wall St fair value of $108.
+- **Risk:** Stock far ahead of lagging analyst consensus avg (~$64). Execution risk on capacity buildout. Still two-customer concentration.
+
+**See also:** [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]] | [[concepts/co-packaged-optics]] | [[themes/photonics-supercycle]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-11-manual]] — parabolic move, $1B target, avoid
 > - [[sources/brief-2026-04-11]] — debate, backlog verifiability concern
-> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade
+> - Web research (2026-04-14) — second hyperscaler customer, order details, analyst consensus

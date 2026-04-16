@@ -22,7 +22,6 @@ Coordinated C-suite/director selling across multiple companies during a period o
 | [[tickers/SMTC]] | Insider selling into strength noted | 2026-04-10 brief |
 
 ## 2026-04-10
-Widespread across the brief — near-zero offsetting insider buys observed. The Trader cited insider selling as a bear factor in multiple "no trade" decisions.
 
 ## 2026-04-11 — UNIVERSAL ACROSS TECH
 
@@ -79,9 +78,23 @@ Pipeline debated 11 tickers — insider selling clusters flagged in 8 of them:
 
 Notably, AMZN and INTC had zero insider activity. NBIS had no insider data (company analysis failed).
 
+## 2026-04-13 — CONTINUED (AVGO LARGEST)
+
+All 5 debated tickers flagged insider selling clusters:
+| Ticker | Cluster Evidence | $ Sold | As Of |
+|--------|-----------------|--------|-------|
+| [[tickers/AVGO]] | **$86.1M** — co-founder Samueli large blocks (2026-03-25), Presidents @ $345-352 (Apr 8-9) | $86.1M | 2026-04-13 |
+| [[tickers/NVDA]] | CFO Kress + Director Stevens @ $173-177 (2026-03-20) | $46.9M | 2026-04-13 |
+| [[tickers/AMD]] | **CEO Su 85K shares @ $197-203 ($16.9M, Mar 2026)** + 6 others | $17.3M | 2026-04-13 |
+| [[tickers/GOOG]] | 5 insiders incl Pichai multiple sales @ $306-309 (2026-03-18) | undisclosed | 2026-04-13 |
+| [[tickers/GS]] | **Exception: 19 buys ($3.4M), zero sells, MSPR +1.0** | net buyer | 2026-04-13 |
+
+GS remains the sole exception with net insider buying. AVGO ($86.1M) is now the largest dollar amount of insider selling across the entire coverage universe.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — observed across 6+ names
 > - [[sources/brief-2026-04-11-manual]] — universal cluster, detailed $ amounts
 > - [[sources/brief-2026-04-11]] — financial sector clusters (C, MS, GS exception)
 > - [[sources/brief-2026-04-12-manual]] — NFLX $43M, BAC $21M, COHR $4.9M added
 > - [[sources/brief-2026-04-12|Brief 2026-04-12]] — 8/11 debated tickers with clusters
+> - [[sources/brief-2026-04-13]] — AVGO $86.1M, AMD CEO $16.9M, GS still sole buyer

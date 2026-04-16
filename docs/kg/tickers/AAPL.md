@@ -11,7 +11,6 @@ tags: [ticker, mega-cap, consumer]
 # AAPL — Apple
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — skip
 
 ## 2026-04-10
 - Q1 FY26 +16% YoY; iPhone +23%; Services +14% with ~76% GM (Q1 FY2026)

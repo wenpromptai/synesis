@@ -11,7 +11,6 @@ tags: [ticker, optics, semiconductor, dsp]
 # CRDO — Credo Technology Group
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: Watch — optical DSP positioned at center of AI interconnect buildout, but margin compression concern
 
 ## 2026-04-10
 - Center of "Great Interconnect Transition" — AI bottleneck shifting from compute to data movement

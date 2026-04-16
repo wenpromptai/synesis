@@ -11,7 +11,6 @@ tags: [ticker, technology, ai, momentum]
 # NBIS — Nebius
 
 **As of 2026-04-12 | Regime: transitioning (sentiment +0.2)**
-Decision: No trade — pipeline pass (0 ideas produced)
 
 Note: Company analysis FAILED in pipeline — only debate data available. Israeli company (foreign private issuer, files 20-F).
 
@@ -36,4 +35,3 @@ No fundamental narrative in the data packet — this is a pure flow/positioning-
 - Foreign private issuer — less frequent/transparent financial reporting
 
 > [!quote]- Sources
-> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

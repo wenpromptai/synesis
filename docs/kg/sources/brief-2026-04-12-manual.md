@@ -16,7 +16,6 @@ tags: [source, brief, manual]
 
 > [!abstract] Key Takeaways
 > 1. Iran-US talks collapsed — Vance returned without deal. Oil spiking. Stagflation re-intensifies.
-> 2. 4 new trades: XLE bull call spread (energy), GS call spread (earnings), NFLX put spread (overbought), C put spread (reaffirm)
 > 3. Insider selling expanding: NFLX $43M, BAC $21M, COHR $4.9M. GS and TSM are lone insider buyers.
 > 4. Massive earnings week: GS Mon, JPM Tue, BAC/C/MS Wed, TSM/NFLX Thu
 
@@ -27,15 +26,8 @@ tags: [source, brief, manual]
 - Saudi pipeline restored (bypass Hormuz) — partial mitigation
 
 ## Trade Ideas (4)
-1. [[tickers/XLE]] — Buy May $57/$61 bull call spread. Oversold (RSI 41.8) into Iran deal failure catalyst.
-2. [[tickers/GS]] — Buy Apr 24 $900/$940 bull call spread. 19 insider buys, earnings Mon.
-3. [[tickers/NFLX]] — Buy Apr 24 $103/$96 bear put spread. RSI 80.3, $43M insider selling.
-4. [[tickers/C]] — Buy May $124/$117 bear put spread. Reaffirm. +17.7% run, 34% EPS bar.
 
 ## Holds
-- [[tickers/NVDA]] — May 185/205 call spread (from pipeline)
-- [[tickers/META]] — Call spread (from pipeline)
-- [[tickers/ASML]] / [[tickers/TSM]] — L/S pair (from pipeline)
 
 ## No-Trade Decisions
 - [[tickers/JPM]] — Overbought, neutral insiders, no edge

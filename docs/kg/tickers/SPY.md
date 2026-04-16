@@ -11,7 +11,6 @@ tags: [ticker, index, etf]
 # SPY — SPDR S&P 500 ETF
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — stand aside; if needed, buy SPY May 2026 675/655 put spread for hedge
 
 ## 2026-04-10
 - Stretched (%B 0.99; z 1.95; BB width %ile 79); light volume 0.58x; ADX 35

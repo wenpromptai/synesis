@@ -23,7 +23,7 @@ Traditional pluggable transceivers require long electrical traces between switch
 | Attribute | Pluggable (current) | CPO (emerging) |
 |-----------|-------------------|----------------|
 | Laser type | EML (externally modulated) | CW (continuous wave) + SiPh modulator |
-| Laser material | [[concepts/indium-phosphide-substrates\|InP]] | InP (CW source) + silicon (modulator) |
+| Laser material | [[concepts/indium-phosphide-substrates|InP]] | InP (CW source) + silicon (modulator) |
 | Integration | Separate module in faceplate cage | On-substrate, inside switch package |
 | Serviceability | Hot-swappable | Requires board-level replacement |
 | Volume production | Now (800G/1.6T shipping) | 2027–2028 expected |

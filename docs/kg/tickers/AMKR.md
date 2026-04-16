@@ -11,7 +11,6 @@ tags: [ticker, semiconductor, packaging]
 # AMKR — Amkor Technology
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — skip
 
 ## 2026-04-10
 - Capex guided $2.5-3.0B vs $905M FY2025; FCF -$0.11B; GM 14.0% down YoY (FY2025)

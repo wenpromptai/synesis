@@ -11,7 +11,6 @@ tags: [ticker, optics, analog, photonics]
 # MTSI — MACOM Technology Solutions
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: Watch — key analog/photonic component supplier for both pluggable and CPO architectures
 
 ## 2026-04-10
 - Data center segment grew 48% in 2025

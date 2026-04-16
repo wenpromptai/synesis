@@ -11,7 +11,6 @@ tags: [ticker, semiconductor, equipment]
 # AEHR — Aehr Test Systems
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — skip
 
 ## 2026-04-10
 - Momentum/positioning-driven move (RSI ~76, %B>1, z +2.8, BB width %ile ~98)

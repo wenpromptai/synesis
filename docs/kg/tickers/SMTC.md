@@ -11,7 +11,6 @@ tags: [ticker, semiconductor]
 # SMTC — Semtech
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — pass
 
 ## 2026-04-10
 - EV/EBITDA ~51x; P/B ~15; Piotroski 3/9; ROE -7.4%; net margin -3.8%; GAAP EPS negative 3 of 4 quarters

@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/capital-intensive-transitions]]", "[[themes/insider-selling-clusters]]"]
+related: ["[[themes/nuclear-energy-renaissance]]", "[[themes/capital-intensive-transitions]]", "[[themes/insider-selling-clusters]]"]
 created: 2026-04-12
 type: ticker
 sector: "Energy"
@@ -11,7 +11,6 @@ tags: [ticker, energy, nuclear, pre-revenue, smr]
 # SMR — NuScale Power
 
 **As of 2026-04-12 | Regime: transitioning (sentiment +0.2)**
-Decision: No trade — pipeline pass (0 ideas produced)
 
 ## Bull Case (2026-04-12 brief)
 Only NRC design-certified SMR developer with $1.25B cash and $0 debt, providing long runway. Oversold at RSI 31.8 near $9.10 support with 26% short interest creating meaningful squeeze potential. Romania/ENTRA1 partnerships and paid engineering services ($8.24M revenue in Q3'25) demonstrate commercial traction beyond pure R&D.
@@ -40,4 +39,3 @@ Revenue collapsed -94.7% with operating margin -3337.8% and Piotroski 2/9, refle
 - Customer concentration in Romania partnership
 
 > [!quote]- Sources
-> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

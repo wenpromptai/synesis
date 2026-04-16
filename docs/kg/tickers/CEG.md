@@ -11,7 +11,6 @@ tags: [ticker, utility, nuclear, ai-power]
 # CEG — Constellation Energy
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — skip
 
 ## 2026-04-10
 - Bull: AI/datacenter load tailwind + Microsoft/Crane Clean Energy Center PPA; pullback offers IV vs RV upside convexity

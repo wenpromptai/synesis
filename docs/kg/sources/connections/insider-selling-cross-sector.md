@@ -29,7 +29,6 @@ tags: [connection, insider-selling, governance, cross-sector]
 1. **Cross-sector breadth**: Three optics names + one mega-cap + one fintech + one semi. This isn't a single-sector phenomenon.
 2. **Selling into strength**: All six were near or at multi-month highs when insiders sold. The absence of insider buys across the entire group is notable.
 3. **Compound risk in optics**: AAOI, FN, and LPTH overlap with the [[themes/working-capital-deterioration]] theme — insiders selling while cash conversion is deteriorating is a particularly bearish signal.
-4. **Trader response**: The 2026-04-10 brief Trader passed on most of these names or took defined-risk bearish structures, citing insider selling as a consistent bear factor.
 
 ## Implication
 

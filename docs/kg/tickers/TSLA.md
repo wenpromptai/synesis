@@ -11,7 +11,6 @@ tags: [ticker, ev, autonomy, energy]
 # TSLA — Tesla
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — stay flat
 
 ## 2026-04-10
 - EV/EBITDA ~120; P/B ~15.8; FY2025 rev -3.1%; op margin 4.7% (FY2025)
@@ -26,18 +25,14 @@ Decision: No trade — stay flat
 - Spot $348.95 (+0.96%). Earnings 4/22 after-hours.
 - MSPR -1.0 (16 sells, $10.2M). RV 40.6%.
 - Musk promoting Robotaxi app and FSD narrative. No operating evidence of revenue contribution.
-- **Decision: No trade.** Binary earnings event offers straddle potential but without fundamental conviction, it's a coin flip.
 - Source: [[sources/brief-2026-04-11-manual]]
 
 ## 2026-04-11 (automated pipeline)
 - Debate: bull on vertical integration, software (autonomy/AI), energy storage optionality. "Significant orders at the ask level" (BullflowIO) as tactical signal.
 - Bear: narrative-driven with no hard current data. Non-GAAP reliance (adjusted EBITDA). Cash conversion metrics unmentioned. One flow print = weakest evidence. Regulatory + geopolitical + competition risks real.
-- No trade from pipeline — no confirmation, data vacuum
 - Source: [[sources/brief-2026-04-11]]
 
 **See also:** [[implied-volatility]] | [[fcf-yield]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
-> - [[sources/brief-2026-04-11-manual]] — no trade, earnings 4/22
-> - [[sources/brief-2026-04-11]] — debate, no trade

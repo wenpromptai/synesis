@@ -18,19 +18,13 @@ tags: [source, brief, manual]
 > 1. Regime transitioning (+0.10) — Core CPI below expectations (2.6% YoY), VIX collapsed 25.78->19.49
 > 2. UMich consumer sentiment **record low 47.6**, 1Y inflation expectations **4.8%** — new theme: Consumer Sentiment Collapse
 > 3. Photonics supercycle theme intensifying: LITE backlog 2028, AAOI $1B target, NVDA $2B Lumentum, EML shortage
-> 4. Three trades: NVDA/AMD/GOOG bull call spreads (modestly long AI semis + mega-cap quality)
 > 5. CVX broke $190 stop — exit. MU/AAOI/LITE passed on entry risk. Universal insider selling cluster continues.
 > 6. Iran ceasefire fragile (Day 3) — Hormuz still blocked, binary variable for markets
 
 ## Summary
-Comprehensive analysis covering 14 tickers with detailed price action, fundamentals, insider signals, and cross-market analysis. Portfolio tilted modestly long AI semis via three defined-risk bull call spreads, balanced by exiting CVX energy long. Two new themes identified: Consumer Sentiment Collapse and Photonics Supercycle.
 
 ## Tickers Touched
 
-### New trades
-- [[tickers/NVDA]] — May 185/205 bull call spread (<=7 debit)
-- [[tickers/AMD]] — **NEW TICKER** — May 240/270 bull call spread (<=10 debit)
-- [[tickers/GOOG]] — May 310/340 bull call spread (<=10 debit)
 
 ### Exits
 - [[tickers/CVX]] — **EXIT** — broke $190 stop, now $188.55. Q1 headwinds + ceasefire de-escalation.
@@ -40,8 +34,6 @@ Comprehensive analysis covering 14 tickers with detailed price action, fundament
 - [[tickers/AAOI]] — avoid, parabolic (+92% in 11 sessions), extreme insider selling
 - [[tickers/LITE]] — pass, wait pullback to $750-800
 - [[tickers/META]] — pass, wait Q1 earnings (CoreWeave $35B spend burden)
-- [[tickers/TSLA]] — no trade (earnings 4/22, no fundamental edge)
-- [[tickers/INTC]] — no trade (earnings 4/23, no signal)
 
 ### Watchlist
 - ORCL, QCOM, RDDT — no signal

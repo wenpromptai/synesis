@@ -26,7 +26,6 @@ The datacenter optics stack powering the 800G-to-1.6T bandwidth transition. Shar
 | [[tickers/AXTI]] | InP substrate manufacturer (Beijing Tongmei, ~35% share) | 2026-04-10 |
 
 ## 2026-04-10
-All names showed extreme valuations with weak-to-negative FCF. Inventory builds across the stack suggest potential oversupply risk if demand pauses. Brief passed on most (no trade) or used bearish defined-risk structures (FN put spread).
 
 ## 2026-04-10 — CPO Sector Update
 

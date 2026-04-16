@@ -11,7 +11,6 @@ tags: [ticker, datacenter, ai, bitcoin-mining]
 # IREN — Iris Energy
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — stay flat
 
 ## 2026-04-10
 - Microsoft ~$9.7B agreement gated by tranche delivery/acceptance; AI rev still small ($17.3M/quarter)

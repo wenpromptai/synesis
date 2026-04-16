@@ -11,7 +11,6 @@ tags: [ticker, software, ai, government]
 # PLTR — Palantir Technologies
 
 **As of 2026-04-12 | Regime: transitioning (sentiment +0.2)**
-Decision: No trade — pipeline pass (0 ideas produced)
 
 ## Bull Case (2026-04-12 brief)
 High-quality cash-generative software business with exceptional margins (gross 82.4%, operating 40.9%, net 36.3%) and $1.26B FCF. Currently oversold at RSI 33.9 with z-score -2.36 and 2.48x average volume suggesting capitulation. Q1 2026 earnings in May could be a catalyst — 954 customers, 54% government revenue provides revenue durability.
@@ -40,4 +39,3 @@ Extreme valuation — EV/EBITDA 207.9x and P/B 41.5 leave no room for execution 
 - Bearish technical setup (EMA cross, falling OBV, distribution pattern)
 
 > [!quote]- Sources
-> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

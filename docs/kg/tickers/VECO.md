@@ -11,7 +11,6 @@ tags: [ticker, semiconductor, equipment]
 # VECO — Veeco Instruments
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — pass
 
 ## 2026-04-10
 - Q4'25 NI ~$1.1M; op margin ~3.6%; Piotroski 3/9; EV/EBITDA ~33x

@@ -11,7 +11,6 @@ tags: [ticker, bank, earnings-event]
 # JPM — JPMorgan Chase & Co.
 
 **As of 2026-04-12 | Regime: transitioning**
-Decision: No trade
 
 ## 2026-04-12 (manual brief)
 - Spot $309.87. Reports Tue Apr 14 pre-market.
@@ -19,10 +18,8 @@ Decision: No trade
 - Consensus: EPS $5.32-5.50 (+7% YoY), Rev $48.91B (+8%).
 - Apple Card portfolio integration — $2.2B reserve build is the wildcard.
 - MSPR 0.0 (zero insider activity either direction).
-- **Decision: No trade.** Overbought, neutral insiders, manageable bar. Expect solid but unsurprising quarter. No edge.
 - Source: [[sources/brief-2026-04-12-manual]]
 
 **See also:** [[tickers/GS]] | [[tickers/C]] | [[tickers/BAC]] | [[strategies/options/earnings-options-systematic|earnings options systematic]] | [[concepts/implied-volatility|implied volatility]]
 
 > [!quote]- Sources
-> - [[sources/brief-2026-04-12-manual]] — earnings preview, no trade

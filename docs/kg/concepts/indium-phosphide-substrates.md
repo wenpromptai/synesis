@@ -35,8 +35,8 @@ InP is the "silicon of photonics" — the base material on which EML and CW lase
 
 | Laser Type | Architecture | Used In | Key Supplier |
 |-----------|-------------|---------|-------------|
-| EML (externally modulated) | InP laser + InP modulator | 1.6T pluggable transceivers | [[tickers/LITE\|Lumentum]] (sole 200G volume) |
-| CW (continuous wave) | InP laser (constant beam) | [[concepts/co-packaged-optics\|CPO]] external light source | [[tickers/COHR\|Coherent]], Lumentum |
+| EML (externally modulated) | InP laser + InP modulator | 1.6T pluggable transceivers | [[tickers/LITE|Lumentum]] (sole 200G volume) |
+| CW (continuous wave) | InP laser (constant beam) | [[concepts/co-packaged-optics|CPO]] external light source | [[tickers/COHR|Coherent]], Lumentum |
 
 > [!danger] Geopolitical chokepoint
 > ~35% of global InP substrate supply flows through Beijing. If China restricts exports as trade leverage (mirroring gallium/germanium controls), the entire optical supply chain faces disruption regardless of downstream demand.

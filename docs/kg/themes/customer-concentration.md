@@ -21,7 +21,7 @@ Companies deriving outsized revenue from a small number of customers, making ear
 | [[tickers/SMTC]] | 47% of sales to China incl. HK; 74% via distributors | FY2025/FY2026 |
 
 ## 2026-04-10
-Concentration risk was a dominant bear thesis across multiple semiconductor/optics names. In every case, the brief's Trader either passed or used defined-risk structures rather than outright equity.
+Concentration risk was a dominant bear thesis across multiple semiconductor/optics names. In every case, the brief's Trader either passed or used small position sizes.
 
 **See also:** [[sources/connections/ai-compute-stack|AI compute stack]] | [[sources/connections/insider-selling-cross-sector|insider selling cross-sector]]
 

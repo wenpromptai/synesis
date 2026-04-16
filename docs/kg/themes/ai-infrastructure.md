@@ -34,7 +34,6 @@ Multi-year hyperscaler capex cycle driving demand for GPUs, networking, custom s
 | [[tickers/NEE]] | Utility/grid infrastructure for AI power demand | 2026-04-10 brief |
 
 ## 2026-04-10 (transitioning regime, sentiment +0.15)
-Hyperscaler capex still accelerating despite fragile macro. Power/grid bottleneck constraining buildout pace. Sector tilt: utilities/grid infrastructure +0.3. Most AI-exposed names traded at premium multiples with stretched technicals — brief favored defined-risk options structures over outright equity.
 
 ## 2026-04-11 — INTENSIFYING
 
@@ -58,7 +57,32 @@ Pipeline brief sector tilt: Quality Growth / Mega-cap Tech +0.3, Industrials / E
 
 See also: [[themes/photonics-supercycle]] (new theme) for optics-specific demand acceleration. | [[sources/connections/ai-compute-stack|AI compute stack]] (NVDA+AVGO+TSM+MRVL+ARM supply chain connection).
 
+## 2026-04-13 — NEW: Supply Chain Gating + Custom Silicon Shift
+
+Three supply-chain gating factors now dominating the AI infrastructure narrative:
+
+**1. HBM4 Validation Gating**
+- HBM4 validation delays are deferring Rubin platform ramp but *extending Blackwell scarcity + pricing power*
+- TrendForce: Blackwell >70% of NVDA high-end GPU shipment mix in 2026 (Rubin smaller share due to HBM4/system constraints)
+- Memory is a key gating factor for AI systems — asymmetry if supply tightness persists
+- Thematic tilt: HBM / Advanced Memory supply chain +0.6
+
+**2. CoWoS / Advanced Packaging Capacity**
+- CoWoS demand callouts from BofA indicate packaging remains a constraint and pricing power node
+- Easing benefits enablers more than pure designers — key AMD bull/bear debate
+- Thematic tilt: Advanced Packaging / CoWoS capacity +0.5
+
+**3. Custom Silicon / TPU Displacement (NEW THEME)**
+- See [[themes/custom-silicon-tpu-displacement]] — GOOG TPU inference efficiency, AVGO committed to Google TPU through 2031, structural risk to GPU-centric narratives
+- NVDA responding with **NVLink Fusion** — enables heterogeneous infrastructure with custom XPUs
+- Thematic tilt: Custom Silicon / TPU displacement +0.2
+
+Overall AI Compute (GPU demand) tilt +0.3 — demand strong but near-term bottlenecks (HBM4 validation) raise execution risk.
+
+Source: [[sources/brief-2026-04-13]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-11-manual]] — CoreWeave validation, NVDA Lumentum, LITE backlog
 > - [[sources/brief-2026-04-11]] — pipeline sector tilts, debates
+> - [[sources/brief-2026-04-13]] — HBM4 gating, CoWoS capacity, custom silicon shift

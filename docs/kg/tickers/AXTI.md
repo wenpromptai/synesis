@@ -11,7 +11,6 @@ tags: [ticker, materials, inp, china-risk, optics]
 # AXTI — AXT Inc
 
 **As of 2026-04-10 | Regime: event-driven (binary)**
-Decision: No trade — binary China export permit risk + Section 232 April 14. If trading: defined-risk options only.
 
 ## 2026-04-10
 - ~35% global InP market share via subsidiary Beijing Tongmei Xtal Technology (China)

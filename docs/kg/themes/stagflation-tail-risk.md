@@ -29,7 +29,6 @@ Risk of simultaneous inflation acceleration (from energy/oil pass-through) and g
 | Small caps/high beta | -0.4 | Funding conditions + demand risk |
 
 ## 2026-04-10
-Dominated all positioning decisions. Brief strongly favored defined-risk options structures over outright equity in almost every trade idea. "No trade" decisions frequently cited this theme.
 
 ## 2026-04-10 (manual brief update) — UPGRADING TO BASE CASE
 
@@ -72,8 +71,33 @@ Iran deal failure reverses ceasefire de-escalation. Oil likely back above $100 M
 
 **Regime assessment:** If oil returns above $100, stagflation re-upgrades from "testing" to "base case." Sector tilts revert to crisis positioning (energy +0.7, consumer disc -0.5, small caps -0.5).
 
+## 2026-04-13 (automated pipeline) — CONFIRMED VIA BLOCKADE
+
+Hormuz blockade now active. Oil spiking (USO +5.7%). Stagflation base case reconfirmed.
+
+**Credit divergence emerging as new amplifier:**
+- HYG (high yield) below 50/200d — risk appetite not confirmed in credit
+- LQD (investment grade) below 50/200d and 200d — duration/credit not providing ballast
+- SPY/QQQ/IWM all above 50/200d — equities and credit decoupled
+- **If spreads widen, equities can "catch down"** — cyclicals and small caps most vulnerable
+
+**Updated macro snapshot (2026-04-13):**
+- VIX: ~19.2 (compressed from 30.6 on Mar 30)
+- 10Y: ~4.29% (drifting lower from ~4.44%)
+- Fed funds: ~3.64%
+- TLT below 50/200d — bond market not embracing growth scare/rate-cut rally
+- Sector leadership narrowing to Tech (XLK above 50/200d) while Financials lag (XLF below 50/200d)
+
+**Risks to watch:**
+- Policy/rates risk: fed funds ~3.64%, 10Y ~4.29% — any hawkish Fed pushback hits long-duration growth
+- Energy shock persistence: elevated oil → repriced inflation expectations → pressure on duration/margins/multiples
+- Credit catches down to equities: HYG/LQD weakness spreads to equity risk premia
+
+Source: [[sources/brief-2026-04-13]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime driver
 > - [[sources/brief-2026-04-10-manual]] — upgraded to base case with hard macro data
 > - [[sources/brief-2026-04-11-manual]] — core CPI miss, ceasefire testing the thesis
 > - [[sources/brief-2026-04-12-manual]] — re-intensifying, Iran deal failure, oil spike expected
+> - [[sources/brief-2026-04-13]] — blockade confirmed, credit divergence amplifier

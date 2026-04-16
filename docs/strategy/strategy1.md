@@ -5,8 +5,8 @@
 Daily-frequency long/short equity strategy. Rank S&P 500 stocks by predicted 5-day forward return using a stacked gradient boosting ensemble. Scale position sizes based on HMM-detected market regime.
 
 **Frequency**: Daily rebalance
-**Universe**: S&P 500
-**Data required**: Daily OHLCV, daily VIX close, sector labels per ticker
+**Universe**: Top 500 US stocks by market cap (recomputed monthly)
+**Data required**: Daily OHLCV, daily VIX close, sector labels per ticker, market cap per ticker
 **Holding period**: 5 trading days (rolling)
 
 ---
@@ -43,6 +43,20 @@ Three base learners, each with different inductive biases:
 ### Ranking
 
 Each day, the stacked model predicts 5-day forward return for every stock in the universe. Stocks are ranked by predicted return within that day's cross-section.
+
+### Universe Construction
+
+The universe is the top 500 US equities by total market capitalization, recomputed monthly:
+
+1. Pull all US common stocks via Massive `get_grouped_daily()` (one API call for all tickers on a given date)
+2. Filter: common stock only (type = `CS`), active, USD-denominated
+3. Fetch `market_cap` from Massive `get_ticker_overview()` for each candidate
+4. Rank by market cap descending, take top 500
+5. Apply a **buffer rule**: existing members stay unless they drop below rank 550; new entrants must reach rank 450. This prevents excessive churn from stocks hovering around the cutoff.
+
+Recompute on the first trading day of each month. Between recomputes, the universe is fixed.
+
+**Why market-cap-ranked instead of S&P 500**: Historical S&P 500 membership (adds/removes) is not freely available, making survivorship-bias-free backtesting difficult. A market-cap-ranked universe is self-describing — you can reconstruct it at any historical date from price + shares outstanding data alone.
 
 ---
 
@@ -146,9 +160,12 @@ Key hyperparameters to tune per base learner:
 ```
 Daily (after market close):
 
-  1. Pull daily OHLCV + VIX close
+  1. Pull daily OHLCV + VIX close (universe from latest monthly recompute)
   2. Compute features              (Polars + polars_ta, < 1 second)
   3. Detect regime                  (HMM on SPY + VIX, < 0.1 second)
+
+Monthly (first trading day):
+  0. Recompute universe            (top 500 by market cap with buffer rule)
   4. Predict 5-day forward returns  (Stacked LGB + XGB + Cat, < 0.5 second)
   5. Rank stocks, apply regime sizing
   6. Generate orders (new entries, exits, stop-loss triggers)
@@ -191,6 +208,7 @@ Total daily inference: **under 2 seconds**, no GPU needed.
 ## Risks
 
 - **Regime model lag**: HMM detects regimes with a delay; the first days of a crash may be traded at full size
+- **Universe drift**: Market-cap-ranked universe may differ from S&P 500 (includes some non-S&P large caps, excludes some smaller S&P members). This is a feature, not a bug — it avoids index committee subjectivity
 - **Crowded factors**: Momentum is well-known; alpha decays as more capital chases it
 - **Model decay**: Financial relationships are non-stationary; monthly retraining helps but doesn't eliminate this
 - **Overfitting**: Despite CPCV, the strategy has many degrees of freedom (3 models x hyperparameters x regime states). PBO check is critical before going live

@@ -19,7 +19,6 @@ Strait of Hormuz disruption and shipping lane risks keeping oil bid, creating st
 | [[tickers/XLE]] | Energy sector ETF | long beneficiary | 2026-04-10 |
 
 ## 2026-04-10 (transitioning regime)
-Sector tilt: Energy/upstream oil +0.7 (highest conviction tilt). Brent supported by shipping/geopolitical constraints. De-escalation would rapidly unwind the risk premium. Brief bought CVX shares and sold OIH put credit spread.
 
 ## 2026-04-10 (manual brief update) — CRISIS WORSENING
 
@@ -27,7 +26,6 @@ Oil above $100/bbl — **WTI hit $117.63, Brent spot above $120** (2026-04-08, C
 
 - Energy sector tilt upgraded to **+0.8** (from +0.7)
 - CVX testing its $190 stop level ($190.36) despite oil >$100 — CVX-specific Q1 headwinds
-- OIH put credit spread working; watchlist for OIH 420/450 call spread if pullback to $400-405
 - Double inflation hit: tariff pass-through + Hormuz disruption → core goods inflation already surging pre-shock
 
 ## 2026-04-11 (manual brief) — DE-ESCALATING (FRAGILE)
@@ -60,10 +58,24 @@ Ceasefire (Day 3) has dropped oil from $117 to $95, but Hormuz **remains effecti
 - Deal failure → oil back above $100 → energy wins, risk-off for equity
 - Surprise deal Sunday → oil drops → energy gives back, risk-on
 
-**New trade:** [[tickers/XLE]] May $57/$61 bull call spread — first direct energy trade. Technically oversold (RSI 41.8) into bullish catalyst. CVX remains exited — XLE avoids single-name risk.
+
+## 2026-04-13 (automated pipeline) — BLOCKADE ACTIVE
+
+**U.S. Navy has begun a blockade of the Hormuz Strait** following collapsed talks with Iran. USO +5.7% on the day, well above 50/200d. XLE above 50/200d.
+
+**Critical observation: geopolitics in commodities, not (yet) in equities.** SPY/QQQ/IWM only modestly higher. VIX *compressed* to ~19.2 (from 30.6 on Mar 30). This implies either:
+1. Confidence that the situation is containable, or
+2. **Complacency** that could be challenged if energy stays bid
+
+- Energy tilt upgraded to **+0.8** (from +0.7) — cleanest expression of Hormuz-risk premium
+- Credit not confirming: HYG/LQD both below 50/200d while equities above — uneven risk appetite
+- Saudi pipeline partially bypasses (~5M bbl/day) but blockade threatens broader shipping lanes
+
+Source: [[sources/brief-2026-04-13]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime analysis
 > - [[sources/brief-2026-04-10-manual]] — oil price specifics, crisis escalation
 > - [[sources/brief-2026-04-11-manual]] — ceasefire Day 3, Hormuz still blocked, CVX exit
 > - [[sources/brief-2026-04-12-manual]] — re-escalating, Iran deal failure, XLE trade
+> - [[sources/brief-2026-04-13]] — blockade active, USO +5.7%, equities muted = complacency risk

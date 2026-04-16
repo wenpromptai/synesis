@@ -11,7 +11,6 @@ tags: [ticker, optics, defense]
 # LPTH — LightPath Technologies
 
 **As of 2026-04-10 | Regime: transitioning**
-Decision: No trade — pass
 
 ## 2026-04-10
 - Q2 FY2026: rev $16.35M; GM 37%; but CFO driven by +$10.1M WC benefit + deferred rev; GAAP deeply negative

@@ -31,12 +31,8 @@ Complements the automated pipeline brief with sharpened macro data, trade manage
 - [[tickers/CVX]] — at stop $190.36, tighten to $189 daily close
 - [[tickers/CRCL]] — crashed -9.9%, **cut** recommendation
 - [[tickers/INTC]] — +4.7%, credit spread working, monitor at $63
-- [[tickers/META]] — CoreWeave deal deepens bull case, hold risk reversal
-- [[tickers/NVDA]] — CoreWeave/Rubin demand validation, hold call spread
-- [[tickers/QQQ]] — at $610 resistance, macro supports bear put spread
 - [[tickers/MU]] — +3.6% sector beta, confirmed pass
 - [[tickers/MRVL]] — +4.8%, CoreWeave beneficiary
-- [[tickers/OIH]] — put credit spread working, watchlist call spread on pullback
 
 ### Referenced (not updated)
 - [[tickers/AVGO]] — CoreWeave validates custom ASIC demand

@@ -23,8 +23,8 @@ In [[concepts/co-packaged-optics|CPO]] architectures, the silicon photonics chip
 
 | Company | Role | Evidence |
 |---------|------|----------|
-| [[tickers/COHR\|Coherent]] | SiPh integration + InP CW lasers | 6.4T CPO demo at OFC 2026; NVIDIA Spectrum-X collaborator |
-| [[tickers/TSEM\|Tower Semi]] | SiPh foundry services | Revenue ~$52M in Q3 2025 (~70% YoY growth) |
+| [[tickers/COHR|Coherent]] | SiPh integration + InP CW lasers | 6.4T CPO demo at OFC 2026; NVIDIA Spectrum-X collaborator |
+| [[tickers/TSEM|Tower Semi]] | SiPh foundry services | Revenue ~$52M in Q3 2025 (~70% YoY growth) |
 | TSMC | COUPE CPO platform | Verified for cloud customers (2026) |
 | Intel | Integrated photonics R&D | Potential disruptor if on-chip laser achieved |
 | Broadcom | Bailly CPO switch SiPh integration | 50K+ Tomahawk-5 CPO switches shipped 2025 |

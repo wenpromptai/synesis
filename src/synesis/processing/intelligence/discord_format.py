@@ -51,9 +51,7 @@ def _build_watchlist_embed(brief: dict[str, Any], color: int) -> dict[str, Any] 
             line += f"\n   {note}"
         pick_lines.append(line)
 
-    fields: list[dict[str, Any]] = [
-        {"name": "Tickers", "value": "\n".join(pick_lines)[:1024], "inline": False}
-    ]
+    fields: list[dict[str, Any]] = _split_field("Tickers", "\n".join(pick_lines))
 
     dropped = watchlist.get("dropped", [])
     drop_reasons = watchlist.get("drop_reasons", [])
@@ -62,7 +60,7 @@ def _build_watchlist_embed(brief: dict[str, Any], color: int) -> dict[str, Any] 
         for i, t in enumerate(dropped):
             reason = drop_reasons[i] if i < len(drop_reasons) else ""
             drop_parts.append(f"{t} ({reason})" if reason else t)
-        fields.append({"name": "Dropped", "value": ", ".join(drop_parts)[:1024], "inline": False})
+        fields.extend(_split_field("Dropped", ", ".join(drop_parts)))
 
     title_str = f"\U0001f4cb Watchlist \u2014 {len(picks)} tickers ({len(l1_pool)} from signals)"
     embed: dict[str, Any] = {
@@ -115,15 +113,13 @@ def format_scan_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]]]:
     tilts = macro.get("thematic_tilts", [])
     if tilts:
         tilt_lines = []
-        for t in tilts[:8]:
+        for t in tilts[:15]:
             score = t.get("sentiment_score", 0)
             emoji = "\U0001f7e2" if score > 0 else "\U0001f534" if score < 0 else "\u26aa"
             etf = t.get("etf")
             etf_str = f" [{etf}]" if etf else ""
             tilt_lines.append(f"{emoji} **{t.get('theme', '?')}**{etf_str} ({score:+.1f})")
-        macro_fields.append(
-            {"name": "Thematic Tilts", "value": "\n".join(tilt_lines)[:1024], "inline": False}
-        )
+        macro_fields.extend(_split_field("Thematic Tilts", "\n".join(tilt_lines)))
     risks = macro.get("risks", [])
     if risks:
         macro_fields.append(
@@ -149,11 +145,32 @@ def format_scan_brief(brief: dict[str, Any]) -> list[list[dict[str, Any]]]:
     if social_summary or news_summary:
         l1_fields: list[dict[str, Any]] = []
         if social_summary:
-            l1_fields.append({"name": "Social", "value": social_summary[:1024], "inline": False})
+            l1_fields.extend(_split_field("Social", social_summary))
         if news_summary:
-            l1_fields.append({"name": "News", "value": news_summary[:1024], "inline": False})
+            l1_fields.extend(_split_field("News", news_summary))
         embeds.append(
             {"title": "\U0001f4e1 Signal Summary", "color": COLOR_HEADER, "fields": l1_fields}
+        )
+
+    # ── Thematic Research ─────────────────────────────────────
+    research = brief.get("social_research_context", [])
+    discovered = brief.get("social_discovered_themes", [])
+    if research or discovered:
+        research_fields: list[dict[str, Any]] = []
+        if research:
+            research_fields.extend(
+                _split_field("Research", "\n".join(f"\u2022 {r}" for r in research))
+            )
+        if discovered:
+            research_fields.extend(
+                _split_field("Discovered Themes", "\n".join(f"\u2022 {d}" for d in discovered))
+            )
+        embeds.append(
+            {
+                "title": "\U0001f50d Thematic Research",
+                "color": COLOR_HEADER,
+                "fields": research_fields,
+            }
         )
 
     # ── Watchlist ──────────────────────────────────────────────

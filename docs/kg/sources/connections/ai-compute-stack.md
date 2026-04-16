@@ -28,11 +28,9 @@ tags: [connection, ai, semiconductor, supply-chain]
 1. **Correlated demand exposure**: All five derive growth from the same hyperscaler capex cycle (MSFT, GOOG, META, AMZN). If any major hyperscaler pauses or slows capex, the entire stack reprices.
 2. **Supply chain dependency**: TSM is the sole advanced-node foundry for the group. ARM IP is embedded in most AI-adjacent chips. The stack is vertically interdependent.
 3. **Valuation clustering**: All five trade at significant premiums to historical multiples, pricing in sustained AI capex growth through 2027-2028.
-4. **Brief's approach**: The 2026-04-10 Trader used defined-risk call spreads across NVDA, MRVL, and SMH (which contains all five) rather than outright equity — reflecting conviction in the theme but caution on valuation/macro.
 
 ## Implication
 
-Size positions in this cluster as a single correlated bet. Owning call spreads in NVDA + MRVL + SMH is effectively triple-counting AI compute exposure. The brief's sector tilt framework should account for aggregate AI-compute-stack exposure across all portfolio positions.
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — all five analyzed with bull/bear debate

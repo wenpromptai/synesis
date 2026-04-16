@@ -35,14 +35,27 @@ Despite extraordinary demand fundamentals, the sector trades at extreme valuatio
 - AAOI: RV 174.8%, rallied 92% in 11 sessions, 40% above analyst PT
 - Insider selling universal across the stack (AAOI 16 sells, LITE 18 sells)
 
-The manual brief explicitly avoided all photonics names for new trades despite bullish fundamentals, citing entry risk at current levels. "The thesis gets better the lower the price goes."
+
+## 2026-04-14 (web research enrichment) — DEMAND ACCELERATING
+
+Fresh data confirms supercycle thesis strengthening across all three core names:
+
+| Ticker | Update | Source |
+|--------|--------|--------|
+| [[tickers/AAOI]] | 2nd hyperscale customer (800G shipments begun), cumulative orders $124M+. Price ~$151, 237% YTD. | Web research |
+| [[tickers/LITE]] | NVDA deal includes multibillion-dollar purchase commitment + capacity access rights. OCS: $400M rev H2 2026, $1B+ by 2027. InP allocated 32 months. JPM PT $950. | Web research |
+| [[tickers/COHR]] | FQ2 2026 beat + raised guidance. **Book-to-bill 4x.** Investing in 6-inch InP wafer capacity. Stifel PT $275, Barclays $350. | Web research |
+
+**Key shift:** AAOI breaking single-customer dependency (2nd hyperscaler) and COHR's 4x book-to-bill both validate the demand-exceeds-supply thesis. **InP capacity expansion** (COHR 6-inch wafers, LITE allocated through 2028) is the gating bottleneck now, not demand.
 
 ## Monitoring
 - LITE/AAOI earnings and guidance for backlog confirmation
 - EML supply chain updates (shortage vs capacity adds)
 - NVDA CPO adoption timeline and architecture decisions
-- Section 232 tariff deadline (April 14) — binary risk for entire stack
+- COHR FQ3 2026 earnings — FCF conversion proof
+- InP wafer capacity additions (COHR, LITE, AXTI substrate supply)
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11-manual]] — LITE backlog, AAOI targets, EML shortage, NVDA investment
 > - [[sources/brief-2026-04-11]] — TSEM/LITE/AAOI debates, NVDA CPO push
+> - Web research (2026-04-14) — AAOI 2nd customer, LITE deal details, COHR 4x book-to-bill

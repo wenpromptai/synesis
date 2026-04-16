@@ -43,7 +43,7 @@ P&L (bullish risk reversal)
 | [[delta]] | Net positive (bullish) | Both legs contribute positive delta |
 | [[gamma]] | Mixed | Long call gamma + short put negative gamma |
 | [[theta]] | Near neutral | Short put theta offsets long call theta |
-| [[vega]] | Net long | Benefits from [[volatility-smile\|skew]] — put IV > call IV makes this cheaper |
+| [[vega]] | Net long | Benefits from [[volatility-smile|skew]] — put IV > call IV makes this cheaper |
 
 ## Trade Construction (Bullish)
 

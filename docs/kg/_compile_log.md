@@ -45,16 +45,33 @@ Append-only audit trail of `/kg-compile` operations.
 - **Tickers updated (9):** tickers/NVDA.md, tickers/GOOG.md, tickers/CVX.md (EXIT), tickers/MU.md, tickers/AAOI.md, tickers/LITE.md, tickers/META.md, tickers/TSM.md, tickers/TSEM.md, tickers/TSLA.md
 - **Themes updated (5):** themes/stagflation-tail-risk.md (testing), themes/ai-infrastructure.md (intensifying), themes/geopolitical-energy-risk.md (de-escalating), themes/insider-selling-clusters.md (universal), themes/optical-photonics-supply-chain.md (related link)
 - **Index updated:** 116 → 127 nodes
-- **Key changes:** AMD new ticker with bull call spread; CVX exited (broke stop); 3 new manual trades (NVDA/AMD/GOOG bull call spreads); 5 pipeline trades (ASML/TSM pair, NVDA put hedge, META call spread, BX put spread, C put spread); consumer sentiment record low; photonics supercycle theme
 
 ## 2026-04-12 — Manual Brief Compilation
 - **Source:** raw/synesis_briefs/2026-04-12-manual.md
 - **Tickers created (3):** tickers/JPM.md, tickers/BAC.md, tickers/QCOM.md
-- **Tickers updated (12):** tickers/XLE.md (new trade), tickers/GS.md (new trade), tickers/NFLX.md (new trade), tickers/C.md (reaffirm), tickers/NVDA.md (hold), tickers/META.md (hold), tickers/TSM.md (hold pair), tickers/ASML.md (hold pair), tickers/MS.md (no trade), tickers/MU.md (no trade), tickers/COHR.md (no trade), tickers/CVX.md (remain exited)
 - **Themes updated (4):** geopolitical-energy-risk (re-escalating), stagflation-tail-risk (re-intensifying), insider-selling-clusters (expanding), consumer-sentiment-collapse (worsening)
 - **Source node created:** sources/brief-2026-04-12-manual.md
 - **Index updated:** 127 → 131 nodes
-- **Key changes:** Iran deal failure = dominant signal. 4 new trades (XLE call spread, GS call spread, NFLX put spread, C put spread reaffirm). Regime sentiment downgraded to -0.05. Geopolitical energy risk re-escalating. Insider selling cluster expanded (NFLX $43M, BAC $21M, COHR $4.9M).
+
+## 2026-04-14 — KG Lint Research Enrichment
+- **Source:** /kg-lint intelligence checks + web research
+- **Concepts enriched:** concepts/realized-volatility.md (IV-RV premium screening section with data from 2026-04-13 brief)
+- **Concepts created:** concepts/tpu-inference-economics.md (TPU v7 Ironwood, cost-per-token, NVLink Fusion, inference vs training shift)
+- **Connections created:** sources/connections/cowos-easing-paradox.md (AMD bull vs NVDA bear from same supply event, Morgan Stanley allocation data)
+- **Tickers enriched (3):** tickers/AAOI.md (2nd hyperscaler customer, order details), tickers/LITE.md (NVDA deal structure, OCS revenue targets, JPM PT $950), tickers/COHR.md (FQ2 beat, book-to-bill 4x, 6-inch InP expansion)
+- **Themes updated (1):** themes/photonics-supercycle.md (demand accelerating — fresh data across all 3 core names)
+- **Bidirectional links fixed:** tickers/AMZN.md → custom-silicon-tpu-displacement, tickers/COHR.md → photonics-supercycle + ai-infrastructure + insider-selling-clusters
+- **Index updated:** 140 → 142 nodes
+- **Key findings:** CoWoS easing is paradoxically bullish for AMD (volume) and bearish for NVDA (pricing power). TPU inference economics is a foundational concept behind the custom-silicon-tpu-displacement theme. Photonics supercycle strengthening — COHR 4x book-to-bill, AAOI breaking single-customer dependency.
+
+## 2026-04-14 — Pipeline Brief Compilation
+- **Source:** raw/synesis_briefs/2026-04-13.md
+- **Tickers updated (5):** tickers/NVDA.md (HBM4/Rubin debate, NVLink Fusion), tickers/AMD.md (CoWoS debate, CEO selling), tickers/AVGO.md (TPU/ASIC through 2031, $86.1M insider selling), tickers/GOOG.md (TPU inference debate), tickers/GS.md (Q1 beat, vol beneficiary debate)
+- **Themes created (1):** themes/custom-silicon-tpu-displacement.md (GOOG+AVGO+NVDA+AMZN)
+- **Themes updated (4):** geopolitical-energy-risk (blockade active), stagflation-tail-risk (credit divergence), insider-selling-clusters (AVGO $86.1M), ai-infrastructure (HBM4 gating + CoWoS + custom silicon)
+- **Source node created:** sources/brief-2026-04-13.md
+- **Index updated:** 138 → 140 nodes
+- **Key changes:** Second consecutive zero-trade-idea run. Hormuz blockade now active (USO +5.7%, equities muted). Custom silicon/TPU displacement emerges as new theme. Credit divergence (HYG/LQD below trend, equities above) flagged as stagflation amplifier. AVGO insider selling ($86.1M) is largest $ amount in coverage universe.
 
 ## 2026-04-12 — Pipeline Brief Compilation
 - **Source:** raw/synesis_briefs/2026-04-12.md

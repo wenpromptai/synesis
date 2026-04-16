@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/capital-intensive-transitions]]", "[[themes/insider-selling-clusters]]"]
+related: ["[[themes/nuclear-energy-renaissance]]", "[[themes/capital-intensive-transitions]]", "[[themes/insider-selling-clusters]]"]
 created: 2026-04-12
 type: ticker
 sector: "Energy"
@@ -11,7 +11,6 @@ tags: [ticker, energy, nuclear, pre-revenue]
 # OKLO — Oklo Inc
 
 **As of 2026-04-12 | Regime: transitioning (sentiment +0.2)**
-Decision: No trade — pipeline pass (0 ideas produced)
 
 ## Bull Case (2026-04-12 brief)
 Pure-play advanced nuclear optionality with Aurora powerhouses (15-75MW fast fission) targeting first commercial deployment in 2028. Fortress balance sheet — $1.23B cash with $0 debt (current ratio 49.1). 13.9% short interest creates squeeze potential on any positive milestone catalyst.
@@ -38,4 +37,3 @@ $8.7B market cap for a zero-revenue company with Piotroski 1/9 and ROE -12.2%. C
 - Pre-revenue nuclear companies historically experience extreme drawdowns on milestone delays
 
 > [!quote]- Sources
-> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade

@@ -24,12 +24,10 @@ tags: [connection, optics, concentration, working-capital]
 
 All four sit in the [[themes/optical-photonics-supply-chain]] serving the 800G-to-1.6T datacenter bandwidth transition. Despite strong revenue growth narratives, each shows the same pattern: AR and inventory growing faster than revenue, converting reported profits into negative or fragile FCF.
 
-The 2026-04-10 brief Trader passed on all four (AAOI, COHR, LITE = no trade; FN = bearish put spread), consistently citing the customer-concentration + WC-deterioration compound risk as the dominant bear thesis.
 
 ## Implications
 
 - These four are correlated on the downside — a single hyperscaler order pause or optics inventory correction would hit all simultaneously
-- The brief's preference for defined-risk bearish structures (FN put spread) over outright shorts reflects the squeeze risk from elevated short interest across the group
 - Monitor as a cluster: if one reports inventory write-downs or AR provisions, the others are likely exposed
 
 > [!quote]- Sources

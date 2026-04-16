@@ -187,6 +187,14 @@ class SocialSentimentAnalysis(BaseModel):
     ticker_mentions: list[TickerMention] = Field(default_factory=list)
     macro_themes: list[MacroTheme] = Field(default_factory=list)
     summary: str = ""
+    research_context: list[str] = Field(
+        default_factory=list,
+        description="Deeper findings from web research on key themes with source attribution",
+    )
+    discovered_themes: list[str] = Field(
+        default_factory=list,
+        description="Related themes found through research that weren't in the raw signals",
+    )
     analysis_date: date
 
 
@@ -253,6 +261,16 @@ class ThematicTilt(BaseModel):
     )
     reasoning: str = ""
     etf: str | None = None
+    key_evidence: list[str] = Field(
+        default_factory=list,
+        description="1-3 specific data points grounding this tilt (price levels, earnings, 13F, social convergence)",
+    )
+    persistence: Literal["structural", "cyclical", "event_driven"] = "cyclical"
+    catalyst_date: str = ""  # When does this theme resolve, e.g. "Q2 earnings July 24"
+    related_tickers: list[str] = Field(
+        default_factory=list,
+        description="Tickers that best express this theme (2-5 specific companies, not ETFs)",
+    )
 
 
 class WatchlistTicker(BaseModel):

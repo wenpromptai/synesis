@@ -11,7 +11,6 @@ tags: [ticker, semiconductor, memory, nand]
 # SNDK — Sandisk
 
 **As of 2026-04-12 | Regime: transitioning (sentiment +0.2)**
-Decision: No trade — pipeline pass (0 ideas produced)
 
 Separated from Western Digital in February 2025. Pure-play NAND/flash with Kioxia JV.
 
@@ -46,4 +45,3 @@ Despite the recovery, trailing net margin remains -11.7% with ROE -9.4%, and the
 - Post-separation execution risk as a standalone entity
 
 > [!quote]- Sources
-> - [[sources/brief-2026-04-12|Brief 2026-04-12]] — pipeline debate, no trade
