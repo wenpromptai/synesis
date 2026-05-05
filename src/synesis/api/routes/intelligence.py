@@ -1,6 +1,5 @@
 """Intelligence pipeline endpoints."""
 
-import asyncio
 import re
 from typing import Any
 
@@ -8,9 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from starlette.requests import Request
 
-from synesis.api.utils import create_tracked_task
 from synesis.core.dependencies import (
-    AgentStateDep,
     Crawl4AICrawlerDep,
     MassiveClientDep,
     SECEdgarClientDep,
@@ -22,9 +19,6 @@ from synesis.core.rate_limit import limiter
 router = APIRouter()
 
 logger = get_logger(__name__)
-
-# Hold references to background tasks so they aren't GC'd
-_background_tasks: set[asyncio.Task[None]] = set()
 
 
 _TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.]{0,14}$")
@@ -45,32 +39,6 @@ class AnalyzeRequest(BaseModel):
         return cleaned
 
 
-@router.post("/trigger")
-@limiter.limit("2/minute")
-async def trigger_scan_brief(request: Request, state: AgentStateDep) -> dict[str, str]:
-    """Manually trigger the daily scan pipeline (macro + watchlist to Discord)."""
-    trigger = state.trigger_fns.get("scan_brief")
-    if trigger is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Scan pipeline not configured (requires database + providers)",
-        )
-
-    def _on_done(t: asyncio.Task[None]) -> None:
-        if t.cancelled():
-            return
-        if exc := t.exception():
-            logger.error(
-                "Scan brief background task failed",
-                error=str(exc),
-                error_type=type(exc).__name__,
-                exc_info=exc,
-            )
-
-    create_tracked_task(trigger(), _background_tasks, _on_done)
-    return {"status": "triggered", "message": "Scan brief started in background"}
-
-
 @router.post("/analyze")
 @limiter.limit("2/minute")
 async def analyze_tickers(
@@ -81,12 +49,60 @@ async def analyze_tickers(
     massive: MassiveClientDep,
     crawler: Crawl4AICrawlerDep,
 ) -> dict[str, Any]:
-    """Run deep analysis pipeline for specific tickers.
+    """Run the deep intelligence pipeline for specific tickers (synchronous).
 
-    Runs company/price analysis, bull/bear debate, and trader for each ticker.
-    Saves brief to KG. Returns full analysis results.
+    For each requested ticker, runs: company analysis (fundamentals + filings) →
+    price/technicals analysis → consensus-anchored bull/bear debate → trader
+    (R/R + conviction tier). Saves a markdown brief to
+    persists trade ideas to the `trade_idea_tracking` table, and saves a brief
+    to `docs/kg/raw/synesis_briefs/YYYY-MM-DD-tradeideas.md`.
 
-    May take several minutes for multiple tickers.
+    Runs synchronously and returns the full result.
+    **Expect several minutes for multi-ticker requests.**
+
+    **Inputs (JSON body):**
+    - `tickers` (list[str], 1–10): uppercase tickers, e.g. `["NVDA", "AAPL"]`.
+      Validated against `^[A-Z][A-Z0-9.]{0,14}$`. Duplicates are de-duplicated
+      preserving input order.
+
+    **Returns:** Full `dict` compiled from the pipeline state:
+    - `date` (str): ISO date the brief was generated for.
+    - `tickers_analyzed` (list[str]): tickers that completed analysis.
+    - `trade_ideas` (list): each idea has `tickers` (list[str]), `trade_structure`
+      (str, e.g. `"long NVDA"`), `thesis`, `catalyst`, `timeframe`, `key_risk`,
+      `entry_price`, `target_price`, `stop_price`, `risk_reward_ratio`,
+      `conviction_tier` (1=high | 2=medium | 3=speculative), `conviction_rationale`,
+      `expression_note`, `analysis_date`.
+    - Additional pipeline state keys (company analysis, price data, debate output).
+    - `brief_path` (str): path of the saved KG markdown file.
+
+    **Errors:**
+    - `422` on invalid ticker format or empty/oversized list.
+    - `500` on pipeline failure or empty result.
+
+    **Example:**
+    ```bash
+    curl -X POST http://localhost:7337/api/v1/intelligence/analyze \\
+      -H "Content-Type: application/json" \\
+      -d '{"tickers": ["NVDA", "AMD"]}'
+    ```
+    Response (truncated):
+    ```json
+    {
+      "date": "2026-05-05",
+      "tickers_analyzed": ["NVDA", "AMD"],
+      "trade_ideas": [
+        {
+          "tickers": ["NVDA"],
+          "trade_structure": "long NVDA",
+          "entry_price": 120.5,
+          "target_price": 138.0,
+          "stop_price": 113.0,
+          "conviction_tier": 1
+        }
+      ]
+    }
+    ```
     """
     from synesis.config import get_settings
     from synesis.processing.intelligence.job import run_ticker_analysis

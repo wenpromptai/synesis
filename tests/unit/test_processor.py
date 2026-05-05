@@ -1,5 +1,6 @@
 """Tests for the two-stage NewsProcessor."""
 
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -340,6 +341,13 @@ class TestProcessingResultWithNoneAnalysis:
 class TestUrgencyGate:
     """Tests for urgency-based gate (only critical/high pass to Stage 2)."""
 
+    @pytest.fixture(autouse=True)
+    def _enable_stage1(self) -> Iterator[None]:
+        with patch("synesis.core.processor.get_settings") as m:
+            m.return_value.news_stage1_enabled = True
+            m.return_value.news_stage2_enabled = True
+            yield
+
     @pytest.fixture
     def processor(self) -> NewsProcessor:
         """Create a NewsProcessor with mocked internals."""
@@ -420,6 +428,14 @@ class TestUrgencyGate:
 
 class TestStage1Callback:
     """Tests for on_stage1_complete callback in process_message."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_stage1(self) -> Iterator[None]:
+        """Ensure news_stage1_enabled=True so Stage 1 runs regardless of .env."""
+        with patch("synesis.core.processor.get_settings") as m:
+            m.return_value.news_stage1_enabled = True
+            m.return_value.news_stage2_enabled = True
+            yield
 
     @pytest.fixture
     def processor(self) -> NewsProcessor:
@@ -524,6 +540,43 @@ class TestStage1Callback:
         callback.assert_called_once_with(message, extraction)
 
 
+class TestStage1DisabledConfig:
+    """Tests for NEWS_STAGE1_ENABLED=false config gate."""
+
+    @pytest.fixture
+    def processor(self) -> NewsProcessor:
+        proc = NewsProcessor(AsyncMock())
+        mock_dedup = AsyncMock()
+        mock_dedup_result = MagicMock()
+        mock_dedup_result.is_duplicate = False
+        mock_dedup.process_message = AsyncMock(return_value=mock_dedup_result)
+        mock_classifier = MagicMock()
+        proc._deduplicator = mock_dedup
+        proc._classifier = mock_classifier
+        proc._initialized = True
+        return proc
+
+    @pytest.mark.asyncio
+    async def test_stage1_disabled_skips_classification(self, processor: NewsProcessor) -> None:
+        """When NEWS_STAGE1_ENABLED=false, processor exits before classification."""
+        with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = False
+            result = await processor.process_message(create_test_message())
+
+        assert result.skipped is True
+        assert result.skip_reason == "stage1 disabled by config"
+        processor._classifier.classify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stage1_disabled_still_runs_dedup(self, processor: NewsProcessor) -> None:
+        """When NEWS_STAGE1_ENABLED=false, deduplication still runs before the gate."""
+        with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = False
+            await processor.process_message(create_test_message())
+
+        processor._deduplicator.process_message.assert_called_once()
+
+
 class TestStage2DisabledConfig:
     """Tests for NEWS_STAGE2_ENABLED=false config gate."""
 
@@ -559,6 +612,7 @@ class TestStage2DisabledConfig:
         )
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = True
             mock_settings.return_value.news_stage2_enabled = False
             result = await processor.process_message(create_test_message())
 
@@ -572,6 +626,7 @@ class TestStage2DisabledConfig:
         processor._classifier.classify = AsyncMock(return_value=extraction)
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = True
             mock_settings.return_value.news_stage2_enabled = False
             result = await processor.process_message(create_test_message())
 
@@ -589,6 +644,7 @@ class TestStage2DisabledConfig:
         callback = AsyncMock()
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = True
             mock_settings.return_value.news_stage2_enabled = False
             await processor.process_message(create_test_message(), on_stage1_complete=callback)
 
@@ -602,6 +658,7 @@ class TestStage2DisabledConfig:
         )
 
         with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = True
             mock_settings.return_value.news_stage2_enabled = True
             result = await processor.process_message(create_test_message())
 
@@ -649,7 +706,10 @@ class TestNewsProcessorStage2Failure:
         processor._initialized = True
 
         message = create_test_message()
-        result = await processor.process_message(message)
+        with patch("synesis.core.processor.get_settings") as mock_settings:
+            mock_settings.return_value.news_stage1_enabled = True
+            mock_settings.return_value.news_stage2_enabled = True
+            result = await processor.process_message(message)
 
         # Stage 1 should succeed, Stage 2 failed
         assert result.skipped is False

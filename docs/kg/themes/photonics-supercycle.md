@@ -55,7 +55,30 @@ Fresh data confirms supercycle thesis strengthening across all three core names:
 - COHR FQ3 2026 earnings — FCF conversion proof
 - InP wafer capacity additions (COHR, LITE, AXTI substrate supply)
 
+## 2026-04-15 → 2026-04-26 — POET/MRVL confirmed, optical interconnect as DC scaling constraint
+
+- 4/15 brief: POET/JBL flagged on social as photonics/laser "structured bottlenecks." MRVL/AVGO rumored acquirers in M&A speculation.
+- 4/17 brief: POET (CPO/photonics) bullish — speculative upside; validate product exposure and customer linkages.
+- 4/21 brief: SIVE flagged as photonics + AI integration / optical interconnect as DC scaling constraint (latency/bandwidth/power). Indium phosphide (InP) lasers central to AI memory bandwidth.
+- 4/23 brief: **POET CFO interview confirmed supplier relationship with MRVL** → POET +20.5% on the day. SIVE questioned as laser supplier to MRVL (validation needed). Optical interconnect / networking into AI clusters confirmed as higher-beta adjacency.
+- 4/25 brief: SIVE InP laser arrays for AAPL mass production in late 2027 (long-dated optionality, requires supplier disclosure).
+
+**New tickers in supply chain conversation:**
+| Ticker | Role | As Of |
+|--------|------|-------|
+| POET | Optical components → confirmed MRVL supplier | 2026-04-23 |
+| SIVE | InP laser arrays → AAPL late 2027 use case rumored, MRVL adjacency | 2026-04-25 |
+| IQE | Compound semis / epi wafers (Europe) | 2026-04-23 |
+| LPK | Glass core substrates / next-gen packaging materials | 2026-04-23 |
+
+**Demand-side validation:** POET +20.5% on confirmed customer reveal is the pattern this theme predicts — design wins announced quietly, market re-rates higher when validated. Continued bottleneck is **InP capacity** (substrate supply via AXTI, wafer capacity at COHR 6-inch) rather than demand.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11-manual]] — LITE backlog, AAOI targets, EML shortage, NVDA investment
 > - [[sources/brief-2026-04-11]] — TSEM/LITE/AAOI debates, NVDA CPO push
 > - Web research (2026-04-14) — AAOI 2nd customer, LITE deal details, COHR 4x book-to-bill
+> - [[sources/brief-2026-04-15]] — POET/JBL bottleneck, M&A rumors
+> - [[sources/brief-2026-04-17]] — POET bullish CPO/photonics
+> - [[sources/brief-2026-04-21]] — SIVE optical interconnect as DC constraint
+> - [[sources/brief-2026-04-23]] — POET CFO confirms MRVL supplier relationship (+20.5%)
+> - [[sources/brief-2026-04-25]] — SIVE InP arrays for AAPL late 2027

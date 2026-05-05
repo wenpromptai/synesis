@@ -65,17 +65,21 @@ class Settings(CacheTTLSettings, BaseSettings):
         default="telegram",
         description="Notification output channel: 'telegram' or 'discord'",
     )
+    news_stage1_enabled: bool = Field(
+        default=True,
+        description="Enable news Stage 1 (impact scoring + ticker matching). When false, the processor exits before classification.",
+    )
     news_stage2_enabled: bool = Field(
         default=True,
         description="Enable news Stage 2 processing (LLM analysis, market matching, notification)",
     )
-    intelligence_pipeline_enabled: bool = Field(
+    market_movers_enabled: bool = Field(
         default=True,
-        description="Enable daily intelligence pipeline schedule (9am SGT). Set False to disable.",
+        description="Enable daily market movers snapshot schedule (10:30am ET).",
     )
-    macro_strategist_enabled: bool = Field(
+    event_radar_enabled: bool = Field(
         default=True,
-        description="Enable MacroStrategist in intelligence pipeline (FRED regime assessment + sector tilts)",
+        description="Enable Event Radar daily fetch (6pm ET) and digest (7pm ET) schedules.",
     )
     debate_rounds: int = Field(
         default=1,

@@ -21,7 +21,28 @@ _background_tasks: set[asyncio.Task[None]] = set()
 @router.post("/analyze")
 @limiter.limit("5/minute")
 async def trigger_twitter_agent(request: Request, state: AgentStateDep) -> dict[str, str]:
-    """Manually trigger the daily Twitter data collection job."""
+    """Manually trigger the daily Twitter agent.
+
+    Fires the same job the scheduler runs at 10:00 ET. Pulls recent tweets from
+    accounts in `TWITTER_ACCOUNTS`, runs them through the LLM digest, and posts
+    to the Twitter Discord webhook. Runs in the background — returns immediately.
+
+    **Inputs:** none.
+
+    **Returns:**
+    - `status` (str): `"triggered"` on success.
+    - `message` (str): human-readable confirmation.
+
+    **Errors:**
+    - `503` if `TWITTERAPI_API_KEY` is missing or `TWITTER_ACCOUNTS` is empty
+      (the trigger isn't registered at startup in that case).
+
+    **Example:**
+    ```bash
+    curl -X POST http://localhost:7337/api/v1/twitter/analyze
+    # {"status":"triggered","message":"Twitter data collection job started in background"}
+    ```
+    """
     trigger = state.trigger_fns.get("twitter_agent")
     if trigger is None:
         raise HTTPException(

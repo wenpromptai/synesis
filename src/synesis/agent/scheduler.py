@@ -15,11 +15,9 @@ from synesis.core.logging import get_logger
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-    from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
     from synesis.providers.fred import FREDClient
     from synesis.providers.nasdaq import NasdaqClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
-    from synesis.providers.yfinance.client import YFinanceClient
     from synesis.storage.database import Database
 
 __all__ = [
@@ -28,9 +26,9 @@ __all__ = [
     "event_fetch_job",
     "market_movers_job",
     "refresh_tickers_job",
-    "scan_brief_job",
     "watchlist_cleanup_job",
 ]
+
 
 logger = get_logger(__name__)
 
@@ -92,33 +90,6 @@ async def event_digest_job(
         logger.info("Event digest job complete", sent=sent)
     except Exception:
         logger.exception("Event digest job failed")
-
-
-async def scan_brief_job(
-    db: Database,
-    sec_edgar: SECEdgarClient,
-    yfinance: YFinanceClient,
-    fred: FREDClient | None = None,
-    crawler: Crawl4AICrawlerProvider | None = None,
-) -> None:
-    """Run the daily scan pipeline (macro + watchlist) and send to Discord."""
-    from synesis.processing.intelligence.job import run_scan_brief
-
-    try:
-        brief = await run_scan_brief(
-            db=db,
-            sec_edgar=sec_edgar,
-            yfinance=yfinance,
-            fred=fred,
-            crawler=crawler,
-        )
-        logger.info(
-            "Scan brief job complete",
-            regime=brief.get("macro", {}).get("regime"),
-            watchlist_tickers=len(brief.get("watchlist", {}).get("selected", [])),
-        )
-    except Exception:
-        logger.exception("Scan brief job failed")
 
 
 async def refresh_tickers_job() -> None:

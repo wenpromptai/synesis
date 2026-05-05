@@ -136,9 +136,10 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ("telegram_chat_id", "TELEGRAM_CHAT_ID", "99999", "99999"),
     # --- Notification channel ---
     ("notification_channel", "NOTIFICATION_CHANNEL", "discord", "discord"),
+    ("news_stage1_enabled", "NEWS_STAGE1_ENABLED", "true", True),
     ("news_stage2_enabled", "NEWS_STAGE2_ENABLED", "false", False),
-    ("intelligence_pipeline_enabled", "INTELLIGENCE_PIPELINE_ENABLED", "false", False),
-    ("macro_strategist_enabled", "MACRO_STRATEGIST_ENABLED", "true", True),
+    ("market_movers_enabled", "MARKET_MOVERS_ENABLED", "false", False),
+    ("event_radar_enabled", "EVENT_RADAR_ENABLED", "false", False),
     ("debate_rounds", "DEBATE_ROUNDS", "2", 2),
     ("trader_mode", "TRADER_MODE", "portfolio", "portfolio"),
     ("kg_briefs_dir", "KG_BRIEFS_DIR", "docs/kg/raw/synesis_briefs", "docs/kg/raw/synesis_briefs"),

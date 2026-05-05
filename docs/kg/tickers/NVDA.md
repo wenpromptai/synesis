@@ -60,10 +60,37 @@ tags: [ticker, semiconductor, ai, gpu]
 - IV 34.7% vs RV 34.6% (tight spread). Resistance $190.99. Support $185.29.
 - Source: [[sources/brief-2026-04-13]]
 
-**See also:** [[bull-call-spread]] | [[sources/connections/ai-compute-stack|AI compute stack]]
+## 2026-04-14 → 2026-04-21 — HBM4 demand confirmed, supply gating shifts
+
+- 4/14 brief: HBM4 validation + networking transition framed as primary gating items vs. persistent demand. Bull case for next 1-2 quarters tied to Samsung HBM4 yield improvement (>60%).
+- 4/16 brief: Samsung 1c DRAM yields >80% but HBM4 remains <60% — yields not yet equating to mass production for AI customers like NVIDIA.
+- 4/19 brief: Social: "NVDA structural concerns re: product design/supply chain." MU expected to outperform NVDA over next few years (memory bottleneck monetization > GPU pure play).
+- 4/21 brief: NVDA shipment slowdown attributed to **data center infrastructure readiness**, not chip availability. Bottleneck shifting from chips → integration (power, cooling, networking, racks). Positioning skew remains crowded long via record call volumes.
+
+## 2026-04-22 → 2026-04-26 — $5T Market Cap, 800V DC Architecture
+
+**4/24 brief — Power-architecture expansion:**
+- NVDA engaging with **South Korean power equipment firms on 800V DC systems** for AI data centers. Signals NVDA is becoming a system architect (not just a chip vendor) — increases switching costs and ecosystem control.
+- SK Hynix record operating margins reinforces memory-supplier supply tightness benefits NVDA platform.
+
+**4/26 brief — $5T Market Cap intraday:**
+- NVDA +5% on the day, hit **$5T market cap** intraday milestone.
+- Options flow: **$27M notional in $200 strike June calls** flagged by @BullflowIO — extreme upside positioning into Q1 FY2027 earnings.
+- SMH +5.1% 1d, XLK +2.8%, QQQ +1.9% — leadership concentrated in semis/NVDA cluster.
+- Bull thesis intact: HBM4 demand + 800V DC + hyperscaler capex commitments (GOOGL/AMZN to Anthropic, MSFT $18B Australia, OpenAI/Cerebras).
+- Risk: positioning crowding + IGV -5.8% on 4/23 shows how fast factor rotation hits long-duration; any earnings stumble propagates.
+- Source: [[sources/brief-2026-04-21]], [[sources/brief-2026-04-22]], [[sources/brief-2026-04-24]], [[sources/brief-2026-04-25]], [[sources/brief-2026-04-26]]
+
+**See also:** [[bull-call-spread]] | [[sources/connections/ai-compute-stack|AI compute stack]] | [[themes/hyperscaler-ai-capex-arms-race]] | [[themes/software-hardware-bifurcation]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — CoreWeave/Rubin demand, trade update
 > - [[sources/brief-2026-04-12-manual]] — hold, SpotGamma cheap calls, Iran failure removes catalyst
 > - [[sources/brief-2026-04-13]] — HBM4/Rubin transition debate, NVLink Fusion heterogeneous risk
+> - [[sources/brief-2026-04-14]] — HBM4 validation + networking transition gating
+> - [[sources/brief-2026-04-16]] — Samsung HBM4 <60% yields
+> - [[sources/brief-2026-04-19]] — supply chain concerns; MU > NVDA narrative
+> - [[sources/brief-2026-04-21]] — shipment slowdown = data center readiness bottleneck
+> - [[sources/brief-2026-04-24]] — 800V DC architecture engagement with Korean power vendors
+> - [[sources/brief-2026-04-26]] — $5T market cap intraday, $27M Jun 200c flow

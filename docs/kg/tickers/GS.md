@@ -43,9 +43,22 @@ tags: [ticker, bank, investment-banking]
 - IV 39.9% vs RV 31.9% — **IV-RV spread +8.0%**. Support $898.88. Resistance $912.84.
 - Source: [[sources/brief-2026-04-13]]
 
-**See also:** [[concepts/implied-volatility|implied volatility]] | [[concepts/fcf-yield|FCF yield]] | [[bull-call-spread]]
+## 2026-04-14 → 2026-04-26 — Mixed Q1 narrative, Gulf supply call
+
+- 4/14 brief: GS Q1 results "mixed" — Financials complex improving but not fully trend-confirmed (XLF above 50d, below 200d).
+- 4/16 brief: Bearish framing — capital markets cyclicality / execution risk vs peers (MS/BAC). If GS lags while MS/BAC lead, regime is risk-on but uneven for financial business models.
+- 4/25 brief: **GS projects Gulf crude production down to 14.5 mb/d** (~57% below pre-war levels), with months-long recovery (news cluster). This becomes a key macroeconomic anchor for the oil supply premium and risk-asset pricing.
+- 4/26 brief: Oil shock / macro vol beneficiary thesis — FICC/commodities benefit from energy vol; watch funding/credit and deal activity for offsets.
+
+**Key takeaway:** GS's research call (Gulf -57% production, 14.5 mb/d) is now the institutional anchor for the elevated oil regime expectation. Operationally, GS positioned to benefit from FICC/commodities trading volumes if vol stays elevated. Bearish caveat: if rates re-accelerate from oil shock, deal pipeline dries up.
+
+**See also:** [[concepts/implied-volatility|implied volatility]] | [[concepts/fcf-yield|FCF yield]] | [[bull-call-spread]] | [[themes/geopolitical-energy-risk]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11]] — debate analysis
 > - [[sources/brief-2026-04-12-manual]] — pre-earnings setup, Iran failure risk
 > - [[sources/brief-2026-04-13]] — Q1 beat confirmed, vol beneficiary debate, OCF divergence
+> - [[sources/brief-2026-04-14]] — Q1 mixed framing
+> - [[sources/brief-2026-04-16]] — relative laggard vs MS/BAC
+> - [[sources/brief-2026-04-25]] — Gulf production -57% projection, 14.5 mb/d
+> - [[sources/brief-2026-04-26]] — oil shock vol beneficiary thesis

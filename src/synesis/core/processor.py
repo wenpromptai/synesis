@@ -261,6 +261,18 @@ class NewsProcessor:
             )
 
         # 2. Stage 1: Instant classification (no LLM)
+        if not get_settings().news_stage1_enabled:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            log.info("Skipping Stage 1", skip_reason="disabled by config")
+            return ProcessingResult(
+                message=message,
+                skipped=True,
+                skip_reason="stage1 disabled by config",
+                is_duplicate=False,
+                duplicate_of=None,
+                stage1_ms=elapsed_ms,
+            )
+
         extraction = await self.classifier.classify(message)
 
         # Capture Stage 1 processing time (dedup + classification)

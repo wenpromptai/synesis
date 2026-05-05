@@ -33,16 +33,23 @@ from synesis.agent.scheduler import (
     event_digest_job,
     event_fetch_job,
     market_movers_job,
-    scan_brief_job,
+    refresh_tickers_job,
     watchlist_cleanup_job,
 )
 from synesis.config import Settings
 from synesis.core.logging import get_logger
 from synesis.ingestion.google_rss import GoogleRSSPoller
 from synesis.ingestion.telegram import TelegramListener, TelegramMessage
+from synesis.processing.events.digest import send_event_digest
+from synesis.processing.events.runner import run_structured_sources
+from synesis.processing.market.job import market_movers_job as _market_movers_fn
 from synesis.processing.news import SourcePlatform, UnifiedMessage
 from synesis.processing.news.deduplication import create_deduplicator
+from synesis.processing.twitter.job import twitter_agent_job
 from synesis.providers.finnhub.prices import close_price_service, init_price_service
+from synesis.providers.fred import FREDClient
+from synesis.providers.nasdaq import NasdaqClient
+from synesis.providers.sec_edgar.client import SECEdgarClient
 from synesis.storage.database import Database, close_database, init_database
 from synesis.storage.redis import close_redis, init_redis
 
@@ -253,8 +260,6 @@ async def agent_lifespan(
 
         # Twitter agent daily digest
         if settings.twitterapi_api_key and settings.twitter_accounts:
-            from synesis.processing.twitter.job import twitter_agent_job
-
             scheduler.add_job(
                 twitter_agent_job,
                 CronTrigger(hour=10, minute=0, timezone="America/New_York"),
@@ -269,89 +274,57 @@ async def agent_lifespan(
             )
 
         # Event Radar jobs (require DB)
-        crawler_instance = None
         fred_client = None
         nasdaq_client = None
         sec_edgar_client = None
-        yfinance_client = None
         if db:
-            from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
-            from synesis.providers.nasdaq import NasdaqClient
-            from synesis.providers.sec_edgar.client import SECEdgarClient
-
-            crawler_instance = Crawl4AICrawlerProvider()
             nasdaq_client = NasdaqClient(redis=redis)
             sec_edgar_client = SECEdgarClient(redis=redis)
 
             if settings.fred_api_key:
-                from synesis.providers.fred import FREDClient
-
                 fred_client = FREDClient(redis=redis)
 
-            # YFinance + Massive for intelligence pipeline
-            from synesis.providers.yfinance.client import YFinanceClient
-
-            yfinance_client = YFinanceClient(redis=redis)
-
-            # Scan brief: 9am SGT (1am UTC) daily
-            if settings.intelligence_pipeline_enabled:
+            # Structured fetch: 6pm ET daily
+            if settings.event_radar_enabled:
                 scheduler.add_job(
-                    scan_brief_job,
-                    CronTrigger(hour=1, minute=0, timezone="UTC"),
-                    args=[
-                        db,
-                        sec_edgar_client,
-                        yfinance_client,
-                        fred_client,
-                        crawler_instance,
-                    ],
-                    id="scan_brief",
+                    event_fetch_job,
+                    CronTrigger(hour=18, minute=0, timezone="America/New_York"),
+                    args=[db, redis, fred_client, nasdaq_client, sec_edgar_client],
+                    id="event_fetch",
                     max_instances=1,
                 )
+
+                # Daily digest (What's Coming): 7pm ET daily
+                scheduler.add_job(
+                    event_digest_job,
+                    CronTrigger(hour=19, minute=0, timezone="America/New_York"),
+                    args=[db, redis],
+                    id="event_digest",
+                    max_instances=1,
+                )
+
                 logger.info(
-                    "Scan brief scheduled",
-                    schedule="9am SGT (1am UTC) daily",
+                    "Event Radar scheduled",
+                    fetch="6pm ET daily",
+                    digest="7pm ET daily",
                 )
             else:
-                logger.info("Intelligence pipeline disabled — skipping schedule")
-
-            # Structured fetch: 6pm ET daily
-            scheduler.add_job(
-                event_fetch_job,
-                CronTrigger(hour=18, minute=0, timezone="America/New_York"),
-                args=[db, redis, fred_client, nasdaq_client, sec_edgar_client],
-                id="event_fetch",
-                max_instances=1,
-            )
-
-            # Daily digest (What's Coming): 7pm ET daily
-            scheduler.add_job(
-                event_digest_job,
-                CronTrigger(hour=19, minute=0, timezone="America/New_York"),
-                args=[db, redis],
-                id="event_digest",
-                max_instances=1,
-            )
-
-            logger.info(
-                "Event Radar scheduled",
-                fetch="6pm ET daily",
-                digest="7pm ET daily",
-            )
+                logger.info("Event Radar disabled — skipping schedule")
 
         # Market movers: 10:30am ET (60min after market open)
-        scheduler.add_job(
-            market_movers_job,
-            CronTrigger(hour=10, minute=30, timezone="America/New_York"),
-            args=[redis],
-            id="market_movers",
-            max_instances=1,
-        )
-        logger.info("Market movers scheduled", schedule="10:30am ET daily")
+        if settings.market_movers_enabled:
+            scheduler.add_job(
+                market_movers_job,
+                CronTrigger(hour=10, minute=30, timezone="America/New_York"),
+                args=[redis],
+                id="market_movers",
+                max_instances=1,
+            )
+            logger.info("Market movers scheduled", schedule="10:30am ET daily")
+        else:
+            logger.info("Market movers disabled — skipping schedule")
 
         # Ticker list refresh: every Monday 6am UTC
-        from synesis.agent.scheduler import refresh_tickers_job
-
         scheduler.add_job(
             refresh_tickers_job,
             CronTrigger(day_of_week="mon", hour=6, minute=0, timezone="UTC"),
@@ -402,7 +375,6 @@ async def agent_lifespan(
         # Build trigger functions for on-demand API calls
         trigger_fns: dict[str, Any] = {}
         if settings.twitterapi_api_key and settings.twitter_accounts:
-            from synesis.processing.twitter.job import twitter_agent_job
 
             async def _trigger_twitter_agent() -> None:
                 await twitter_agent_job(db)
@@ -410,7 +382,6 @@ async def agent_lifespan(
             trigger_fns["twitter_agent"] = _trigger_twitter_agent
 
         if db:
-            from synesis.processing.events.runner import run_structured_sources
 
             async def _trigger_event_discover() -> int:
                 return await run_structured_sources(
@@ -423,35 +394,19 @@ async def agent_lifespan(
 
             trigger_fns["event_discover"] = _trigger_event_discover
 
-        async def _trigger_market_movers() -> None:
-            from synesis.processing.market.job import market_movers_job as _market_movers
+        if settings.market_movers_enabled:
 
-            await _market_movers(redis)
+            async def _trigger_market_movers() -> None:
+                await _market_movers_fn(redis)
 
-        trigger_fns["market_movers"] = _trigger_market_movers
+            trigger_fns["market_movers"] = _trigger_market_movers
 
         if db:
 
             async def _trigger_event_digest() -> bool:
-                from synesis.processing.events.digest import send_event_digest
-
                 return await send_event_digest(db, redis=redis)
 
             trigger_fns["event_digest"] = _trigger_event_digest
-
-        if db and sec_edgar_client and yfinance_client:
-            from synesis.processing.intelligence.job import run_scan_brief
-
-            async def _trigger_scan_brief() -> dict[str, Any]:
-                return await run_scan_brief(
-                    db=db,
-                    sec_edgar=sec_edgar_client,
-                    yfinance=yfinance_client,
-                    fred=fred_client,
-                    crawler=crawler_instance,
-                )
-
-            trigger_fns["scan_brief"] = _trigger_scan_brief
 
         yield AgentState(
             redis=redis,

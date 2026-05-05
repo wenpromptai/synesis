@@ -36,8 +36,21 @@ tags: [ticker, mega-cap, search, cloud, ai]
 - P/C 0.11 (aggressive call demand). IV 38.0% vs RV 33.7%. Resistance $318.63.
 - Source: [[sources/brief-2026-04-13]]
 
-**See also:** [[bull-call-spread]] | [[fcf-yield]] | [[earnings-options-systematic]]
+## 2026-04-16 → 2026-04-26 — Anthropic mega-investment, custom inference chip
+
+- 4/16 brief: GOOGL flagged on private asset monetization (SpaceX mark-up optionality) + core AI/search platform.
+- 4/21 brief: GOOG developing **low-latency inference chip**; MRVL in talks for **TPU project beyond 2028**. Reinforces TPU/custom-silicon thesis (vs GPU). Source: brief-2026-04-21.
+- 4/23 brief: Hyperscaler AI infrastructure build + AI monetization (cloud). Track capex trajectory and custom silicon strategy.
+- 4/25 brief: **GOOGL announced up to $40B investment in Anthropic** — initial $10B with milestones to $40B total. Cements Google as 2nd lead investor alongside AMZN. Watch regulatory/ROIC framing.
+- 4/26 brief: Hyperscaler AI capex + strategic model access (Anthropic). Diligence: incremental capex vs reallocation, terms imply compute/offtake/distribution advantages?
+
+**Strategic interpretation:** GOOGL's $40B commitment is a defensive countermove to AMZN's $25B Anthropic stake — both hyperscalers locking in compute offtake from a single model lab. Combined Anthropic exposure now $80B+ across two strategics. See [[themes/hyperscaler-ai-capex-arms-race]].
+
+**See also:** [[bull-call-spread]] | [[fcf-yield]] | [[earnings-options-systematic]] | [[themes/hyperscaler-ai-capex-arms-race]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-13]] — TPU inference debate, compute-mix thesis, Pichai selling
+> - [[sources/brief-2026-04-21]] — low-latency inference chip; MRVL TPU project post-2028
+> - [[sources/brief-2026-04-25]] — Up to $40B Anthropic investment ($10B initial)
+> - [[sources/brief-2026-04-26]] — Hyperscaler capex thesis affirmed

@@ -35,7 +35,18 @@ def _quote_to_response(quote: QuoteData) -> dict[str, Any]:
 @router.get("/subscriptions")
 @limiter.limit("120/minute")
 async def get_subscriptions(request: Request, price_service: PriceServiceDep) -> dict[str, Any]:
-    """List subscribed tickers and WebSocket status."""
+    """List tickers currently subscribed on the Finnhub WebSocket.
+
+    **Inputs:** none.
+
+    **Returns:**
+    - `subscribed_tickers` (list[str]): sorted symbols.
+    - `count` (int).
+    - `ws_connected` (bool): True if the WS client object exists.
+    - `max_symbols` (int): Finnhub free-tier cap (`FINNHUB_WS_MAX_SYMBOLS`).
+
+    **Example:** `curl http://localhost:7337/api/v1/fh/subscriptions`
+    """
     return {
         "subscribed_tickers": sorted(price_service._subscribed_tickers),
         "count": len(price_service._subscribed_tickers),
@@ -51,9 +62,22 @@ async def get_batch_prices(
     tickers: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
-    """Get full quote data for multiple tickers (comma-separated query param).
+    """Batch quote fetch via Finnhub REST API.
 
-    Example: GET /fh?tickers=AAPL,TSLA,NVDA
+    **Query params:**
+    - `tickers` (str, required): comma-separated symbols, case-insensitive.
+
+    **Returns:**
+    - `quotes` (dict[str, QuoteData]): keyed by uppercase ticker.
+      Each `QuoteData`: `current`, `change`, `percent_change`, `high`, `low`,
+      `open`, `previous_close`, `timestamp`.
+    - `found` (int): tickers successfully resolved.
+    - `missing` (list[str]): symbols that returned no data.
+
+    **Errors:**
+    - `400` if no tickers were provided.
+
+    **Example:** `curl 'http://localhost:7337/api/v1/fh?tickers=AAPL,TSLA,NVDA'`
     """
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
@@ -74,7 +98,29 @@ async def subscribe_tickers(
     body: TickerListRequest,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
-    """Subscribe to real-time price updates for tickers."""
+    """Subscribe symbols to the Finnhub real-time price WebSocket.
+
+    Once subscribed, live trade prices land in the in-memory cache and are
+    readable via `/fh/ws/prices` and `/fh/ws/prices/{ticker}`.
+
+    **Body (JSON):**
+    - `tickers` (list[str]): symbols to subscribe (case-insensitive).
+
+    **Returns:**
+    - `subscribed` (list[str]): the requested symbols, uppercased.
+    - `total` (int): total subscriptions after this call.
+
+    **Errors:**
+    - `400` if `tickers` is empty or if adding them would exceed
+      `FINNHUB_WS_MAX_SYMBOLS` (Finnhub free-tier cap).
+
+    **Example:**
+    ```bash
+    curl -X POST http://localhost:7337/api/v1/fh/subscribe \\
+      -H "Content-Type: application/json" \\
+      -d '{"tickers":["NVDA","AAPL"]}'
+    ```
+    """
     if not body.tickers:
         raise HTTPException(status_code=400, detail="No tickers provided")
 
@@ -106,7 +152,25 @@ async def unsubscribe_tickers(
     body: TickerListRequest,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
-    """Unsubscribe from real-time price updates."""
+    """Unsubscribe symbols from the Finnhub price WebSocket.
+
+    **Body (JSON):**
+    - `tickers` (list[str]): symbols to drop.
+
+    **Returns:**
+    - `unsubscribed` (list[str]): uppercase symbols requested.
+    - `total` (int): subscriptions remaining after this call.
+
+    **Errors:**
+    - `400` if `tickers` is empty.
+
+    **Example:**
+    ```bash
+    curl -X POST http://localhost:7337/api/v1/fh/unsubscribe \\
+      -H "Content-Type: application/json" \\
+      -d '{"tickers":["NVDA"]}'
+    ```
+    """
     if not body.tickers:
         raise HTTPException(status_code=400, detail="No tickers provided")
 
@@ -128,12 +192,23 @@ async def get_ws_batch_prices(
     tickers: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
-    """Get cached prices from WebSocket stream (comma-separated query param).
+    """Read cached real-time prices from the Finnhub WebSocket stream.
 
-    These are real-time trade prices cached by the WebSocket connection.
-    Tickers must be subscribed first via POST /subscribe.
+    Cheaper than `/fh?tickers=...` (which hits the REST API). Tickers must
+    have been subscribed first via `POST /fh/subscribe`.
 
-    Example: GET /fh/ws/prices?tickers=AAPL,TSLA
+    **Query params:**
+    - `tickers` (str, required): comma-separated symbols.
+
+    **Returns:**
+    - `prices` (dict[str, float]): keyed by uppercase ticker.
+    - `found` (int).
+    - `missing` (list[str]): tickers without a cached price (likely unsubscribed).
+
+    **Errors:**
+    - `400` if no tickers provided.
+
+    **Example:** `curl 'http://localhost:7337/api/v1/fh/ws/prices?tickers=AAPL,TSLA'`
     """
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
@@ -154,9 +229,18 @@ async def get_ws_single_price(
     ticker: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
-    """Get cached price for a single ticker from WebSocket stream.
+    """Cached real-time price for a single ticker from the WS stream.
 
-    The ticker must be subscribed first via POST /subscribe.
+    **Path params:**
+    - `ticker` (str): symbol; must be currently subscribed.
+
+    **Returns:**
+    - `ticker` (str), `price` (float).
+
+    **Errors:**
+    - `404` if no cached price exists (ticker not subscribed or no trades yet).
+
+    **Example:** `curl http://localhost:7337/api/v1/fh/ws/prices/NVDA`
     """
     price = await price_service.get_cached_price(ticker.upper())
     if price is None:
@@ -177,7 +261,17 @@ async def verify_ticker(
     ticker: str,
     ticker_provider: TickerProviderDep,
 ) -> dict[str, Any]:
-    """Check whether a ticker symbol exists on a major US exchange."""
+    """Check whether a ticker exists on a major US exchange.
+
+    **Path params:**
+    - `ticker` (str): symbol, case-insensitive.
+
+    **Returns:**
+    - `valid` (bool): True if the symbol is recognized.
+    - `company_name` (str | null): name when valid, null otherwise.
+
+    **Example:** `curl http://localhost:7337/api/v1/fh/ticker/verify/NVDA`
+    """
     valid, company_name = await ticker_provider.verify_ticker(ticker)
     return {
         "valid": valid,
@@ -192,7 +286,20 @@ async def search_ticker(
     q: str,
     ticker_provider: TickerProviderDep,
 ) -> dict[str, Any]:
-    """Search for stock symbols matching a query."""
+    """Search for stock symbols matching a free-text query (Finnhub).
+
+    **Query params:**
+    - `q` (str, required): company name or ticker fragment, e.g. `nvidia` or `nvd`.
+
+    **Returns:**
+    - `results` (list): each `{symbol, description, type, displaySymbol}`.
+    - `count` (int).
+
+    **Errors:**
+    - `400` if `q` is missing or whitespace-only.
+
+    **Example:** `curl 'http://localhost:7337/api/v1/fh/ticker/search?q=nvidia'`
+    """
     if not q.strip():
         raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
     results = await ticker_provider.search_symbol(q)
@@ -208,7 +315,24 @@ async def get_single_price(
     ticker: str,
     price_service: PriceServiceDep,
 ) -> dict[str, Any]:
-    """Get full quote data for a single ticker from Finnhub REST API."""
+    """Single-ticker quote from the Finnhub REST API.
+
+    Note: this route uses a path param so it MUST be declared last in the file —
+    otherwise it shadows fixed paths like `/subscriptions`.
+
+    **Path params:**
+    - `ticker` (str): symbol, case-insensitive.
+
+    **Returns:** flat object with `ticker`, `current`, `change`, `percent_change`,
+    `high`, `low`, `open`, `previous_close`, `timestamp`.
+
+    **Errors:**
+    - `404` if Finnhub returns no data for the symbol.
+    - upstream Finnhub status code on HTTP error (4xx/5xx).
+    - `502` on transport / unexpected errors.
+
+    **Example:** `curl http://localhost:7337/api/v1/fh/NVDA`
+    """
     try:
         quote = await price_service.get_quote(ticker.upper())
     except httpx.HTTPStatusError as e:

@@ -47,8 +47,26 @@ tags: [ticker, mega-cap, advertising, ai]
 ## 2026-04-12 (manual brief) — HOLD
 - Source: [[sources/brief-2026-04-12-manual]]
 
+## 2026-04-16 → 2026-04-26 — Efficiency wave + 8K layoffs
+
+- 4/16 brief: Options flow signaling upside convexity into mid-June ($35M call sweep on META reported by social).
+- 4/18 brief: Big Tech cost discipline + capex prioritization. AI spend funded by opex cuts.
+- 4/19 brief: News cluster — **Meta cuts 8,000 jobs** (~10% of workforce). Framed as efficiency to fund AI capex.
+- 4/22 brief: Mega-cap AI capex theme reinforces Meta as one of the dominant builders alongside AMZN/MSFT/GOOGL.
+- 4/23 brief: AI capex funded by efficiency (layoffs/opex discipline). Watch for whether ad demand softens if oil-driven inflation rises.
+- 4/24 brief: Capex vs opex tradeoff in AI era; jobs cuts to protect margins. Watch ad pricing + AI infra spend.
+- 4/25 brief: Layoffs ~10% (~8,000) reaffirmed in social signal stack. Bullish framing — efficiency wave.
+- 4/26 brief: Ad cycle + AI efficiency (compute spend) with opex discipline. Bullish bias.
+
+**Read:** Market is interpreting layoffs as margin defense, not demand caution. Net FCF impact depends on whether savings fund capex (neutral) or drop to FCF (accretive). Pattern matches prior 2022-2023 META "Year of Efficiency" playbook that drove the +200% rerating.
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — CoreWeave $35B deal, deepened analysis
 > - [[sources/brief-2026-04-11-manual]] — pass, wait Q1 earnings
 > - [[sources/brief-2026-04-12-manual]] — hold
+> - [[sources/brief-2026-04-16]] — $35M call sweep, upside convexity
+> - [[sources/brief-2026-04-19]] — 8,000 layoffs announced
+> - [[sources/brief-2026-04-23]] — AI capex funded by efficiency
+> - [[sources/brief-2026-04-25]] — efficiency wave reaffirmed (~10% / 8,000)
+> - [[sources/brief-2026-04-26]] — opex discipline + AI integration

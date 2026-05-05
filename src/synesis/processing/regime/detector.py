@@ -83,7 +83,9 @@ class RegimeDetector:
         normalized = self._normalize(raw)
         X = normalized[_FEATURE_NAMES].values
 
-        logger.info("Fitting HMM", n_states=n_states, observations=len(X), features=len(_FEATURE_NAMES))
+        logger.info(
+            "Fitting HMM", n_states=n_states, observations=len(X), features=len(_FEATURE_NAMES)
+        )
 
         # Fit with multiple initializations
         best_model = None
@@ -166,8 +168,7 @@ class RegimeDetector:
             "regime": self._regime_labels[most_likely],
             "confidence": round(float(latest[most_likely]), 3),
             "probabilities": {
-                self._regime_labels[i]: round(float(p), 3)
-                for i, p in enumerate(latest)
+                self._regime_labels[i]: round(float(p), 3) for i, p in enumerate(latest)
             },
             "duration_weeks": duration,
             "last_trained": str(self._last_trained) if self._last_trained else None,
@@ -204,11 +205,13 @@ class RegimeDetector:
         uup_ret = pd.Series(np.log(uup_close / uup_close.shift(1)), index=uup_close.index)
 
         # Build daily DataFrame
-        daily = pd.DataFrame({
-            "spy_ret": spy_ret,
-            "spy_vol": spy_vol,
-            "uup_ret": uup_ret,
-        })
+        daily = pd.DataFrame(
+            {
+                "spy_ret": spy_ret,
+                "spy_vol": spy_vol,
+                "uup_ret": uup_ret,
+            }
+        )
 
         # Add FRED series (already datetime-indexed)
         for name, data in [("vix", vix_data), ("hy_oas", hy_data), ("t10y2y", yc_data)]:
@@ -260,7 +263,9 @@ class RegimeDetector:
                         pass
             return result
         except Exception:
-            logger.warning("FRED fetch failed for regime detector", series_id=series_id, exc_info=True)
+            logger.warning(
+                "FRED fetch failed for regime detector", series_id=series_id, exc_info=True
+            )
             return []
 
     # ── Feature Preprocessing ──────────────────────────────────────

@@ -30,6 +30,24 @@ tags: [ticker, cloud, ai, mega-cap]
 - **Bear:** D/E 43.44, SBC $4.40B/quarter inflates operating cash flow. Current ratio only 1.05. Overbought technically with P/C 0.09 (crowded calls). IV 43.4% > RV 36.7%
 - **Key data:** Revenue growth 13.6%, EBITDA $145.73B, FCF $23.79B, Cash $123.03B, Debt $178.55B (2026-04-12 brief)
 
+## 2026-04-15 → 2026-04-26 — Globalstar M&A, $25B Anthropic, $100B cloud commit
+
+- 4/15 brief: AMZN moving closer to acquiring **Globalstar** (GSAT) — satellite spectrum to challenge Starlink. AMZN/GSAT M&A cluster bullish.
+- 4/16 brief: Globalstar deal $90/share rumored; key is probability-weighting financing/regulatory.
+- 4/21 brief: **AMZN announces $25B investment in Anthropic** as part of broader **$100B AI infrastructure commitment**. Anthropic to use **AWS Trainium 5 GW capacity**. Initial $5B, up to $25B over multi-year period.
+- 4/22 brief: $25B Anthropic investment as part of $100B infrastructure framework reaffirmed. Flywheel: model lab access pulls compute demand to AWS Trainium → AWS revenue uplift → margin trajectory.
+- 4/23 brief: Reaffirmed at AMZN scan; capex guidance commentary watched.
+- 4/26 brief: Hyperscaler beneficiary cluster includes AMZN with AMZN/Anthropic compute offtake validated.
+
+**Strategic read:** AMZN-Anthropic structure is the cleanest example of "compute-as-equity" — equity stake guarantees Trainium offtake. Counter-move from GOOGL ($40B Anthropic, 4/25) keeps Google's compute access intact but doesn't displace AMZN. Combined two-investor exposure to Anthropic now ~$80B+. See [[themes/hyperscaler-ai-capex-arms-race]].
+
+**See also:** [[themes/hyperscaler-ai-capex-arms-race]] | [[themes/custom-silicon-tpu-displacement]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — trade update (+5.6%, partial profit guidance)
+> - [[sources/brief-2026-04-15]] — Globalstar M&A approach
+> - [[sources/brief-2026-04-16]] — Globalstar $90/share rumor
+> - [[sources/brief-2026-04-21]] — $25B Anthropic + $100B commitment, Trainium 5GW
+> - [[sources/brief-2026-04-22]] — $100B framework affirmed
+> - [[sources/brief-2026-04-26]] — hyperscaler beneficiary cluster

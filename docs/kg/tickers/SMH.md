@@ -1,6 +1,6 @@
 ---
 up: []
-related: ["[[themes/ai-infrastructure]]", "[[strategies/options/bull-call-spread]]", "[[strategies/options/risk-reversal]]", "[[concepts/momentum]]"]
+related: ["[[themes/ai-infrastructure]]", "[[themes/software-hardware-bifurcation]]", "[[strategies/options/bull-call-spread]]", "[[strategies/options/risk-reversal]]", "[[concepts/momentum]]"]
 created: 2026-04-10
 type: "ticker"
 sector: "Technology"

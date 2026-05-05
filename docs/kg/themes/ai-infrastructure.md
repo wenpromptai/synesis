@@ -81,8 +81,44 @@ Overall AI Compute (GPU demand) tilt +0.3 — demand strong but near-term bottle
 
 Source: [[sources/brief-2026-04-13]]
 
+## 2026-04-14 → 2026-04-26 — CAPEX ARMS RACE ESCALATES
+
+The AI infrastructure theme intensified across this 2-week window with several mega-deals signaling multi-year capex commitments and deepening hyperscaler-model lab integration. See [[themes/hyperscaler-ai-capex-arms-race]] for the new dedicated theme on financing dynamics.
+
+**Mega-deals (Apr 18 → Apr 26):**
+- **OpenAI → Cerebras $20B investment** ahead of Cerebras' $35B IPO valuation (Apr 18). Includes 5 GW Trainium-class capacity commitment. Confirms "alternative compute" scarcity premium.
+- **AMZN → Anthropic $25B** as part of broader $100B cloud/infrastructure commitment (Apr 21 brief). Anthropic to use AWS Trainium capacity (5 GW).
+- **GOOGL → Anthropic up to $40B** ($10B initial, total contingent on milestones, Apr 25). Cements Google as a 2nd lead investor in Anthropic.
+- **MSFT → $18B Australia AI infrastructure** through 2029 (Apr 24 brief).
+- **McKinsey: global AI-driven data center capex projected to reach $5.2T by 2030** (cited in Apr 26 brief).
+
+**Hardware leadership repricing:**
+- **INTC blowout earnings** (Apr 24 print, +31% on the day, best day since 1987). Q1 rev $13.6B (+7% YoY), Q2 guide $13.8-14.8B. MS PT $56→$73.
+- **NVDA hit $5T market cap** intraday (Apr 26). $27M 200c June calls open interest signaled crowded upside positioning.
+- **SK Hynix record operating margins** in Q1 2026, attributed to AI memory demand (Apr 24).
+- **AMD/INTC server CPUs raised 16-17%** — leading-edge node scarcity (TSMC 3nm constraint). Server CPU repricing flagged as new sub-theme (Apr 23).
+
+**New dimensions (gating-factor evolution):**
+- **800V DC architecture for AI data centers** — NVDA partnering with South Korean power equipment firms (Apr 24 brief). Represents NVDA expanding influence from compute into power design — increases switching costs.
+- **Data center power, cooling, and grid interconnect** consolidating into "time-to-power" as scarce resource. NVDA shipment slowdown attributed to data center readiness, not chip availability (Apr 21 brief).
+- **AI memory bottleneck** continues — MU re-entering HBM4 supply on competitor issues (Apr 21); Samsung HBM4 yields still <60% (Apr 16).
+- **Optical interconnect** confirmed as gating factor — POET CFO confirmed MRVL supplier relationship (Apr 23 brief, POET +20.5%); MRVL in talks for Google TPU project beyond 2028.
+
+**Theme tilt across April 14-26:** Sustained at **+0.6 to +0.8** through the window. Hardware/semis lead while software (IGV) underperforms (IGV -5.8% on 4/23 — software/hardware bifurcation).
+
+New tickers added (capex beneficiaries):
+| Ticker | Exposure | As Of |
+|--------|----------|-------|
+| [[tickers/GOOGL]] | Hyperscaler AI capex + Anthropic strategic investment | 2026-04-25 |
+| [[tickers/AMZN]] | Hyperscaler AI capex + $100B Anthropic/Trainium commitment | 2026-04-21 |
+| [[tickers/MSFT]] | Hyperscaler AI capex + $18B Australia regional buildout | 2026-04-24 |
+| [[tickers/META]] | Margin defense via 8K layoffs to fund AI capex | 2026-04-25 |
+
+Source: [[sources/brief-2026-04-14]] through [[sources/brief-2026-04-26]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-11-manual]] — CoreWeave validation, NVDA Lumentum, LITE backlog
 > - [[sources/brief-2026-04-11]] — pipeline sector tilts, debates
 > - [[sources/brief-2026-04-13]] — HBM4 gating, CoWoS capacity, custom silicon shift
+> - [[sources/brief-2026-04-14]] through [[sources/brief-2026-04-26]] — capex arms race (AMZN/GOOGL/MSFT/OpenAI mega-deals), INTC turnaround, NVDA $5T, 800V DC architecture

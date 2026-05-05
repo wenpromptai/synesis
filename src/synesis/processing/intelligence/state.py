@@ -10,31 +10,6 @@ from operator import add
 from typing import Annotated, Any, TypedDict
 
 
-class ScanState(TypedDict):
-    """State for the daily scan pipeline.
-
-    Social/news signal discovery → MacroStrategist regime + ticker screening.
-    No Send fan-outs, so no reducers needed.
-    """
-
-    current_date: str
-
-    # Layer 1 outputs
-    social_analysis: dict[str, Any]
-    news_analysis: dict[str, Any]
-
-    # Ticker extraction
-    target_tickers: list[str]
-    l1_tickers: list[str]
-
-    # MacroStrategist output
-    watchlist_context: dict[str, Any]
-    macro_view: dict[str, Any]
-
-    # Final output
-    brief: dict[str, Any]
-
-
 class AnalyzeState(TypedDict):
     """State for the on-demand ticker analysis pipeline.
 

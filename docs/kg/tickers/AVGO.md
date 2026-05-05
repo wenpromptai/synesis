@@ -27,8 +27,19 @@ tags: [ticker, semiconductor, ai, networking]
 - IV 47.4% vs RV 45.8%. Support $362.73. Resistance $378.46.
 - Source: [[sources/brief-2026-04-13]]
 
-**See also:** [[sources/connections/ai-compute-stack|AI compute stack]] | [[themes/customer-concentration]]
+## 2026-04-14 → 2026-04-26 — TPU ramp narrative continues
+
+- 4/14 brief: AVGO bullish — custom silicon / TPU and hyperscaler ASIC supply chain levered to AI inference diversification beyond GPUs. Confirm hyperscaler programs and unit-driven vs content-per-system mix.
+- 4/15 brief: Custom silicon + networking; potential inorganic M&A to deepen AI supply chain (rumored). Separate rumor from fundamentals.
+- 4/23 brief: AVGO not directly singled out but custom-silicon theme strengthens further with GOOG inference chip + MRVL TPU role.
+- 4/25 brief: SMH +5.1% leadership pulls AVGO higher (theme beneficiary).
+
+The Seaport Global downgrade (Buy→Neutral, 2026-04-08) and the $86.1M insider selling cluster from the prior compilation remain the principal bear-case anchors. New AVGO-specific data points are limited in the 4/14-4/26 scan window; the ticker continues to ride the broader AI infrastructure tape but is no longer the single-name leader (NVDA $5T, INTC +31%, MU +61.4% YTD have stolen the spotlight).
+
+**See also:** [[sources/connections/ai-compute-stack|AI compute stack]] | [[themes/customer-concentration]] | [[themes/hyperscaler-ai-capex-arms-race]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-13]] — TPU/ASIC entrenchment through 2031, $86.1M insider selling, Seaport downgrade
+> - [[sources/brief-2026-04-14]] — TPU narrative continues, hyperscaler validation
+> - [[sources/brief-2026-04-15]] — custom silicon + networking M&A rumors

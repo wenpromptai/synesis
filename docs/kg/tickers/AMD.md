@@ -36,9 +36,25 @@ tags: [ticker, semiconductor, ai, gpu, data-center]
 - IV 63.4% vs RV 49.7% — **IV-RV spread +13.7%** = premium selling opportunity.
 - Source: [[sources/brief-2026-04-13]]
 
-**See also:** [[bull-call-spread]] | [[themes/ai-infrastructure]]
+## 2026-04-14 → 2026-04-26 — Anthropic deal rumor + server CPU repricing
+
+- 4/14 brief: AMD selected as bullish — packaging (CoWoS) availability + share gains. Validate CoWoS allocation vs peers, MI-series volume sensitivity.
+- 4/18 brief: **Rumored Anthropic deal** for AI accelerators surfaces. Tactical bullish but unconfirmed (treat as catalyst risk).
+- 4/19 brief: AMD at all-time highs; momentum + options-driven flow. AMD weeklies reportedly returned **+1000%** (4/20 brief).
+- 4/21 brief: AMD potential inclusion in **Anthropic/hyperscaler hardware stack** as alternative to NVDA. Validate via earnings or partner disclosures.
+- 4/23 brief: **Server CPU repricing** — AMD/INTC CPUs raised 16-17% on TSMC 3nm capacity tightness. Pricing umbrella accrues to vendors with stable share.
+
+**Risk on the bull thesis:** Hyperscalers re-optimizing to custom silicon (TPU/ASICs) could cap CPU pricing power even if near-term hike sticks. See [[themes/custom-silicon-tpu-displacement]].
+
+**See also:** [[bull-call-spread]] | [[themes/ai-infrastructure]] | [[themes/hyperscaler-ai-capex-arms-race]] | [[themes/software-hardware-bifurcation]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11-manual]] — initial observation, trade idea
 > - [[sources/brief-2026-04-11]] — debate analysis
 > - [[sources/brief-2026-04-13]] — CoWoS debate, CEO selling $16.9M, IV-RV premium
+> - [[sources/brief-2026-04-14]] — packaging (CoWoS) bull thesis
+> - [[sources/brief-2026-04-18]] — Anthropic deal rumor
+> - [[sources/brief-2026-04-19]] — momentum at all-time highs
+> - [[sources/brief-2026-04-20]] — AMD weeklies +1000%
+> - [[sources/brief-2026-04-21]] — Anthropic/hyperscaler stack inclusion
+> - [[sources/brief-2026-04-23]] — server CPU pricing +16-17% on 3nm scarcity

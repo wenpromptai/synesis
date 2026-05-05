@@ -1,12 +1,11 @@
 """Output models for the intelligence pipeline.
 
-Shared across all specialist agents and the LangGraph pipeline (Phase 3).
+Shared across all specialist agents and the LangGraph pipeline.
 
 Design principle: Analysts are INFORMATION GATHERERS. They extract, summarize,
 and structure key facts. They do NOT assign sentiment scores or trading signals.
 BullResearcher and BearResearcher debate opposing cases per ticker — neither
-scores. MacroView has sentiment_score because regime direction is inherently
-directional. The Trader agent is the sole decision maker.
+scores. The Trader agent is the sole decision maker.
 """
 
 from __future__ import annotations
@@ -239,40 +238,6 @@ class NewsAnalysis(BaseModel):
     messages_analyzed: int = 0
 
 
-# =============================================================================
-# Strategist Output (Layer 2)
-# =============================================================================
-
-
-class ThematicTilt(BaseModel):
-    """A thematic tilt — sector, sub-sector, or investment theme.
-
-    ETF-backed tilts have ``etf`` set (grounded in price data).
-    Pure thematic tilts (e.g. CPO, HBM, data center power) have ``etf=None``
-    and are derived from events, social, news, or 13F signals.
-    """
-
-    theme: str
-    sentiment_score: float = Field(
-        default=0.0,
-        ge=-1.0,
-        le=1.0,
-        description="Tilt: -1.0 (strongly underweight) to 1.0 (strongly overweight)",
-    )
-    reasoning: str = ""
-    etf: str | None = None
-    key_evidence: list[str] = Field(
-        default_factory=list,
-        description="1-3 specific data points grounding this tilt (price levels, earnings, 13F, social convergence)",
-    )
-    persistence: Literal["structural", "cyclical", "event_driven"] = "cyclical"
-    catalyst_date: str = ""  # When does this theme resolve, e.g. "Q2 earnings July 24"
-    related_tickers: list[str] = Field(
-        default_factory=list,
-        description="Tickers that best express this theme (2-5 specific companies, not ETFs)",
-    )
-
-
 class WatchlistTicker(BaseModel):
     """A ticker selected for the watchlist for deep analysis."""
 
@@ -282,30 +247,6 @@ class WatchlistTicker(BaseModel):
     signal_strength: str
     research_note: str = ""
     is_wildcard: bool = False
-
-
-class MacroView(BaseModel):
-    """MacroStrategist output — regime assessment + thematic tilts + event analysis + screening."""
-
-    regime: Literal["risk_on", "risk_off", "transitioning", "uncertain"]
-    sentiment_score: float = Field(
-        default=0.0,
-        ge=-1.0,
-        le=1.0,
-        description="Broad market outlook: -1.0 (strongly bearish) to 1.0 (strongly bullish)",
-    )
-    key_drivers: list[str] = Field(default_factory=list)
-    thematic_tilts: list[ThematicTilt] = Field(default_factory=list)
-    risks: list[str] = Field(default_factory=list)
-    event_analysis: str = ""
-    positioning_signals: str = ""
-
-    # Watchlist picks (populated when tickers are present in Layer 1)
-    watchlist_picks: list[WatchlistTicker] = Field(default_factory=list)
-    tickers_dropped: list[str] = Field(default_factory=list)
-    drop_reasons: list[str] = Field(default_factory=list)
-
-    analysis_date: date
 
 
 # =============================================================================

@@ -82,3 +82,42 @@ Append-only audit trail of `/kg-compile` operations.
 - **Source node created:** sources/brief-2026-04-12.md
 - **Index updated:** 131 → 138 nodes
 - **Key changes:** First zero-trade-idea pipeline run. 11 tickers debated, Trader passed on all. NBIS company analysis failed (fiscal_year_end null bug — now fixed). Nuclear energy theme created for OKLO/SMR. Insider selling clusters in 8 of 11 debated names.
+
+## 2026-04-26 — Two-Week Scan Compilation (Apr 14 → Apr 26)
+- **Sources:** raw/synesis_briefs/2026-04-14.md, 2026-04-14-tradeideas.md, 2026-04-15.md through 2026-04-26.md (14 files)
+- **Themes created (3):**
+  - themes/hyperscaler-ai-capex-arms-race.md ($80B+ Anthropic stakes, MSFT $18B Australia, OpenAI $20B Cerebras, McKinsey $5.2T projection)
+  - themes/software-hardware-bifurcation.md (SMH leads, IGV -5.8% on 4/23, factor rotation explicit)
+  - themes/retail-speculative-mania.md (BIRD +875%, AMD weeklies +1000%, Korea margin loans record)
+- **Themes updated (2):**
+  - themes/geopolitical-energy-risk.md (3-cycle Hormuz close/open/close pattern, GS Gulf -57% to 14.5 mb/d, Trump Navy fire-on-mines order)
+  - themes/ai-infrastructure.md (capex arms race section, INTC +31% turnaround, NVDA $5T, 800V DC architecture, server CPU +16-17%)
+  - themes/photonics-supercycle.md (POET +20.5% MRVL supplier confirmed, SIVE/AAPL InP late 2027, MRVL Google TPU post-2028)
+- **Tickers created (1):** tickers/POET.md (CFO confirmed MRVL supplier, +20.5% on disclosure)
+- **Tickers updated (12):**
+  - tickers/NVDA.md ($5T market cap, 800V DC architecture, HBM4/Rubin gating, $27M Jun 200c flow)
+  - tickers/INTC.md (Q1 BLOWOUT +31% best day since 1987, MS PT $56→$73, narrative regime shift)
+  - tickers/AMD.md (Anthropic deal rumor, weeklies +1000%, server CPU repricing 16-17%)
+  - tickers/MU.md (HBM4 re-entry, +61.4% YTD, "MU > NVDA" narrative)
+  - tickers/META.md (8,000 layoffs ~10%, efficiency-funds-AI-capex)
+  - tickers/GOOG.md ($40B Anthropic, custom inference chip, MRVL TPU post-2028)
+  - tickers/GOOGL.md ($40B Anthropic, hyperscaler capex)
+  - tickers/AMZN.md ($25B Anthropic / $100B AI infra, Trainium 5GW, GSAT M&A)
+  - tickers/AAPL.md (MacBook Neo, CEO transition rumor, SIVE InP late 2027)
+  - tickers/MSFT.md ($18B Australia AI infra through 2029, Copilot)
+  - tickers/MRVL.md (full debate node from 4/14, POET supplier confirmed, Google TPU post-2028)
+  - tickers/NFLX.md (Q1 beat / Q2 guide-down -9%, $25B buyback authorized)
+  - tickers/GS.md (Gulf production -57% projection, vol beneficiary thesis)
+  - tickers/TSLA.md (Robotaxi expansion, Cybercab production started, custom silicon)
+  - tickers/AVGO.md (TPU theme continues, lost spotlight to NVDA/INTC/MU)
+- **Source nodes created (14):** sources/brief-2026-04-14.md, 2026-04-14-tradeideas.md, 2026-04-15.md through 2026-04-26.md
+- **Index updated:** 142 → 161 nodes
+- **Key findings:**
+  - Pipeline architecture split into scan/analyze (commit b0b340b) — most April 14-26 outputs are scan-only watchlists, no debates/trades
+  - Hyperscaler AI capex arms race emerged as new dominant theme (AMZN $25B + GOOGL $40B Anthropic, OpenAI $20B Cerebras, MSFT $18B Australia, McKinsey $5.2T by 2030)
+  - Software/hardware bifurcation is the dominant factor rotation: IGV -5.8% on 4/23, SMH +5.1% on 4/24
+  - Hormuz cycled close→open→close 3 times across the window — extreme oil vol but compressed equity VIX (19-19.5)
+  - INTC blowout earnings (+31%, best day since 1987) reset narrative from bearish overextended fade to bullish turnaround
+  - NVDA hit $5T market cap intraday on 4/24-26; positioning crowded via $27M $200c June calls
+  - POET-MRVL supplier confirmation (+20.5%) is first explicit photonics-supercycle design-win disclosure
+  - Pipeline brief auto-save format includes new `tickers` frontmatter and `type: scan` vs `analyze`

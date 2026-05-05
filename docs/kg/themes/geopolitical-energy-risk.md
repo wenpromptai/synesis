@@ -73,9 +73,48 @@ Ceasefire (Day 3) has dropped oil from $117 to $95, but Hormuz **remains effecti
 
 Source: [[sources/brief-2026-04-13]]
 
+## 2026-04-14 → 2026-04-17 — RISK PREMIUM ELEVATED, EQUITIES SHRUG
+
+Across April 14-17 briefs, oil stays elevated (USO above 50d/200d, breaking out higher to $125.84 by Apr 16) while equities continue grinding higher (VIX compressed to 17.94 by Apr 16, then 17.48 by Apr 17). Layer-1 narratives cite US-Iran ceasefire negotiations + secondary sanctions risk and US oil exports hitting record 12.7M b/d. Energy equities lag the commodity move (XLE below 50d on Apr 16 despite USO >$122).
+
+Source: [[sources/brief-2026-04-14]], [[sources/brief-2026-04-15]], [[sources/brief-2026-04-16]], [[sources/brief-2026-04-17]]
+
+## 2026-04-18 — STRAIT OFFICIALLY REOPENED
+
+**Strait of Hormuz officially reopened for commercial vessels.** Massive single-day oil unwind: USO -7.8%, XLE -2.8%. OpenAI announced $20B investment in Cerebras (separately). Equity tape went pro-cyclical (IWM +2.2% > SPY +1.2%). Reopening news combined with reports of a possible $20B US-Iran deal. Energy tilt cut sharply to **-0.6** (vs +0.8 during blockade).
+
+Source: [[sources/brief-2026-04-18]]
+
+## 2026-04-19 → 2026-04-21 — IRAN RECLOSED HORMUZ (CYCLE 2)
+
+**Iran reclosed the Strait** contradicting Trump's earlier claim it was open. Reflexive cycle:
+- 4/19 brief: USO had dropped to $116.04 after the 4/17 -7.8% move; WTI below $80 (32% drop in 9 trading days)
+- 4/20: USO bounced to $121.32 (+4.6% 1d) on reclosure narrative
+- 4/21: USO surged to $128.25 (+5.7% 1d) — Iran "effectively closed Strait"; >500M barrels removed from global market in recent weeks
+- Energy sector tilt re-elevated to **+0.8**
+
+Source: [[sources/brief-2026-04-19]], [[sources/brief-2026-04-20]], [[sources/brief-2026-04-21]]
+
+## 2026-04-22 → 2026-04-26 — TRUMP NAVAL ESCALATION
+
+**Trump ordered US Navy to fire on any Iranian boats laying mines.** Iran FM resigns amid escalation. New sanctions imposed. Iran refuses talks (4/26).
+
+- 4/23: USO $129.40 above all MAs, XLE +1.2%; "3rd consecutive week of Hormuz risk premium"
+- 4/24: USO $134.72 (+4.1% 1d) — sustained shock
+- 4/25: USO $132.40 (-1.7% 1d but still far above 50d/200d). **GS projects Gulf crude production down to 14.5 mb/d** (~57% below pre-war levels), recovery to take months
+- 4/26: Iran exits US talks; USO remains structurally elevated despite -1.7% 1d. **10Y breakeven inflation 2.42** suggests inflation expectations not collapsing despite slowdown chatter
+
+**Pattern:** Across April 14-26, the Hormuz cycle whipsawed between blockade/closure/reopen at least 3 times — extreme realized vol in oil but compressed equity VIX (19-19.5 range). The market is treating each cycle as headline-driven rather than structural; this complacency is the tail risk if a true sustained disruption occurs.
+
+Source: [[sources/brief-2026-04-22]], [[sources/brief-2026-04-23]], [[sources/brief-2026-04-24]], [[sources/brief-2026-04-25]], [[sources/brief-2026-04-26]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime analysis
 > - [[sources/brief-2026-04-10-manual]] — oil price specifics, crisis escalation
 > - [[sources/brief-2026-04-11-manual]] — ceasefire Day 3, Hormuz still blocked, CVX exit
 > - [[sources/brief-2026-04-12-manual]] — re-escalating, Iran deal failure, XLE trade
 > - [[sources/brief-2026-04-13]] — blockade active, USO +5.7%, equities muted = complacency risk
+> - [[sources/brief-2026-04-14]] through [[sources/brief-2026-04-17]] — risk premium elevated, equities grinding higher
+> - [[sources/brief-2026-04-18]] — Strait reopened, USO -7.8%, OpenAI/Cerebras $20B
+> - [[sources/brief-2026-04-19]] through [[sources/brief-2026-04-21]] — Iran reclosed, oil whipsaws back up
+> - [[sources/brief-2026-04-22]] through [[sources/brief-2026-04-26]] — Trump Navy escalation, GS Gulf production -57%

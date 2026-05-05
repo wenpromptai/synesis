@@ -1,13 +1,7 @@
-"""LangGraph pipeline builders for the intelligence system.
+"""LangGraph pipeline for on-demand ticker analysis.
 
-Two separate graphs:
-
-1. **Scan Graph** (daily scheduled):
-   Social + News (parallel) → extract_tickers → MacroStrategist → scan_compiler
-   Outputs macro regime, thematic tilts, and watchlist tickers for Discord.
-
-2. **Analyze Graph** (on-demand POST endpoint):
-   Input tickers → CompanyAnalyst + PriceAnalyst (parallel per ticker via Send)
+Analyze Graph (POST /intelligence/analyze):
+   Input tickers → TickerResearch + CompanyAnalyst + PriceAnalyst (parallel per ticker)
    → debate (bull/bear) → Trader → analyze_compiler
    Returns trade ideas as JSON + saves to KG.
 
@@ -24,27 +18,18 @@ from langgraph.types import Send
 
 from synesis.config import get_settings
 from synesis.core.logging import get_logger
-from synesis.processing.intelligence.compiler import compile_brief, compile_scan_brief
+from synesis.processing.intelligence.compiler import compile_brief
 from synesis.processing.intelligence.debate.bear import research_bear
 from synesis.processing.intelligence.debate.bull import research_bull
 from synesis.processing.intelligence.debate.subgraph import build_debate_subgraph
 from synesis.processing.intelligence.specialists.company import CompanyDeps, analyze_company
-from synesis.processing.intelligence.specialists.news import NewsDeps, analyze_news
 from synesis.processing.intelligence.specialists.price import PriceDeps, analyze_price
 from synesis.ingestion.twitterapi import TwitterClient
 from synesis.processing.intelligence.specialists.ticker_research import (
     TickerResearchDeps,
     analyze_ticker_research,
 )
-from synesis.processing.intelligence.specialists.social_sentiment import (
-    SocialSentimentDeps,
-    analyze_social_sentiment,
-)
-from synesis.processing.intelligence.state import AnalyzeState, ScanState
-from synesis.processing.intelligence.strategists.macro import (
-    MacroStrategistDeps,
-    analyze_macro,
-)
+from synesis.processing.intelligence.state import AnalyzeState
 from synesis.processing.intelligence.trader.trader import (
     analyze_trade_per_ticker,
     analyze_trade_portfolio,
@@ -52,152 +37,11 @@ from synesis.processing.intelligence.trader.trader import (
 
 if TYPE_CHECKING:
     from synesis.providers.crawler.crawl4ai import Crawl4AICrawlerProvider
-    from synesis.providers.fred.client import FREDClient
     from synesis.providers.massive.client import MassiveClient
     from synesis.providers.sec_edgar.client import SECEdgarClient
     from synesis.providers.yfinance.client import YFinanceClient
-    from synesis.storage.database import Database
 
 logger = get_logger(__name__)
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  Scan Graph — daily signal discovery + macro regime + watchlist
-# ═══════════════════════════════════════════════════════════════════
-
-
-def build_scan_graph(
-    db: "Database",
-    sec_edgar: "SECEdgarClient",
-    yfinance: "YFinanceClient",
-    fred: "FREDClient | None" = None,
-    crawler: "Crawl4AICrawlerProvider | None" = None,
-) -> Any:
-    """Build the daily scan pipeline graph.
-
-    START → social_sentiment + news_analyst (parallel)
-      → extract_tickers → macro_strategist → scan_compiler → END
-    """
-
-    async def social_sentiment_node(state: ScanState) -> dict[str, Any]:
-        logger.info("SocialSentimentAnalyst starting")
-        try:
-            current = date.fromisoformat(state["current_date"])
-            deps = SocialSentimentDeps(db=db, current_date=current)
-            result = await analyze_social_sentiment(deps)
-            data = result.model_dump(mode="json")
-            logger.info(
-                "SocialSentimentAnalyst complete",
-                ticker_mentions=len(data.get("ticker_mentions", [])),
-            )
-            return {"social_analysis": data}
-        except Exception:
-            logger.exception("SocialSentimentAnalyst failed", date=state.get("current_date"))
-            return {"social_analysis": {"error": True}}
-
-    async def news_analyst_node(state: ScanState) -> dict[str, Any]:
-        logger.info("NewsAnalyst starting")
-        try:
-            current = date.fromisoformat(state["current_date"])
-            deps = NewsDeps(db=db, current_date=current)
-            result = await analyze_news(deps)
-            data = result.model_dump(mode="json")
-            logger.info(
-                "NewsAnalyst complete",
-                story_clusters=len(data.get("story_clusters", [])),
-            )
-            return {"news_analysis": data}
-        except Exception:
-            logger.exception("NewsAnalyst failed", date=state.get("current_date"))
-            return {"news_analysis": {"error": True}}
-
-    async def extract_tickers_node(state: ScanState) -> dict[str, Any]:
-        try:
-            tickers: set[str] = set()
-            social = state.get("social_analysis", {})
-            for mention in social.get("ticker_mentions", []):
-                if mention.get("ticker"):
-                    tickers.add(mention["ticker"])
-            news = state.get("news_analysis", {})
-            for cluster in news.get("story_clusters", []):
-                for mention in cluster.get("tickers", []):
-                    if mention.get("ticker"):
-                        tickers.add(mention["ticker"])
-            target = sorted(tickers)
-            logger.info("Tickers extracted", count=len(target), tickers=target)
-            return {"target_tickers": target, "l1_tickers": target}
-        except Exception:
-            logger.exception("Ticker extraction failed")
-            return {"target_tickers": [], "l1_tickers": []}
-
-    async def macro_strategist_node(state: ScanState) -> dict[str, Any]:
-        try:
-            current = date.fromisoformat(state["current_date"])
-            if not get_settings().macro_strategist_enabled or fred is None:
-                logger.info("MacroStrategist disabled or FRED unavailable — skipping")
-                return {"macro_view": {}}
-
-            logger.info("MacroStrategist starting")
-            deps = MacroStrategistDeps(
-                fred=fred,
-                db=db,
-                yfinance=yfinance,
-                sec_edgar=sec_edgar,
-                crawler=crawler,
-                current_date=current,
-            )
-            result = await analyze_macro(dict(state), deps)
-            data = result.model_dump(mode="json")
-            logger.info("MacroStrategist complete", regime=result.regime)
-
-            output: dict[str, Any] = {"macro_view": data}
-
-            # Save watchlist context (all picks — no culling)
-            if result.watchlist_picks:
-                output["watchlist_context"] = {
-                    "selected": [p.model_dump(mode="json") for p in result.watchlist_picks],
-                    "themes": [t.theme for t in result.thematic_tilts],
-                    "dropped": result.tickers_dropped,
-                    "drop_reasons": result.drop_reasons,
-                }
-                logger.info(
-                    "Watchlist",
-                    tickers=[p.ticker for p in result.watchlist_picks],
-                    dropped=result.tickers_dropped,
-                )
-
-            return output
-        except Exception:
-            logger.exception("MacroStrategist failed", date=state.get("current_date"))
-            return {"macro_view": {"error": True}}
-
-    async def scan_compiler_node(state: ScanState) -> dict[str, Any]:
-        try:
-            brief = compile_scan_brief(dict(state))
-            return {"brief": brief}
-        except Exception:
-            logger.exception("Scan compiler failed", date=state.get("current_date"))
-            return {"brief": {}}
-
-    # ── Build Graph ──────────────────────────────────────────────
-
-    graph = StateGraph(ScanState)
-
-    graph.add_node("social_sentiment", social_sentiment_node)
-    graph.add_node("news_analyst", news_analyst_node)
-    graph.add_node("extract_tickers", extract_tickers_node)
-    graph.add_node("macro_strategist", macro_strategist_node)
-    graph.add_node("scan_compiler", scan_compiler_node)
-
-    graph.add_edge(START, "social_sentiment")
-    graph.add_edge(START, "news_analyst")
-    graph.add_edge("social_sentiment", "extract_tickers")
-    graph.add_edge("news_analyst", "extract_tickers")
-    graph.add_edge("extract_tickers", "macro_strategist")
-    graph.add_edge("macro_strategist", "scan_compiler")
-    graph.add_edge("scan_compiler", END)
-
-    return graph.compile()
 
 
 # ═══════════════════════════════════════════════════════════════════

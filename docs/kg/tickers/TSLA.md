@@ -32,7 +32,20 @@ tags: [ticker, ev, autonomy, energy]
 - Bear: narrative-driven with no hard current data. Non-GAAP reliance (adjusted EBITDA). Cash conversion metrics unmentioned. One flow print = weakest evidence. Regulatory + geopolitical + competition risks real.
 - Source: [[sources/brief-2026-04-11]]
 
-**See also:** [[implied-volatility]] | [[fcf-yield]]
+## 2026-04-16 → 2026-04-26 — Robotaxi + custom silicon + Cybercab production
+
+- 4/16 brief: TSLA "high-beta momentum / narrative-driven risk appetite gauge."
+- 4/20 brief: **Robotaxi expansion** as autonomy monetization + **custom silicon/chip supply chain initiatives**. Dallas/Houston launch confirmed; chip initiative for AI/data centers cited (semi equipment securing).
+- 4/23 brief: TSLA earnings up +5%; AI/Dojo adjacency, **DRAM expansion claim** (verify capex implications). EV demand + vertical integration into compute/memory.
+- 4/24 brief: Earnings +5% post-print on better-than-expected results.
+- 4/26 brief: **Cybercab production has commenced** (social signal). Bearish framing on autonomy/cybercab commercialization timing + manufacturing ramp risk. "Production start" reduces concept risk but raises delivery economics risk.
+
+**Read:** TSLA narrative is rotating from a pure auto cycle name into a vertically-integrated AI compute play. Custom silicon + DRAM expansion (if confirmed) puts TSLA in the same conversation as hyperscaler-tier semi spend. Cybercab start opens execution-economic-risk leg of the thesis.
+
+**See also:** [[implied-volatility]] | [[fcf-yield]] | [[themes/custom-silicon-tpu-displacement]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
+> - [[sources/brief-2026-04-20]] — Robotaxi expansion + custom silicon initiative
+> - [[sources/brief-2026-04-23]] — earnings +5%, DRAM expansion claim
+> - [[sources/brief-2026-04-26]] — Cybercab production started

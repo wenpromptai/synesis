@@ -24,7 +24,6 @@ from synesis.processing.common.web_search import (
 from synesis.processing.intelligence.context import (
     format_debate_history,
     format_debate_summary_for_ticker,
-    format_macro_context,
 )
 from synesis.processing.intelligence.models import TraderOutput
 
@@ -173,7 +172,6 @@ def _build_per_ticker_prompt(state: dict[str, Any], ticker: str) -> str:
     """Build the user prompt for per-ticker mode."""
     parts = [
         f"## Ticker: {ticker}",
-        format_macro_context(state),
         _format_debate_for_ticker(state, ticker),
     ]
     return "\n\n".join(parts)
@@ -185,7 +183,7 @@ def _build_portfolio_prompt(state: dict[str, Any], tickers: list[str]) -> str:
     Uses compressed debate summaries (last round's argument + key_evidence
     per side, earlier rounds discarded) to keep context manageable.
     """
-    parts = [format_macro_context(state)]
+    parts: list[str] = []
     for ticker in tickers:
         parts.append(f"---\n\n## Ticker: {ticker}")
         parts.append(format_debate_summary_for_ticker(state, ticker))

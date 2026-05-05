@@ -1,38 +1,12 @@
 """Context formatters for the intelligence pipeline.
 
 Per-ticker formatters filter pipeline state to a single ticker's context
-for use in the per-ticker bull/bear debate fan-out. The macro formatter
-provides regime context for the Trader node (Phase 3D).
+for use in the per-ticker bull/bear debate fan-out.
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-
-def format_macro_context(state: dict[str, Any]) -> str:
-    """Format MacroView for an LLM prompt."""
-    macro = state.get("macro_view", {})
-    if not macro:
-        return "## Macro Context\nNo macro assessment available."
-
-    lines = ["## Macro Context"]
-    lines.append(
-        f"- **Regime**: {macro.get('regime', '?')} "
-        f"(sentiment: {macro.get('sentiment_score', 0):+.1f})"
-    )
-    for driver in macro.get("key_drivers", []):
-        lines.append(f"- Driver: {driver}")
-    for tilt in macro.get("thematic_tilts", []):
-        etf = tilt.get("etf")
-        etf_str = f" [{etf}]" if etf else ""
-        lines.append(
-            f"- Thematic tilt: {tilt.get('theme', '?')}{etf_str} "
-            f"({tilt.get('sentiment_score', 0):+.1f}) — {tilt.get('reasoning', '')}"
-        )
-    for risk in macro.get("risks", []):
-        lines.append(f"- Risk: {risk}")
-    return "\n".join(lines)
 
 
 def _format_single_company(c: dict[str, Any]) -> list[str]:

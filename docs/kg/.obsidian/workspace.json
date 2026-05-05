@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "696d90a18b69a032",
+        "id": "168c8e510903ecc0",
         "type": "tabs",
         "children": [
           {
-            "id": "1fe39793afa52dd3",
+            "id": "56ae47147e70d9a8",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "themes/ai-infrastructure.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "ai-infrastructure"
+              "title": "New tab"
             }
           }
         ]
@@ -183,29 +179,33 @@
       "bases:Create new base": false
     }
   },
-  "active": "1fe39793afa52dd3",
+  "active": "59eaf0b4a0660322",
   "lastOpenFiles": [
-    "raw/synesis_briefs/2026-04-16.md",
-    "raw/synesis_briefs/2026-04-15.md",
-    "raw/synesis_briefs/2026-04-14-tradeideas.md",
-    "raw/synesis_briefs/2026-04-14.md",
-    "concepts/tpu-inference-economics.md",
-    "sources/connections/cowos-easing-paradox.md",
-    "sources/brief-2026-04-13.md",
-    "themes/custom-silicon-tpu-displacement.md",
-    "raw/synesis_briefs/2026-04-13-manual.md",
-    "raw/synesis_briefs/2026-04-13.md",
-    "sources/brief-2026-04-12.md",
-    "themes/nuclear-energy-renaissance.md",
-    "tickers/SNDK.md",
-    "tickers/SMR.md",
-    "tickers/PLTR.md",
-    "tickers/OKLO.md",
-    "tickers/NBIS.md",
-    "tickers/MU.md",
-    "themes/ai-infrastructure.md",
-    "themes/working-capital-deterioration.md",
-    "themes/photonics-supercycle.md",
-    "themes/optical-photonics-supply-chain.md"
+    "raw/synesis_briefs/2026-05-04.md",
+    "raw/synesis_briefs/2026-05-03.md",
+    "raw/synesis_briefs/2026-05-02.md",
+    "raw/synesis_briefs/2026-05-01.md",
+    "raw/synesis_briefs/2026-04-30.md",
+    "raw/synesis_briefs/2026-04-29.md",
+    "raw/synesis_briefs/2026-04-28.md",
+    "raw/synesis_briefs/2026-04-27.md",
+    "sources/brief-2026-04-26.md",
+    "sources/brief-2026-04-25.md",
+    "sources/brief-2026-04-24.md",
+    "sources/brief-2026-04-23.md",
+    "sources/brief-2026-04-22.md",
+    "sources/brief-2026-04-21.md",
+    "sources/brief-2026-04-20.md",
+    "sources/brief-2026-04-19.md",
+    "sources/brief-2026-04-18.md",
+    "sources/brief-2026-04-17.md",
+    "sources/brief-2026-04-16.md",
+    "sources/brief-2026-04-15.md",
+    "sources/brief-2026-04-14-tradeideas.md",
+    "sources/brief-2026-04-14.md",
+    "tickers/POET.md",
+    "themes/retail-speculative-mania.md",
+    "themes/software-hardware-bifurcation.md",
+    "themes/hyperscaler-ai-capex-arms-race.md"
   ]
 }
