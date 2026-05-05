@@ -29,11 +29,8 @@ class DebateState(TypedDict):
     # Context (input, read-only during debate)
     ticker: str
     current_date: str
-    social_analysis: dict[str, Any]
-    news_analysis: dict[str, Any]
     company_analyses: list[dict[str, Any]]
     price_analyses: list[dict[str, Any]]
-    watchlist_context: dict[str, Any]
     ticker_research: dict[str, Any]
 
     # Debate tracking

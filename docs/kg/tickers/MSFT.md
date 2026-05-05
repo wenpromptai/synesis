@@ -27,6 +27,15 @@ tags: [ticker, mega-cap, cloud, ai]
 
 **Strategic read:** MSFT's $18B Australia commitment is the clearest example of "sovereign AI" capex — region-locked compute capacity sold to local enterprises and governments. Pairs with OpenAI partnership to control both compute supply and frontier model access. See [[themes/hyperscaler-ai-capex-arms-race]].
 
+## 2026-04-28 → 2026-04-30 — Non-exclusive OpenAI licensing
+- **MSFT shifted OpenAI licensing to non-exclusive; revenue share to OpenAI removed** (news cluster, 4/27 brief).
+- Strategic implication: MSFT is optimizing for platform distribution economics and optionality across frontier models rather than single-supplier lock-in. Reduces take-rate concerns but introduces uncertainty about AI differentiation vs Google/AWS.
+- 4/29 brief: Strong earnings reported; details on Azure AI demand guidance closely watched.
+- 4/30 brief: Q1 beat and guidance raised — specifics in news cluster. Azure growth/AI services attach rates are the primary monetization monitor.
+- Bull: Enterprise AI (Copilot), Azure AI inference, non-exclusive model licensing creates multi-model optionality. $18B Australia capex validates sovereign-AI buildout capacity.
+- Bear: Capex sensitivity flagged in market reaction — shares mixed post-earnings as investors weigh capex ramp vs margin. Non-exclusive OpenAI structure may signal MSFT sees frontier model commoditization ahead.
+- Source: [[sources/brief-2026-04-28]], [[sources/brief-2026-04-29]], [[sources/brief-2026-04-30]]
+
 **See also:** [[themes/customer-concentration|customer concentration]] | [[themes/hyperscaler-ai-capex-arms-race]]
 
 > [!quote]- Sources
@@ -36,3 +45,6 @@ tags: [ticker, mega-cap, cloud, ai]
 > - [[sources/brief-2026-04-17]] — Copilot + inference capture, buy-the-dip leadership
 > - [[sources/brief-2026-04-24]] — $18B Australia AI infrastructure through 2029
 > - [[sources/brief-2026-04-26]] — AI platform vs margin defense thesis
+> - [[sources/brief-2026-04-28]] — non-exclusive OpenAI licensing, revenue share removed
+> - [[sources/brief-2026-04-29]] — Q1 earnings, Azure AI demand
+> - [[sources/brief-2026-04-30]] — guidance raised; capex sensitivity

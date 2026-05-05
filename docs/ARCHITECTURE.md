@@ -1,137 +1,90 @@
 # Intelligence Pipeline Architecture
 
-LangGraph state-machine that transforms raw social/news signals into structured per-ticker bull/bear briefs with configurable multi-round debate and trade idea generation.
+On-demand LangGraph state machine that takes a list of tickers and produces structured per-ticker bull/bear briefs with configurable multi-round debate and trade idea generation.
 
-Source: `src/synesis/processing/intelligence/`
+Source: `src/synesis/processing/intelligence/`  
+Triggered via: `POST /api/v1/intelligence/analyze`
 
 ## Graph Topology
 
 ```
                          START
-                           |
-                    +--------------+
-                    |              |
-            social_sentiment  news_analyst           ← Layer 1 (parallel)
-                    |              |
-                    +--------------+
-                           |
-                    extract_tickers                  ← Deterministic
-                           |
-                  macro_strategist                   ← Regime + ticker screening (max 5)
-                           |
-                    route_to_L2()                    ← Conditional: Send per screened ticker
-                           |
-              +------------------------+
-              |                        |
-       company_analyst          price_analyst        ← Layer 2 (parallel fan-out)
-        (per ticker)            (per ticker)
-              |                        |
-              +------------------------+
-                           |
-                       l2_join                        ← Sync barrier (defer=True)
-                           |
-                      l2_router()                     ← Conditional: configurable by debate_rounds
-                     /        |        \
-          [rounds=0]    [rounds>=1]   [no tickers]
-              |              |              |
-       +-----------+    ticker_debate       |
-       |           |    (per ticker)        |         ← Layer 3: Debate
-  bull_researcher  |     subgraph:          |
-   bear_researcher |  bull⇄bear loop        |
-    (per ticker,   |    N rounds            |
-     parallel)     |         |              |
-       +-----------+         |              |
-              \              |             /
-                      trader_gate                     ← Sync barrier (defer=True)
-                           |
-                     trader_router()                  ← Conditional: configurable by trader_mode
+                         /   \
+          ticker_research     route_to_L2()               ← parallel from START
+                         \    /  \
+                          L2:    L2: ...                   ← Send per ticker
+                   company_analyst  price_analyst          ← Layer 2 (parallel fan-out)
+                         \        /
+                          l2_join                          ← Sync barrier (defer=True)
+                              |
+                        debate_router()                    ← Conditional: configurable by debate_rounds
+                       /        |        \
+            [rounds=0]    [rounds>=1]  [no tickers]
+                |              |              |
+     +-----+-----+      ticker_debate         |
+     |           |       subgraph:            |
+bull_researcher  |    bull⇄bear loop          |            ← Layer 3: Debate
+bear_researcher  |    N rounds                |
+(per ticker,     |         |                  |
+ parallel)       |         |                  |
+     +-----+-----+         |                  |
+              \             |                /
+                      trader_gate                          ← Sync barrier (defer=True)
+                            |
+                     trader_router()                       ← Conditional: configurable by trader_mode
                      /              \
           [tickers exist]      [no tickers]
            /          \              |
-    [per_ticker]  [portfolio]        |
-         |              |            |                ← Layer 4: Trader
+    [per_ticker]  [portfolio]        |                     ← Layer 4: Trader
+         |              |            |
       trader          trader         |
     (per ticker     (single call     |
      via Send)       all tickers)    |
          |              |            |
          +--------------+           /
-                 \                 /
-                      compiler                        ← Deterministic assembly (defer=True)
-                           |
-                          END
+                  \                /
+                      analyze_compiler                     ← Deterministic assembly (defer=True)
+                            |
+                           END
 ```
 
-Ref: `graph.py` — `build_intelligence_graph()` function, graph construction + edge wiring
+Ref: `graph.py` — `build_analyze_graph()` function
 
-## State (`IntelligenceState`)
+## State (`AnalyzeState`)
 
 Defined in `state.py`.
 
-| Field              | Type         | Reducer        | Writer                                   |
-| ------------------ | ------------ | -------------- | ---------------------------------------- |
-| `current_date`     | `str`        | overwrite      | input                                    |
-| `social_analysis`  | `dict`       | overwrite      | social_sentiment                         |
-| `news_analysis`    | `dict`       | overwrite      | news_analyst                             |
-| `target_tickers`   | `list[str]`  | overwrite      | extract_tickers → macro_strategist       |
-| `l1_tickers`       | `list[str]`  | overwrite      | extract_tickers                          |
-| `screener_context` | `dict`       | overwrite      | macro_strategist                         |
-| `company_analyses` | `list[dict]` | `add` (append) | company_analyst × N                      |
-| `price_analyses`   | `list[dict]` | `add` (append) | price_analyst × N                        |
-| `macro_view`       | `dict`       | overwrite      | macro_strategist                         |
-| `bull_analyses`    | `list[dict]` | `add` (append) | bull_researcher × N or ticker_debate × N |
-| `bear_analyses`    | `list[dict]` | `add` (append) | bear_researcher × N or ticker_debate × N |
-| `trade_ideas`      | `list[dict]` | `add` (append) | trader × N                               |
-| `brief`            | `dict`       | overwrite      | compiler                                 |
+| Field              | Type                        | Reducer        | Writer                                          |
+| ------------------ | --------------------------- | -------------- | ----------------------------------------------- |
+| `current_date`     | `str`                       | overwrite      | input                                           |
+| `target_tickers`   | `list[str]`                 | overwrite      | input (from POST body)                          |
+| `ticker_research`  | `dict`                      | overwrite      | ticker_research node                            |
+| `company_analyses` | `list[dict]`                | `add` (append) | company_analyst × N                             |
+| `price_analyses`   | `list[dict]`                | `add` (append) | price_analyst × N                               |
+| `bull_analyses`    | `list[dict]`                | `add` (append) | bull_researcher × N or ticker_debate × N        |
+| `bear_analyses`    | `list[dict]`                | `add` (append) | bear_researcher × N or ticker_debate × N        |
+| `trade_ideas`      | `list[dict]`                | `add` (append) | trader × N                                      |
+| `portfolio_note`   | `str`                       | overwrite      | trader (portfolio mode only)                    |
+| `brief`            | `dict`                      | overwrite      | analyze_compiler                                |
 
-All `add` reducer fields accumulate results from parallel Send fan-out nodes (one per ticker). When using multi-round debate (`rounds>=1`), each ticker contributes multiple bull/bear entries (one per round) — compiler takes the last round per ticker.
+All `add` reducer fields accumulate results from parallel Send fan-out nodes (one per ticker). When using multi-round debate (`rounds>=1`), each ticker contributes multiple bull/bear entries — compiler takes the last round per ticker.
 
-## Layer 1: Signal Discovery (parallel)
+## Ticker Research (parallel with Layer 2)
 
-Two PydanticAI agents run in parallel, scanning the last 24h of ingested data.
+Source: `specialists/ticker_research/agent.py`
 
-### SocialSentimentAnalyst
+Runs in parallel with the Layer 2 fan-out from START. Researches all requested tickers in a single call using Twitter and web search to surface recent catalysts, sentiment, and news context.
 
-Source: `specialists/social_sentiment/agent.py`
-
-- **Input**: Raw tweets from DB, grouped by account with profile context from `x_accounts.py` (bias, focus areas)
-- **Tools**: `verify_ticker`, `web_search` (3 calls), `web_read`
-- **Output**: `SocialSentimentAnalysis` — `ticker_mentions[]`, `macro_themes[]`, `summary`
-- **Model**: `SocialSentimentAnalysis` in `models.py`
-
-### NewsAnalyst
-
-Source: `specialists/news/agent.py`
-
-- **Input**: Pre-scored `raw_messages` from DB (`impact_score >= 20`)
-- **Tools**: `verify_ticker`, `web_search` (3 calls), `web_read`
-- **Output**: `NewsAnalysis` — `story_clusters[]` (event_type, urgency, key_facts, tickers), `macro_themes[]`, `summary`
-- **Models**: `NewsStoryCluster`, `NewsAnalysis`, `NewsEventType` enum — all in `models.py`
-
-## Ticker Extraction (deterministic)
-
-Source: `graph.py` — `extract_tickers_node()`
-
-Collects all unique tickers from both Layer 1 outputs (social `ticker_mentions` + news `story_clusters`), deduplicates into sorted `target_tickers[]`.
-
-## MacroStrategist + Ticker Screening
-
-The MacroStrategist runs **before** Layer 2 (sequentially after ticker extraction). It performs regime assessment AND ticker screening in a single vsmart call:
-
-- Assesses market regime from FRED data, benchmarks, events, 13F changes
-- Receives the full Layer 1 ticker pool with social/news context
-- Selects up to 5 tickers for deep analysis based on thematic conviction, asymmetry, and catalyst proximity
-- Can add 1 wildcard ticker not in the Layer 1 pool if directly connected to an identified theme
-- Drops the rest with reasons
-
-Only the screened tickers flow to Layer 2. If macro fails, the pipeline falls back to the unscreened L1 tickers.
+- **Input**: `target_tickers` list, optional Twitter client
+- **Tools**: `web_search`, `web_read`, `get_tweets` (if Twitter key available)
+- **Output**: `ticker_research` dict — per-ticker research context used by debate and trader agents
 
 ## Layer 2: Multi-Agent Analysis (parallel fan-out)
 
-`route_to_L2()` conditional edge uses `Send` to fan out per screened ticker:
-
+`route_to_L2()` conditional edge uses `Send` to fan out per ticker:
 - One `company_analyst` + one `price_analyst` per ticker via `Send("node", {**state, "ticker": t})`
 
-All run in parallel.
+All run in parallel with `ticker_research`.
 
 ### CompanyAnalyst (per ticker)
 
@@ -161,36 +114,17 @@ Three-phase pipeline — only Phase 3 uses LLM:
 
 **Output**: `PriceAnalysis` — all deterministic indicators + LLM narratives + notable_setups[].
 
-### MacroStrategist (singleton, runs before Layer 2)
-
-Source: `strategists/macro.py`
-
-Multi-source regime assessment that replaces the separate yesterday brief pipeline. Pre-fetches data from multiple providers before LLM synthesis.
-
-**Data sources (pre-fetched):**
-1. FRED economic indicators (`_FRED_SERIES`: VIXCLS, DGS10, DGS2, FEDFUNDS, UNRATE — 10-observation history each, plus computed yield curve spread)
-2. Benchmark quotes via yfinance — equities (SPY, QQQ, IWM), treasuries (TLT, SHY), commodities (GLD, USO), dollar (UUP), credit (HYG, LQD), sectors (XLE, XLF, XLK, XLU), sub-sectors (SMH, IGV, XBI, KWEB, KRE, XHB, ITA)
-3. Yesterday's calendar events enriched with actual outcomes — earnings (SEC 8-K press releases), economic data (FRED actuals vs forecasts), Fed (FOMC minutes/statements via crawler)
-4. Upcoming catalysts from DB (next 7 days)
-5. 13F position changes for major hedge funds (SEC EDGAR quarterly comparison)
-6. Aggregated Layer 1 macro themes (social + news)
-
-- **Tools**: `web_search` (5 calls), `web_read`, `get_fred_data`
-- **Output**: `MacroView` — regime, sentiment_score, key_drivers[], thematic_tilts[], risks[], event_analysis, positioning_signals, screener_picks[] (up to 5 `ScreenedTicker`), tickers_dropped[], drop_reasons[]
-- **Toggle**: Skipped if `settings.macro_strategist_enabled=False` or FRED client unavailable
-- **Dependencies**: `MacroStrategistDeps` — fred, db, yfinance, sec_edgar, crawler, current_date
-
 ## Layer 2 Join + Routing
 
 ### `l2_join` (sync barrier)
 
-No-op node with `defer=True`. Layer 2 nodes (`company_analyst`, `price_analyst`) edge into it. The `defer` flag makes it wait for all upstream Send fan-out nodes to complete before proceeding. MacroStrategist runs before Layer 2 and does not edge into l2_join.
+No-op node with `defer=True`. All Layer 2 nodes (`company_analyst`, `price_analyst`, `ticker_research`) edge into it. The `defer` flag makes it wait for all upstream Send fan-out nodes to complete before proceeding.
 
-### `l2_router` (conditional)
+### `debate_router` (conditional)
 
 Routes from `l2_join` based on ticker availability and `settings.debate_rounds`:
 
-- **No tickers** → `["compiler"]` (skip debate entirely)
+- **No tickers** → `["analyze_compiler"]` (skip debate entirely)
 - **`debate_rounds=0`** → `Send("bull_researcher", ...)` + `Send("bear_researcher", ...)` per ticker (parallel, no debate)
 - **`debate_rounds>=1`** → `Send("ticker_debate", ...)` per ticker (multi-round debate subgraph)
 
@@ -218,17 +152,13 @@ START → bull_debate → bear_debate → _should_continue
 
 #### Debate Subgraph State (`DebateState`)
 
-Defined in `debate/subgraph.py`.
-
 | Field              | Type         | Reducer        | Purpose                                           |
 | ------------------ | ------------ | -------------- | ------------------------------------------------- |
 | `ticker`           | `str`        | —              | Target ticker (from Send)                         |
 | `current_date`     | `str`        | —              | Pipeline date                                     |
-| `social_analysis`  | `dict`       | —              | Layer 1 context (read-only)                       |
-| `news_analysis`    | `dict`       | —              | Layer 1 context (read-only)                       |
 | `company_analyses` | `list[dict]` | —              | Layer 2 context (read-only)                       |
 | `price_analyses`   | `list[dict]` | —              | Layer 2 context (read-only)                       |
-| `screener_context` | `dict`       | —              | Screener thesis seed (read-only)                  |
+| `ticker_research`  | `dict`       | —              | Research context (read-only)                      |
 | `debate_history`   | `list[dict]` | `add` (append) | Accumulates all bull/bear arguments across rounds |
 | `round`            | `int`        | overwrite      | Current round (incremented after each bear turn)  |
 | `max_rounds`       | `int`        | —              | Configured debate_rounds value                    |
@@ -239,33 +169,20 @@ The `ticker_debate` node splits the final `debate_history` into `bull_analyses` 
 
 ### Shared: BullResearcher and BearResearcher
 
+Source: `debate/bull.py`, `debate/bear.py`
+
 Both agents accept an optional `debate_history` parameter:
 
 - **Without history** (rounds=0): standard per-ticker analysis, no debate instructions in system prompt
-- **With history** (rounds>=1): prior arguments formatted via `format_debate_history()` and appended to prompt. System prompt includes debate-specific instructions requiring direct counter-arguments
+- **With history** (rounds>=1): prior arguments formatted via `format_debate_history()` and appended to prompt
 
 Per-ticker context formatters (in `context.py`):
-
-- `format_social_context_for_ticker(state, ticker)`
-- `format_news_context_for_ticker(state, ticker)`
 - `format_company_context_for_ticker(state, ticker)`
 - `format_price_context_for_ticker(state, ticker)`
-
-Macro context is **not** passed to debate agents — reserved for the Trader.
-
-#### BullResearcher
-
-Source: `debate/bull.py`
+- `format_ticker_research_for_ticker(state, ticker)`
 
 - **Tools**: `web_search` (1 call — `_WEB_SEARCH_CAP`), `web_read`
-- **Output**: `TickerDebate(role="bull")` — argument, key_evidence, round number
-
-#### BearResearcher
-
-Source: `debate/bear.py`
-
-- **Tools**: `web_search` (1 call — `_WEB_SEARCH_CAP`), `web_read`
-- **Output**: `TickerDebate(role="bear")` — argument, key_evidence, round number
+- **Output**: `TickerDebate(role="bull"|"bear")` — argument, key_evidence, round number
 
 ## Trader Gate + Routing
 
@@ -277,7 +194,7 @@ No-op node with `defer=True`. All debate paths (`bull_researcher`, `bear_researc
 
 Routes from `trader_gate` based on ticker availability and `settings.trader_mode`:
 
-- **No tickers** → `["compiler"]` (skip trader entirely)
+- **No tickers** → `["analyze_compiler"]` (skip trader entirely)
 - **`trader_mode="per_ticker"`** → `Send("trader", {**state, "ticker": t, "mode": "per_ticker"})` per ticker
 - **`trader_mode="portfolio"`** → single `Send("trader", {**state, "tickers": [...], "mode": "portfolio"})`
 
@@ -287,17 +204,15 @@ Wired via `add_conditional_edges`.
 
 Source: `trader/trader.py`
 
-The **sole decision maker** in the pipeline. Receives macro regime + full debate history and produces actionable `TradeIdea` outputs. Company/price data is **not** passed directly — the researchers already synthesized fundamentals and technicals into their debate arguments with specific figures.
+The **sole decision maker** in the pipeline. Receives full debate history and ticker research context and produces actionable `TradeIdea` outputs.
 
 ### Per-Ticker Mode (`trader_mode="per_ticker"`)
 
-One Send per ticker. Each call receives:
-- Macro context via `format_macro_context(state)` in `context.py`
-- Full debate history for the ticker (all rounds, chronologically sorted: bull R1 → bear R1 → bull R2 → bear R2...) via `_format_debate_for_ticker()` → `format_debate_history()` in `trader/trader.py`
+One Send per ticker. Each call receives debate history + ticker research for that ticker.
 
 ### Portfolio Mode (`trader_mode="portfolio"`)
 
-Single Send with all tickers. Receives macro context + per-ticker debate histories in one prompt. Enables:
+Single Send with all tickers. Enables:
 - Cross-ticker correlation analysis
 - Concentration risk assessment
 - Capital allocation via conviction tiers
@@ -318,79 +233,39 @@ Single Send with all tickers. Receives macro context + per-ticker debate histori
 
 Source: `compiler.py`
 
-No LLM. `defer=True` waits for all trader nodes (or receives control directly from `l2_router`/`trader_router` when no tickers). Groups bull + bear by ticker, **sorted by round** so last round wins. Assembles final brief:
-
-```python
-{
-    "date": "2026-04-06",
-    "macro": { "regime", "sentiment_score", "key_drivers", "thematic_tilts", "risks", "event_analysis", "positioning_signals" },
-    "screener": { "l1_tickers", "selected", "themes", "dropped", "drop_reasons" },
-    "debates": [
-        { "ticker": "NVDA", "bull": {...}, "bear": {...} },  # last-round arguments
-        ...
-    ],
-    "l1_summary": { "social": "...", "news": "..." },
-    "tickers_analyzed": [...],
-    "company_analyses": [...],   # valid only (errors filtered)
-    "price_analyses": [...],     # valid only (errors filtered)
-    "macro_themes": [...],       # merged social + news themes
-    "ticker_mentions": { "social": [...], "news_clusters": [...] },
-    "messages_analyzed": count,
-    "trade_ideas": [...],        # valid only (errors filtered)
-    "errors": {                  # per-node failure tracking
-        "social_failed": bool,
-        "news_failed": bool,
-        "company_failures": [ticker, ...],
-        "price_failures": [ticker, ...],
-        "bull_failures": [ticker, ...],
-        "bear_failures": [ticker, ...],
-        "macro_failed": bool,
-        "trader_failures": [ticker, ...],
-    },
-}
-```
+No LLM. `defer=True` waits for all trader nodes (or receives control directly from `debate_router`/`trader_router` when no tickers). Groups bull + bear by ticker, **sorted by round** so last round wins. Assembles final brief dict returned to the caller and saved to `docs/kg/raw/synesis_briefs/YYYY-MM-DD-tradeideas.md`.
 
 ## Agent Summary
 
-| Agent                    | Model Tier | Tools                               | Web Budget  | Output Type               |
-| ------------------------ | ---------- | ----------------------------------- | ----------- | ------------------------- |
-| SocialSentimentAnalyst   | smart      | verify_ticker, web_search, web_read | 3           | `SocialSentimentAnalysis` |
-| NewsAnalyst              | smart      | verify_ticker, web_search, web_read | 3           | `NewsAnalysis`            |
-| CompanyAnalyst (Phase 3) | smart      | none (deterministic Phase 1-2)      | 0           | `CompanyAnalysis`         |
-| PriceAnalyst (Phase 3)   | smart      | none (deterministic Phase 1-2)      | 0           | `PriceAnalysis`           |
-| MacroStrategist          | vsmart     | web_search, web_read, get_fred_data | 5           | `MacroView`               |
-| BullResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
-| BearResearcher           | vsmart     | web_search, web_read                | 1 per round | `TickerDebate`            |
-| Trader                   | vsmart     | web_search, web_read                | 7           | `TraderOutput`            |
+| Agent                    | Model Tier | Tools                                          | Web Budget  | Output Type            |
+| ------------------------ | ---------- | ---------------------------------------------- | ----------- | ---------------------- |
+| TickerResearchAnalyst    | smart      | web_search, web_read, get_tweets               | unbounded   | `ticker_research` dict |
+| CompanyAnalyst (Phase 3) | smart      | none (deterministic Phase 1-2)                 | 0           | `CompanyAnalysis`      |
+| PriceAnalyst (Phase 3)   | smart      | none (deterministic Phase 1-2)                 | 0           | `PriceAnalysis`        |
+| BullResearcher           | vsmart     | web_search, web_read                           | 1 per round | `TickerDebate`         |
+| BearResearcher           | vsmart     | web_search, web_read                           | 1 per round | `TickerDebate`         |
+| Trader                   | vsmart     | web_search, web_read                           | 7           | `TraderOutput`         |
 
 ## Key Design Decisions
 
-1. **Trader is the sole decision maker** — all upstream agents (analysts, strategists, researchers) gather data and argue cases. Only the Trader produces actionable trade ideas with specific trade structures (see `trader/trader.py`).
+1. **Trader is the sole decision maker** — all upstream agents (analysts, researchers) gather data and argue cases. Only the Trader produces actionable trade ideas with specific trade structures (see `trader/trader.py`).
 
 2. **Two-mode trader** — `per_ticker` mode gives independent per-ticker decisions; `portfolio` mode enables cross-ticker analysis, concentration awareness, and conviction-based capital allocation. One `TradeIdea` per ticker (equity-only), with `portfolio_note` for cross-ticker observations.
 
-3. **Macro context flows to Trader, not debate** — debate agents receive only per-ticker context (social, news, company, price). The Trader is the first agent to see macro regime alongside debate arguments, ensuring regime-aware trade structuring.
+3. **Ticker research runs parallel with Layer 2** — `ticker_research` starts at `START` alongside the Layer 2 fan-out, so Twitter + web research completes by the time debate begins with no serial overhead.
 
-4. **Configurable debate depth** — `debate_rounds=0` gives fast parallel bull/bear; `debate_rounds>=1` enables adversarial multi-round debate where each side must directly counter the other's arguments. The subgraph loop in `debate/subgraph.py` controls the cycle.
+4. **Configurable debate depth** — `debate_rounds=0` gives fast parallel bull/bear; `debate_rounds>=1` enables adversarial multi-round debate where each side must directly counter the other's arguments.
 
-5. **Debate history accumulation** — `DebateState.debate_history` uses `add` reducer to accumulate all arguments across rounds. Both researchers see the full history each turn, enabling increasingly targeted counter-arguments (see `format_debate_history()` in `context.py`).
+5. **Debate history accumulation** — `DebateState.debate_history` uses `add` reducer to accumulate all arguments across rounds. Both researchers see the full history each turn, enabling increasingly targeted counter-arguments.
 
 6. **Last-round-wins compilation** — compiler sorts by round and takes the final argument per ticker per side (see `compiler.py`), so the most refined version of each case goes into the brief.
 
 7. **Two sync barriers** — `l2_join` separates Layer 2 from debate; `trader_gate` separates debate from Trader. Both use `defer=True` to wait for all upstream fan-out nodes.
 
-8. **Web search budgets** — hard caps per agent per round prevent runaway API costs (Social: 3, News: 3, Macro: 5, Debate: 1 per round per side, Trader: 7). All agents use `web_search_config()` from `processing/common/llm.py` which handles native OpenAI search vs manual tool injection. Brave circuit breaker trips after 3 consecutive 429s, disabling web search for the rest of the process.
+8. **Web search budgets** — hard caps per agent per round prevent runaway API costs (Debate: 1 per round per side, Trader: 7). All agents use `web_search_config()` from `processing/common/llm.py`.
 
-9. **Graceful degradation** — EDGAR failures don't block CompanyAnalyst; Massive failures don't block PriceAnalyst; FRED failures don't block MacroStrategist. Layer 1 failures return `{"error": True}` for downstream visibility.
+9. **Graceful degradation** — EDGAR failures don't block CompanyAnalyst; Massive failures don't block PriceAnalyst; Twitter failures don't block TickerResearch. All failures return `{"error": True}` for downstream visibility.
 
-10. **Closure capture** — provider clients (DB, yfinance, SEC EDGAR, FRED, Massive, Crawl4AI) captured at graph build time via `build_intelligence_graph()` closure, never serialized in state.
+10. **Closure capture** — provider clients (yfinance, SEC EDGAR, Massive, Crawl4AI) captured at graph build time via `build_analyze_graph()` closure, never serialized in state.
 
 11. **Send semantics for Layer 2 + Layer 3 + Layer 4** — `Send("node", {**state, "ticker": t})` creates independent state copies per ticker. Results merge back via `Annotated[list, add]` reducers in `state.py`.
-
-12. **Per-node error tracking** — compiler surfaces failures per ticker (`company_failures`, `price_failures`, `bull_failures`, `bear_failures`, `trader_failures`) and per Layer 1 node (`social_failed`, `news_failed`) for downstream visibility (see `compiler.py`).
-
-13. **MacroStrategist as event synthesis + screening hub** — replaces the separate yesterday brief pipeline. Pre-fetches benchmark quotes, enriches recent calendar events with actual outcomes (SEC 8-K, FRED actuals, Fed minutes), and integrates 13F position changes. When Layer 1 surfaces tickers, it also screens them down to the top 5 thematic plays based on asymmetry, catalyst proximity, and cross-signal confirmation — with up to 1 wildcard. This makes it the single source of truth for "what happened + what it means + what's the regime + what to research."
-
-14. **Thematic tilts over sector tilts** — `ThematicTilt` (replacing `SectorTilt`) supports both ETF-backed tilts (grounded in price data, e.g. `theme="Semiconductors", etf="SMH"`) and pure thematic tilts derived from events, social, news, or 13F signals (e.g. `theme="Data Center Power", etf=None`).
-
-15. **Analyst consensus integration** — CompanyAnalyst Phase 1 fetches yfinance analyst ratings (recommendation trends, upgrades/downgrades, price targets). Phase 2 builds `AnalystConsensus` with Buy/Hold/Sell counts, target range, and recent firm actions. This gives the LLM and downstream debate/trader agents Wall Street consensus context.

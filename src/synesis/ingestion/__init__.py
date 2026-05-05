@@ -1,6 +1,5 @@
-"""Data ingestion layer: Telegram, Twitter listeners, price data."""
+"""Data ingestion layer: Twitter client, price data."""
 
-from synesis.ingestion.telegram import TelegramListener, TelegramMessage
 from synesis.ingestion.twitterapi import Tweet, TwitterClient, TwitterStreamClient
 from synesis.providers import (
     PriceService,
@@ -11,8 +10,6 @@ from synesis.providers import (
 
 __all__ = [
     "PriceService",
-    "TelegramListener",
-    "TelegramMessage",
     "Tweet",
     "TwitterClient",
     "TwitterStreamClient",

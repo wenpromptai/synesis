@@ -717,7 +717,6 @@ class TestMarketMoversAPI:
     @pytest.fixture()
     def _app(self):
         """Minimal FastAPI app with market router and overridden deps."""
-        import asyncio
         from dataclasses import dataclass, field as dfield
 
         from fastapi import FastAPI
@@ -731,8 +730,6 @@ class TestMarketMoversAPI:
             redis: Any = None
             db: Any = None
             settings: Any = None
-            agent_task: asyncio.Task[None] | None = None
-            telegram_enabled: bool = False
             db_enabled: bool = True
             scheduler: Any = None
             trigger_fns: dict[str, Any] = dfield(default_factory=dict)

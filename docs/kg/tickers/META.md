@@ -60,6 +60,15 @@ tags: [ticker, mega-cap, advertising, ai]
 
 **Read:** Market is interpreting layoffs as margin defense, not demand caution. Net FCF impact depends on whether savings fund capex (neutral) or drop to FCF (accretive). Pattern matches prior 2022-2023 META "Year of Efficiency" playbook that drove the +200% rerating.
 
+## 2026-04-30 → 2026-05-01 — Q1 EARNINGS MISS, -10% POST-MARKET
+- **Q1 2026 earnings: revenue growth despite high costs — MISSED market expectations.**
+- Stock fell **~10%+ post-earnings** on cost pressure concerns.
+- Near-term FCF compression: opex and capex ramps are squeezing margins.
+- Bull: AD targeting efficiency + AI integration narrative intact; layoff savings (~8,000 jobs) should eventually flow to FCF. Revenue growth trajectory maintained despite cost headwinds.
+- Bear: Market interpreting this as "capex ahead of monetization" — AI infrastructure spend is consuming FCF before the revenue flywheel is proven. Pattern diverges from 2022-23 "Year of Efficiency" playbook.
+- 5/1 brief: META flagged as "dispersion short/underweight candidate" within megacap — capex intensity risk proxy.
+- Source: [[sources/brief-2026-04-30]], [[sources/brief-2026-05-01]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — CoreWeave $35B deal, deepened analysis
@@ -70,3 +79,5 @@ tags: [ticker, mega-cap, advertising, ai]
 > - [[sources/brief-2026-04-23]] — AI capex funded by efficiency
 > - [[sources/brief-2026-04-25]] — efficiency wave reaffirmed (~10% / 8,000)
 > - [[sources/brief-2026-04-26]] — opex discipline + AI integration
+> - [[sources/brief-2026-04-30]] — Q1 miss; stock -10% post-earnings
+> - [[sources/brief-2026-05-01]] — capex intensity risk proxy; dispersion underweight

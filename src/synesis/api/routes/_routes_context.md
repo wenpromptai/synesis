@@ -33,7 +33,7 @@ Agent and ingestion status. No params.
 curl localhost:7337/api/v1/system/status
 ```
 ```json
-{"telegram": false, "agent_running": true}
+{"db_enabled": true, "scheduler_running": true}
 ```
 
 ### GET `/system/config`
@@ -42,7 +42,7 @@ Current runtime config. No params.
 curl localhost:7337/api/v1/system/config
 ```
 ```json
-{"env": "development", "llm_provider": "openai", "telegram_enabled": false}
+{"env": "development", "llm_provider": "openai"}
 ```
 
 ---
@@ -437,7 +437,7 @@ Summary stats. No params.
 curl localhost:7337/api/v1/watchlist/stats
 ```
 ```json
-{"total_tickers": 0, "sources": {}, "ttl_days": 7}
+{"total_tickers": 0, "sources": {}}
 ```
 
 ### GET `/watchlist/detailed`
@@ -446,7 +446,7 @@ All tickers with full metadata. No params.
 curl localhost:7337/api/v1/watchlist/detailed
 ```
 ```json
-[{"ticker": "AAPL", "source": "api", "added_at": "2026-03-03T09:25:51Z", "last_seen_at": "2026-03-03T09:25:51Z", "mention_count": 1}]
+[{"ticker": "AAPL", "source": "api", "added_at": "2026-03-03T09:25:51Z", "expires_at": "2026-04-03T09:25:51Z"}]
 ```
 
 ### GET `/watchlist/{ticker}`
@@ -460,7 +460,7 @@ Single ticker metadata. Returns 404 if not on watchlist.
 curl localhost:7337/api/v1/watchlist/AAPL
 ```
 ```json
-{"ticker": "AAPL", "source": "api", "added_at": "2026-03-03T09:25:51Z", "last_seen_at": "2026-03-03T09:25:51Z", "mention_count": 1}
+{"ticker": "AAPL", "source": "api", "added_at": "2026-03-03T09:25:51Z", "expires_at": "2026-04-03T09:25:51Z"}
 ```
 
 ### POST `/watchlist/`

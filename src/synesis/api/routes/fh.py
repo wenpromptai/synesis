@@ -292,7 +292,7 @@ async def search_ticker(
     - `q` (str, required): company name or ticker fragment, e.g. `nvidia` or `nvd`.
 
     **Returns:**
-    - `results` (list): each `{symbol, description, type, displaySymbol}`.
+    - `results` (list): each `{symbol, description, type}`.
     - `count` (int).
 
     **Errors:**

@@ -54,6 +54,25 @@ McKinsey global projection: **$5.2T global AI-driven data center capex by 2030**
 
 The arms race is the dominant macro narrative of late April. NVDA hit $5T market cap intraday on April 24 alongside the GOOGL-Anthropic announcement. SMH outperformed IGV by ~3% on the day, signaling market is rotating from software (long duration) into hardware (capex beneficiaries).
 
+## 2026-04-28 — MSFT non-exclusive OpenAI shift: platform economics evolution
+
+**MSFT shifted OpenAI licensing to non-exclusive; revenue share to OpenAI removed.** This is a strategic evolution:
+- Reduces MSFT's dependency on OpenAI as sole frontier model supplier.
+- Platform optionality: MSFT can now host competing models on Azure without partnership constraints.
+- Near-term narrative: Compresses AI differentiation concerns (MSFT can use any model) but raises "commodity model" risk for OpenAI.
+- Source: [[sources/brief-2026-04-28]]
+
+## 2026-04-30 → 2026-05-01 — Q1 Mega-cap earnings CONFIRM capex thesis
+
+**GOOGL, AMZN, MSFT all beat Q1 expectations:**
+- GOOGL: +10% post-earnings; revenue $109.9B vs $107.1B; cloud primary driver.
+- AMZN: EPS $2.78 vs $1.62 estimate; AWS AI services cited.
+- MSFT: Beat and raised guidance; Azure AI attach rates.
+- **META MISSED** on cost pressure — -10% post-earnings. Capex intensity is front-running revenue.
+
+The dispersion pattern is critical: the **AI infrastructure beneficiaries beat** (GOOGL cloud, AMZN AWS) while the **pure-AI-spend platform lagged** (META). Market is rewarding measurable AI ROI (cloud compute, search monetization) over opex-heavy buildout.
+- Source: [[sources/brief-2026-04-30]], [[sources/brief-2026-05-01]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-18]] — OpenAI/Cerebras $20B
 > - [[sources/brief-2026-04-21]] — AMZN/Anthropic $25B + $100B commitment
@@ -61,6 +80,9 @@ The arms race is the dominant macro narrative of late April. NVDA hit $5T market
 > - [[sources/brief-2026-04-24]] — MSFT Australia $18B
 > - [[sources/brief-2026-04-25]] — GOOGL/Anthropic up to $40B
 > - [[sources/brief-2026-04-26]] — NVDA $5T market cap, McKinsey $5.2T projection
+> - [[sources/brief-2026-04-28]] — MSFT non-exclusive OpenAI; revenue share removed
+> - [[sources/brief-2026-04-30]] — Q1 mega-cap earnings wave; cloud beats confirmed
+> - [[sources/brief-2026-05-01]] — GOOGL +10%, AMZN EPS $2.78 beat; META -10% miss
 
 ---
 **Related:** [[themes/ai-infrastructure]] | [[themes/ai-infrastructure-financing-risk]] | [[themes/custom-silicon-tpu-displacement]]

@@ -51,13 +51,12 @@ async def analyze_tickers(
 ) -> dict[str, Any]:
     """Run the deep intelligence pipeline for specific tickers (synchronous).
 
-    For each requested ticker, runs: company analysis (fundamentals + filings) →
-    price/technicals analysis → consensus-anchored bull/bear debate → trader
-    (R/R + conviction tier). Saves a markdown brief to
-    persists trade ideas to the `trade_idea_tracking` table, and saves a brief
-    to `docs/kg/raw/synesis_briefs/YYYY-MM-DD-tradeideas.md`.
+    For each requested ticker, runs: ticker research + company analysis
+    (fundamentals + filings) + price/technicals analysis (all parallel) →
+    bull/bear debate → trader (R/R + conviction tier). Saves a markdown brief to
+    `docs/kg/raw/synesis_briefs/YYYY-MM-DD-tradeideas.md`.
 
-    Runs synchronously and returns the full result.
+    Runs synchronously and returns the full compiled brief dict.
     **Expect several minutes for multi-ticker requests.**
 
     **Inputs (JSON body):**
@@ -67,14 +66,18 @@ async def analyze_tickers(
 
     **Returns:** Full `dict` compiled from the pipeline state:
     - `date` (str): ISO date the brief was generated for.
-    - `tickers_analyzed` (list[str]): tickers that completed analysis.
+    - `tickers_analyzed` (list[str]): tickers that completed company analysis.
     - `trade_ideas` (list): each idea has `tickers` (list[str]), `trade_structure`
       (str, e.g. `"long NVDA"`), `thesis`, `catalyst`, `timeframe`, `key_risk`,
       `entry_price`, `target_price`, `stop_price`, `risk_reward_ratio`,
       `conviction_tier` (1=high | 2=medium | 3=speculative), `conviction_rationale`,
-      `expression_note`, `analysis_date`.
-    - Additional pipeline state keys (company analysis, price data, debate output).
-    - `brief_path` (str): path of the saved KG markdown file.
+      `expression_note`.
+    - `portfolio_note` (str): cross-ticker observations (portfolio trader mode only).
+    - `debates` (list): per-ticker bull/bear debate arguments.
+    - `ticker_research` (list): web + Twitter research context per ticker.
+    - `company_analyses` (list): fundamentals, insider signal, analyst consensus per ticker.
+    - `price_analyses` (list): technicals + options context per ticker.
+    - `errors` (dict): per-node failure flags for downstream visibility.
 
     **Errors:**
     - `422` on invalid ticker format or empty/oversized list.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram, Google News RSS) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
+Financial intelligence and prediction market research system. Runs LangGraph multi-agent pipelines to analyze equities, form bull/bear theses, and produce structured trade ideas. Monitors market events, Twitter signals, and market movers. Sends briefs to Discord.
 
 ## Tech Stack
 
@@ -32,17 +32,14 @@ uv run synesis --reload
 
 ### Docker Setup (first time)
 
-Telegram requires an interactive login on first run, so the app cannot start in Docker until a session file exists.
-
 ```bash
 # 1. Start infrastructure only (DB, Redis, SearXNG, Crawl4AI)
 docker compose up -d timescaledb redis searxng crawl4ai
 
-# 2. Run app locally to generate Telegram session (shared/sessions/synesis.session)
+# 2. Run app locally to verify startup
 uv run synesis
-# Wait for "Signed in successfully", then Ctrl+C
 
-# 3. Now start the full stack including the app
+# 3. Start the full stack including the app
 docker compose up -d
 ```
 
@@ -64,18 +61,15 @@ docker compose logs -f synesis
 ```
 src/synesis/
 ├── core/              # Logging, constants, dependencies
-├── ingestion/         # Telegram listener, Google News RSS poller
+├── ingestion/         # Twitter client, price data
 ├── processing/        # All analysis pipelines
 │   ├── intelligence/  # LangGraph multi-agent pipeline (see docs/ARCHITECTURE.md)
-│   │   ├── specialists/   # Layer 1-2: social_sentiment, news, company, price
-│   │   ├── strategists/   # MacroStrategist (regime + thematic tilts + ticker screening)
+│   │   ├── specialists/   # company, price, ticker_research analysts
 │   │   ├── debate/        # Bull/bear debate subgraph (configurable rounds)
 │   │   ├── trader/        # Trader (sole decision maker → equity TradeIdea with R/R)
 │   │   ├── graph.py       # LangGraph state machine wiring
 │   │   ├── compiler.py    # Brief assembly + markdown export for KG
-│   │   ├── tracking.py    # Trade idea outcome tracking (weekly review)
-│   │   └── job.py         # Pipeline runner → Discord + KG brief + DB tracking
-│   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
+│   │   └── job.py         # Pipeline runner → Discord + KG brief
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
 │   ├── market/        # Market movers: daily snapshot + top movers
 │   ├── events/        # Event radar: forward-looking calendar digest
@@ -89,9 +83,9 @@ src/synesis/
 │   ├── massive/       # Massive.com stocks + options (free tier, Polygon-compatible)
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
-├── notifications/     # Telegram & Discord notifications
+├── notifications/     # Discord notifications
 ├── storage/           # PostgreSQL + Redis clients
-├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
+├── agent/             # Scheduler, lifespan
 └── api/               # HTTP/WebSocket endpoints
 
 tests/                 # Test files
@@ -145,25 +139,31 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 - `/events/*` — Event radar: upcoming, calendar, discover, digest, CRUD (30/min, digest 5/min)
 - `/twitter/*` — Twitter agent: trigger daily digest (5/min)
 - `/market/*` — Market movers: trigger daily movers snapshot (5/min)
+- `/intelligence/analyze` — On-demand deep ticker analysis (2/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 
 ## Intelligence Pipeline
 
-Daily LangGraph pipeline (9:00 AM SGT / 1:00 AM UTC): social/news signals → MacroStrategist (regime + screening, top 5 tickers) → per-ticker company + price analysis → consensus-anchored bull/bear debate → Trader (equity R/R + conviction tiers) → Discord + KG brief + DB tracking.
+On-demand via `/api/v1/intelligence/analyze`: ticker research + company/price analysis (parallel per ticker) → bull/bear debate → Trader (equity R/R + conviction tiers) → Discord brief + KG markdown.
+
+Scheduled jobs (APScheduler):
+- **10:00 AM ET** — Twitter agent digest
+- **10:30 AM ET** — Market movers snapshot
+- **6:00 PM ET** — Event Radar fetch
+- **7:00 PM ET** — Event Radar digest → Discord
+- **Monday 6am UTC** — Ticker list refresh
 
 See `docs/ARCHITECTURE.md` for full graph topology, state schema, and agent inventory.
 
-**Pipeline brief auto-save:** Each run saves a markdown brief to `docs/kg/raw/synesis_briefs/YYYY-MM-DD.md` for future KG compilation.
-
-**Trade idea tracking:** Each run saves trade ideas to `trade_idea_tracking` DB table. A weekly review job (Friday 4pm ET) checks prices, marks target/stop hits, and auto-expires after 90 days.
+**Pipeline brief auto-save:** Each run saves a markdown brief to `docs/kg/raw/synesis_briefs/YYYY-MM-DD-tradeideas.md` for future KG compilation.
 
 ## Knowledge Graph (`docs/kg/`)
 
 LLM-compiled investment knowledge base viewed in Obsidian. Raw sources (pipeline briefs, PDFs, articles) are compiled into interlinked ticker, theme, concept, strategy, source, and connection nodes.
 
 **Slash commands:**
-- `/daily-brief` — Claude Code-powered intelligence brief. Pulls news/social from DB, researches tickers via local API + web search, forms bull/bear views, produces trade ideas. Complements the automated pipeline with free-form, deeper analysis. Output saved to `docs/kg/raw/synesis_briefs/`.
+- `/daily-brief` — Claude Code-powered intelligence brief. Researches tickers via local API + web search, forms bull/bear views, produces trade ideas. Output saved to `docs/kg/raw/synesis_briefs/`.
 - `/kg-compile` — Process uncompiled raw files in `docs/kg/raw/` into KG nodes. The LLM reads the schema + current KG state + raw source and decides what to extract/update/create. Run after new raw sources accumulate.
 - `/kg-lint` — Health checks (broken links, orphans, sparse nodes, missing frontmatter, stale index) + intelligence checks (connection discovery, missing node candidates, content staleness, research suggestions). Run periodically to maintain KG quality and discover growth opportunities.
 
@@ -171,4 +171,4 @@ LLM-compiled investment knowledge base viewed in Obsidian. Raw sources (pipeline
 
 ## Trading Strategy
 
-1. **News-Driven Sentiment**: LLM analyzes news → finds related Polymarket markets → evaluates mispricing
+1. **Intelligence Pipeline**: LangGraph agents analyze equities → bull/bear debate → Trader forms R/R trade ideas → Discord brief

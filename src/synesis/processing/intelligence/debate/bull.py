@@ -1,6 +1,6 @@
 """BullResearcher — builds the strongest evidence-based case FOR investing.
 
-Receives per-ticker analyst context (social, news, company, price) via Send
+Receives per-ticker analyst context (company, price, ticker research) via Send
 fan-out and argues why the ticker is a compelling opportunity. One call per
 ticker. Does NOT score — that is deferred to the Trader (Phase 3D).
 """
@@ -25,11 +25,8 @@ from synesis.processing.intelligence.context import (
     format_company_context_for_ticker,
     format_consensus_context_for_ticker,
     format_debate_history,
-    format_news_context_for_ticker,
     format_price_context_for_ticker,
     format_ticker_research_for_ticker,
-    format_watchlist_context_for_ticker,
-    format_social_context_for_ticker,
 )
 from synesis.processing.intelligence.models import TickerDebate
 
@@ -52,8 +49,8 @@ Today's date: {current_date}
 ## Context
 
 Below you will find research from upstream analysts covering company \
-fundamentals, price/technicals, social sentiment, and news for this specific \
-ticker. You will also see a "Consensus View" showing what the market \
+fundamentals, price/technicals, and pre-gathered social/news context for this \
+specific ticker. You will also see a "Consensus View" showing what the market \
 currently prices in — analyst targets, growth expectations, and positioning. \
 Not all sections may be present — work with whatever data is provided.
 
@@ -168,20 +165,15 @@ async def research_bull(
     deps = BullResearcherDeps(current_date=current_date)
 
     # Build prompt from per-ticker context (no macro — deferred to Trader)
-    watchlist_ctx = format_watchlist_context_for_ticker(state, ticker)
     research_ctx = format_ticker_research_for_ticker(state, ticker)
     prompt_parts = [
         f"## Ticker: {ticker}",
         format_consensus_context_for_ticker(state, ticker),
     ]
-    if watchlist_ctx:
-        prompt_parts.append(watchlist_ctx)
     if research_ctx:
         prompt_parts.append(research_ctx)
     prompt_parts.extend(
         [
-            format_social_context_for_ticker(state, ticker),
-            format_news_context_for_ticker(state, ticker),
             format_company_context_for_ticker(state, ticker),
             format_price_context_for_ticker(state, ticker),
         ]

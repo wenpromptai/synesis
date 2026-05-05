@@ -84,7 +84,7 @@ Append-only audit trail of `/kg-compile` operations.
 - **Key changes:** First zero-trade-idea pipeline run. 11 tickers debated, Trader passed on all. NBIS company analysis failed (fiscal_year_end null bug — now fixed). Nuclear energy theme created for OKLO/SMR. Insider selling clusters in 8 of 11 debated names.
 
 ## 2026-04-26 — Two-Week Scan Compilation (Apr 14 → Apr 26)
-- **Sources:** raw/synesis_briefs/2026-04-14.md, 2026-04-14-tradeideas.md, 2026-04-15.md through 2026-04-26.md (14 files)
+- **Sources:** raw/synesis_briefs/2026-04-14.md, raw/synesis_briefs/2026-04-14-tradeideas.md, raw/synesis_briefs/2026-04-15.md, raw/synesis_briefs/2026-04-16.md, raw/synesis_briefs/2026-04-17.md, raw/synesis_briefs/2026-04-18.md, raw/synesis_briefs/2026-04-19.md, raw/synesis_briefs/2026-04-20.md, raw/synesis_briefs/2026-04-21.md, raw/synesis_briefs/2026-04-22.md, raw/synesis_briefs/2026-04-23.md, raw/synesis_briefs/2026-04-24.md, raw/synesis_briefs/2026-04-25.md, raw/synesis_briefs/2026-04-26.md (14 files)
 - **Themes created (3):**
   - themes/hyperscaler-ai-capex-arms-race.md ($80B+ Anthropic stakes, MSFT $18B Australia, OpenAI $20B Cerebras, McKinsey $5.2T projection)
   - themes/software-hardware-bifurcation.md (SMH leads, IGV -5.8% on 4/23, factor rotation explicit)
@@ -121,3 +121,30 @@ Append-only audit trail of `/kg-compile` operations.
   - NVDA hit $5T market cap intraday on 4/24-26; positioning crowded via $27M $200c June calls
   - POET-MRVL supplier confirmation (+20.5%) is first explicit photonics-supercycle design-win disclosure
   - Pipeline brief auto-save format includes new `tickers` frontmatter and `type: scan` vs `analyze`
+
+## 2026-05-05 — Eight-Brief Batch Compilation (Apr 27 → May 4)
+- **Sources:** raw/synesis_briefs/2026-04-27.md, raw/synesis_briefs/2026-04-28.md, raw/synesis_briefs/2026-04-29.md, raw/synesis_briefs/2026-04-30.md, raw/synesis_briefs/2026-05-01.md, raw/synesis_briefs/2026-05-02.md, raw/synesis_briefs/2026-05-03.md, raw/synesis_briefs/2026-05-04.md (8 files)
+- **Tickers created (10):** tickers/LLY.md, tickers/VZ.md, tickers/SLB.md, tickers/XOM.md, tickers/BRK.B.md, tickers/GME.md, tickers/EBAY.md, tickers/MPWR.md, tickers/MRK.md, tickers/NEM.md
+- **Tickers updated (8):** tickers/AAPL.md (Q1 beat, $100B buyback), tickers/AMZN.md (Q1 EPS $2.78 beat), tickers/MSFT.md (non-exclusive OpenAI), tickers/META.md (Q1 miss -10%), tickers/GOOGL.md (+10% post-earnings, Q1 $109.9B beat), tickers/NVDA.md ($50M Legora ecosystem), tickers/INTC.md (bearish flag: unverified gov stake), tickers/CVX.md (Q1 beat)
+- **Themes created (1):** themes/glp1-obesity-pharma.md (LLY/MRK/AMGN structural growth)
+- **Themes updated (5):** themes/geopolitical-energy-risk.md (oil $119, UAE exits OPEC, gasoline $4.45), themes/stagflation-tail-risk.md (FOMC 3.75% hold, PCE 3.5%/0.7%, national debt > GDP), themes/hyperscaler-ai-capex-arms-race.md (MSFT non-exclusive OpenAI, Q1 earnings bifurcation), themes/retail-speculative-mania.md (GME $55.5B EBAY meme M&A), themes/consumer-sentiment-collapse.md (gasoline $4.45, personal income -0.1%)
+- **Source nodes created (8):** sources/brief-2026-04-27.md through sources/brief-2026-05-04.md
+- **Index updated:** 161 → 182 nodes
+- **Key findings:**
+  - FOMC held 3.75% on Apr 28-29 — higher-for-longer confirmed with PCE 3.5%/0.7% re-accelerating
+  - Q1 mega-cap earnings bifurcation: GOOGL +10%, AMZN EPS $2.78 vs $1.62 (massive beats); META -10% on FCF compression
+  - Oil hit ~$119 (USO +7.9% on Apr 29); UAE exited OPEC May 1; gasoline $4.45/gal (+50% since war); OPEC+ June quota +188k bpd partially offsets
+  - GME proposed $55.5B EBAY acquisition — apex meme M&A event; financing credibility zero
+  - BRK.B record $397B cash = largest dry-powder signal in Buffett history
+  - MSFT shifts OpenAI to non-exclusive licensing — signals frontier model commoditization ahead
+  - GLP-1/obesity pharma emerged as a major new structural theme: LLY FY2026 guide $82-85B; MRK/AMGN also beat
+  - Gold (GC) CFTC positioning hit 0th percentile across May 1-4 briefs — extreme contrarian long setup
+  - National debt surpassed GDP for the first time since WWII (May 2 brief) — fiscal stagflation amplifier
+
+## 2026-05-05 — KG Lint Auto-Fix + Intelligence Pass
+- **Source:** /kg-lint run (structural fixes + intelligence checks 7–11)
+- **Nodes created (2):** tickers/AMGN.md (broken link fix; FY2026 $37.1-38.5B guide), concepts/cftc-cot-positioning.md (missing concept; referenced 6+ times across source/ticker nodes)
+- **Nodes updated (9):** tickers/VZ.md (sparse fix: +stagflation-tail-risk, +consumer-sentiment-collapse links), tickers/NEM.md (sparse fix: +geopolitical-energy-risk, +cftc-cot-positioning links), tickers/BRK.B.md (+stagflation-tail-risk theme link), tickers/NFLX.md (+consumer-sentiment-collapse theme link), themes/stagflation-tail-risk.md (added Defensive Ticker Expressions table: VZ, BRK.B), themes/geopolitical-energy-risk.md (added XOM + NEM to Exposed Tickers table), themes/consumer-sentiment-collapse.md (added Consumer Ticker Exposure table: NFLX)
+- **Index updated:** 182 → 184 nodes
+- **Checks resolved:** broken links (0 remaining), sparse nodes (0 remaining), unthemed tickers (0 remaining)
+- **Intelligence check 10:** Created concepts/cftc-cot-positioning.md from web research — COT positioning percentile methodology, contrarian signal framework, caveats

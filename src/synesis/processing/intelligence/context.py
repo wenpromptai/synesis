@@ -372,50 +372,6 @@ def format_debate_summary_for_ticker(state: dict[str, Any], ticker: str) -> str:
 # =============================================================================
 
 
-def format_social_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
-    """Format social sentiment filtered to a single ticker."""
-    social = state.get("social_analysis", {})
-    if not social:
-        return "## Social Sentiment\nNo social analysis available."
-
-    mentions = [m for m in social.get("ticker_mentions", []) if m.get("ticker") == ticker]
-    if not mentions:
-        return f"## Social Sentiment\nNo social mentions for {ticker}."
-
-    lines = [f"## Social Sentiment for {ticker}"]
-    for mention in mentions:
-        accounts = ", ".join(mention.get("source_accounts", []))
-        lines.append(f"- {mention.get('context', '')} [from: {accounts}]")
-    return "\n".join(lines)
-
-
-def format_news_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
-    """Format news analysis filtered to clusters mentioning a single ticker."""
-    news = state.get("news_analysis", {})
-    if not news:
-        return "## News\nNo news analysis available."
-
-    relevant_clusters = []
-    for cluster in news.get("story_clusters", []):
-        cluster_tickers = {t.get("ticker") for t in cluster.get("tickers", [])}
-        if ticker in cluster_tickers:
-            relevant_clusters.append(cluster)
-
-    if not relevant_clusters:
-        return f"## News\nNo news clusters for {ticker}."
-
-    lines = [f"## News for {ticker}"]
-    for cluster in relevant_clusters:
-        urgency = cluster.get("urgency", "normal")
-        event_type = cluster.get("event_type", "other")
-        lines.append(f"\n### {cluster.get('headline', '?')} [{event_type}, urgency={urgency}]")
-        for fact in cluster.get("key_facts", []):
-            lines.append(f"- {fact}")
-        for t in cluster.get("tickers", []):
-            lines.append(f"- Ticker: **{t.get('ticker', '?')}** — {t.get('context', '')}")
-    return "\n".join(lines)
-
-
 def format_consensus_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
     """Format consensus expectations for debate agents to argue against.
 
@@ -515,29 +471,6 @@ def format_company_context_for_ticker(state: dict[str, Any], ticker: str) -> str
     lines = ["## Company Analysis"]
     lines.extend(_format_single_company(match))
     return "\n".join(lines)
-
-
-def format_watchlist_context_for_ticker(state: dict[str, Any], ticker: str) -> str:
-    """Format the watchlist thematic angle for a ticker.
-
-    Gives debate agents the CIO's thesis seed — why this ticker was selected
-    and what angle to investigate.
-    """
-    ctx = state.get("watchlist_context", {})
-    for pick in ctx.get("selected", []):
-        if pick.get("ticker") == ticker:
-            lines = ["## Watchlist Thesis Seed"]
-            lines.append(f"**Thematic angle:** {pick.get('thematic_angle', 'N/A')}")
-            lines.append(f"**Direction lean:** {pick.get('direction_lean', 'N/A')}")
-            lines.append(f"**Signal strength:** {pick.get('signal_strength', 'N/A')}")
-            if pick.get("research_note"):
-                lines.append(f"**Research note:** {pick['research_note']}")
-            if pick.get("is_wildcard"):
-                lines.append(
-                    "*This ticker was added as a wildcard — not in the original signal pool.*"
-                )
-            return "\n".join(lines)
-    return ""
 
 
 def format_price_context_for_ticker(state: dict[str, Any], ticker: str) -> str:

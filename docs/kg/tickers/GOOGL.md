@@ -42,6 +42,15 @@ tags: [ticker, mega-cap, search, cloud, ai]
 - Hyperscaler AI capex + strategic model access (Anthropic) confirmed as core thesis.
 - Source: [[sources/brief-2026-04-26]]
 
+## 2026-04-27 → 2026-05-01 — Q1 EARNINGS BEAT, +10% POST-MARKET
+- **Q1 2026 revenue: $109.9B vs $107.1B consensus** — beat driven by cloud + advertising.
+- Stock **+10% post-earnings** — standout dispersion winner in megacap Q1 wave.
+- Google Cloud cited as primary driver; AI search/agents providing monetization optionality.
+- **Government/defense AI workloads + classified contracts:** GOOGL flagged as cloud-AI beneficiary for government/national security workloads in 4/29 brief.
+- 4/30 brief: "Cloud + advertising resilience; AI monetization optionality (search/agents)" — bullish classification.
+- 5/1 brief: "AI monetization + ad/search resilience; platform dispersion winner on earnings" — GOOGL was the standout bullish winner of the Q1 megacap earnings wave.
+- Source: [[sources/brief-2026-04-27]], [[sources/brief-2026-04-29]], [[sources/brief-2026-04-30]], [[sources/brief-2026-05-01]]
+
 **See also:** [[tickers/GOOG]] | [[themes/hyperscaler-ai-capex-arms-race]] | [[themes/custom-silicon-tpu-displacement]]
 
 > [!quote]- Sources
@@ -50,3 +59,7 @@ tags: [ticker, mega-cap, search, cloud, ai]
 > - [[sources/brief-2026-04-23]] — hyperscaler AI infrastructure build
 > - [[sources/brief-2026-04-25]] — Up to $40B Anthropic investment ($10B initial)
 > - [[sources/brief-2026-04-26]] — hyperscaler capex thesis
+> - [[sources/brief-2026-04-27]] — AI capex + strategic model access (Anthropic)
+> - [[sources/brief-2026-04-29]] — government/defense AI workloads; classified contracts
+> - [[sources/brief-2026-04-30]] — Q1 revenue $109.9B vs $107.1B; cloud primary driver
+> - [[sources/brief-2026-05-01]] — +10% post-earnings; dispersion winner; ad/cloud monetization confirmed

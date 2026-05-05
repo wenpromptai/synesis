@@ -1,6 +1,6 @@
 """BearResearcher — builds the strongest evidence-based case AGAINST investing.
 
-Receives per-ticker analyst context (social, news, company, price) via Send
+Receives per-ticker analyst context (company, price, ticker research) via Send
 fan-out and argues why the ticker is risky or overvalued. One call per
 ticker. Does NOT score — that is deferred to the Trader (Phase 3D).
 """
@@ -25,11 +25,8 @@ from synesis.processing.intelligence.context import (
     format_company_context_for_ticker,
     format_consensus_context_for_ticker,
     format_debate_history,
-    format_news_context_for_ticker,
     format_price_context_for_ticker,
     format_ticker_research_for_ticker,
-    format_watchlist_context_for_ticker,
-    format_social_context_for_ticker,
 )
 from synesis.processing.intelligence.models import TickerDebate
 
@@ -169,20 +166,15 @@ async def research_bear(
     deps = BearResearcherDeps(current_date=current_date)
 
     # Build prompt from per-ticker context (no macro — deferred to Trader)
-    watchlist_ctx = format_watchlist_context_for_ticker(state, ticker)
     research_ctx = format_ticker_research_for_ticker(state, ticker)
     prompt_parts = [
         f"## Ticker: {ticker}",
         format_consensus_context_for_ticker(state, ticker),
     ]
-    if watchlist_ctx:
-        prompt_parts.append(watchlist_ctx)
     if research_ctx:
         prompt_parts.append(research_ctx)
     prompt_parts.extend(
         [
-            format_social_context_for_ticker(state, ticker),
-            format_news_context_for_ticker(state, ticker),
             format_company_context_for_ticker(state, ticker),
             format_price_context_for_ticker(state, ticker),
         ]

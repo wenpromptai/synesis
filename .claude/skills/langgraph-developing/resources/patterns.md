@@ -13,9 +13,8 @@ class IntelligenceState(TypedDict):
     """Shared state for the daily intelligence pipeline."""
 
     # --- Input (set at invocation, read-only by convention) ---
-    watchlist_tickers: list[str]
+    target_tickers: list[str]
     raw_tweets: list[dict]        # from raw_tweets table
-    recent_signals: list[dict]    # from signals table (Flow 1 outputs)
     calendar_events: list[dict]   # from calendar_events table
 
     # --- Layer 1 specialist reports (appended by each specialist) ---

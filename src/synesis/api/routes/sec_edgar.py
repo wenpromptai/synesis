@@ -40,10 +40,10 @@ async def get_company_info(
     **Query params:**
     - `ticker` (str, required): symbol, case-insensitive.
 
-    **Returns:** an object with `cik`, `name`, `sic`, `sic_description`,
-    `category` (e.g. "Large accelerated filer"), `fiscal_year_end`,
-    `exchanges` (list), `state_of_incorporation`, `former_names` (list),
-    `website`, `tickers` (list).
+    **Returns:** an object with `ticker`, `cik`, `name`, `entity_type`,
+    `sic`, `sic_description`, `category` (e.g. "Large accelerated filer"),
+    `fiscal_year_end`, `state_of_incorporation`, `exchanges` (list),
+    `tickers` (list), `ein`, `former_names` (list), `phone`, `website`.
 
     **Errors:**
     - `404` if no SEC data exists for that ticker.

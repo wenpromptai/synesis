@@ -2,7 +2,7 @@
 
 These fixtures provide stateful mock implementations of Redis and PostgreSQL
 that maintain internal state for verification, while allowing real API calls
-(LLM, Polymarket, Telegram) to proceed.
+(LLM, Polymarket) to proceed.
 """
 
 from datetime import datetime, timezone
@@ -177,56 +177,11 @@ def mock_redis() -> Any:
 
 @pytest.fixture
 def mock_db() -> Any:
-    """Create mock Database with stateful behavior for verification.
-
-    Captures all database operations for test assertions.
-
-    Internal state attributes:
-        _test_raw_messages: List of inserted raw messages
-        _test_signals: List of inserted signals (Flow 1 and Flow 2)
-        _test_predictions: List of inserted predictions (market evaluations)
-        _test_watchlist: Dict of ticker -> watchlist record
-        _test_sentiment_snapshots: List of sentiment snapshot records
-    """
+    """Create mock Database with stateful behavior for verification."""
     db = AsyncMock()
 
-    # Internal state for verification (accessed via db._test_* in tests)
-    _test_raw_messages: list[dict[str, Any]] = []
-    _test_signals: list[dict[str, Any]] = []
-    _test_predictions: list[dict[str, Any]] = []
     _test_watchlist: dict[str, dict[str, Any]] = {}
-
-    # Expose state for test assertions
-    db._test_raw_messages = _test_raw_messages
-    db._test_signals = _test_signals
-    db._test_predictions = _test_predictions
     db._test_watchlist = _test_watchlist
-
-    async def mock_insert_raw_message(message: Any) -> int:
-        _test_raw_messages.append(
-            {
-                "message": message,
-                "inserted_at": datetime.now(timezone.utc),
-            }
-        )
-        return len(_test_raw_messages)
-
-    async def mock_insert_signal(signal: Any) -> None:
-        _test_signals.append(
-            {
-                "signal": signal,
-                "inserted_at": datetime.now(timezone.utc),
-            }
-        )
-
-    async def mock_insert_prediction(evaluation: Any, timestamp: datetime) -> None:
-        _test_predictions.append(
-            {
-                "evaluation": evaluation,
-                "timestamp": timestamp,
-                "inserted_at": datetime.now(timezone.utc),
-            }
-        )
 
     async def mock_upsert_watchlist_ticker(
         ticker: str,
@@ -246,10 +201,6 @@ def mock_db() -> Any:
             "upserted_at": datetime.now(timezone.utc),
         }
 
-    # Assign mock methods
-    db.insert_raw_message = mock_insert_raw_message
-    db.insert_signal = mock_insert_signal
-    db.insert_prediction = mock_insert_prediction
     db.upsert_watchlist_ticker = mock_upsert_watchlist_ticker
     db.get_active_watchlist = AsyncMock(return_value=[])
     db.get_active_watchlist_with_metadata = AsyncMock(return_value=[])
@@ -260,13 +211,7 @@ def mock_db() -> Any:
 
 @pytest.fixture
 def test_settings() -> Any:
-    """Create test settings with real API keys from environment.
-
-    This loads settings from environment variables / .env file,
-    which should include real API keys for:
-    - ANTHROPIC_API_KEY or OPENAI_API_KEY (LLM)
-    - TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (notifications)
-    """
+    """Create test settings with real API keys from environment."""
     from synesis.config import get_settings
 
     return get_settings()

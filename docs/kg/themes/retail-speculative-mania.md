@@ -61,6 +61,16 @@ Despite mania markers, gold rallied on 4/14, 4/19, 4/22, 4/23 alongside equity r
 
 The mania remains active but uneven. NVDA at $5T market cap on heavy call demand is the bellwether — if it stalls, the broader speculative complex faces vol expansion.
 
+## 2026-05-02 → 2026-05-04 — GME ACQUIRES EBAY: $55.5B meme M&A proposal
+
+**GameStop proposed to acquire eBay for $55.5B** — the apex meme-stock M&A event. A company with a fraction of EBAY's market cap proposing to acquire it for $55.5B is the clearest signal yet that retail reflexivity is reaching peak levels.
+
+Key markers:
+- GME as acquirer: financing credibility near zero without a formal structure; the narrative has more value than the deal.
+- Pattern match: Prior meme episodes (GameStop 2021, Roaring Kitty 2024) showed that any validation (even a press release) can trigger violent short squeezes.
+- Market context: This emerged when VIX was ~16.9 (benign), HY OAS tight, retail speculative activity still elevated.
+- Source: [[sources/brief-2026-05-02]], [[sources/brief-2026-05-04]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-15]] — record call option volumes
 > - [[sources/brief-2026-04-16]] — BE +1490%, META $35M call sweep
@@ -69,6 +79,8 @@ The mania remains active but uneven. NVDA at $5T market cap on heavy call demand
 > - [[sources/brief-2026-04-21]] — MEME ETF +56% / retail outperformance
 > - [[sources/brief-2026-04-24]] — Korea margin loans record
 > - [[sources/brief-2026-04-26]] — NVDA $27M 200c June
+> - [[sources/brief-2026-05-02]] — GME $55.5B EBAY acquisition proposal
+> - [[sources/brief-2026-05-04]] — GME/EBAY financing credibility; meme M&A volatility risk
 
 ---
 **Related:** [[themes/ai-infrastructure]] | [[themes/hyperscaler-ai-capex-arms-race]]

@@ -44,35 +44,6 @@ class Settings(CacheTTLSettings, BaseSettings):
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0")
 
-    # Telegram (ingestion)
-    telegram_api_id: int | None = Field(default=None)
-    telegram_api_hash: SecretStr | None = Field(default=None)
-    telegram_session_name: str = Field(default="shared/sessions/synesis")
-    telegram_channels: list[str] = Field(default_factory=list)
-
-    # Telegram (notifications)
-    telegram_bot_token: SecretStr | None = Field(
-        default=None,
-        description="Telegram bot token for sending notifications",
-    )
-    telegram_chat_id: str | None = Field(
-        default=None,
-        description="Telegram chat ID to send notifications to",
-    )
-
-    # Notification channel selection
-    notification_channel: Literal["telegram", "discord"] = Field(
-        default="telegram",
-        description="Notification output channel: 'telegram' or 'discord'",
-    )
-    news_stage1_enabled: bool = Field(
-        default=True,
-        description="Enable news Stage 1 (impact scoring + ticker matching). When false, the processor exits before classification.",
-    )
-    news_stage2_enabled: bool = Field(
-        default=True,
-        description="Enable news Stage 2 processing (LLM analysis, market matching, notification)",
-    )
     market_movers_enabled: bool = Field(
         default=True,
         description="Enable daily market movers snapshot schedule (10:30am ET).",
@@ -113,54 +84,7 @@ class Settings(CacheTTLSettings, BaseSettings):
         description="Discord webhook URL for briefs (intelligence, events, market)",
     )
 
-    @field_validator("telegram_channels", mode="before")
-    @classmethod
-    def parse_telegram_channels(cls, v: str | list[str] | None) -> list[str]:
-        if v is None:
-            return []
-        if isinstance(v, str):
-            v = v.strip()
-            if v.startswith("["):
-                parsed: list[str] = json.loads(v)
-                v = parsed
-            else:
-                v = [c.strip() for c in v.split(",") if c.strip()]
-        return [c.lstrip("@") for c in v]
-
-    # RSS ingestion (Google News)
-    rss_enabled: bool = Field(
-        default=False,
-        description="Enable Google News RSS feed polling",
-    )
-    rss_poll_interval_minutes: int = Field(
-        default=1,
-        description="Minutes between RSS poll cycles",
-    )
-    rss_feeds: list[str] = Field(
-        default_factory=lambda: [
-            # AI mega-deals: M&A, investments, big orders ($M/$B)
-            'https://news.google.com/rss/search?q="AI"+OR+"artificial+intelligence"+"billion"+OR+"million"+acquisition+OR+order+OR+investment+OR+deal+when:24h&hl=en-US&gl=US&ceid=US:en',
-            # AI infrastructure supply chain: data centers, semis, GPUs, optics
-            'https://news.google.com/rss/search?q="data+center"+OR+semiconductor+OR+GPU+OR+transceiver+OR+"optical"+order+OR+deal+OR+contract+OR+investment+when:24h&hl=en-US&gl=US&ceid=US:en',
-        ],
-        description="Google News RSS feed URLs to poll (topic or search feeds)",
-    )
-
-    @field_validator("rss_feeds", mode="before")
-    @classmethod
-    def parse_rss_feeds(cls, v: str | list[str] | None) -> list[str]:
-        if v is None:
-            return []
-        if isinstance(v, str):
-            v = v.strip()
-            if v.startswith("["):
-                parsed: list[str] = json.loads(v)
-                v = parsed
-            else:
-                v = [u.strip() for u in v.split(",") if u.strip()]
-        return list(v)
-
-    # Twitter (twitterapi.io) — ingestion client credentials (not active in Flow 1)
+    # Twitter (twitterapi.io) — ingestion client credentials
     twitterapi_api_key: SecretStr | None = Field(default=None)
     twitter_api_base_url: str = Field(default="https://api.twitterapi.io")
     twitter_accounts: list[str] = Field(default_factory=list)

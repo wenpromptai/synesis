@@ -87,7 +87,7 @@ async def watchlist_stats(request: Request, db: DbDep) -> dict[str, Any]:
     **Returns (object):**
     - `total_tickers` (int): count of active rows.
     - `sources` (dict[str, int]): counts grouped by who/what added each ticker
-      (e.g. `{"api": 5, "telegram": 3, "intelligence": 8}`).
+      (e.g. `{"api": 5, "manual": 2}`).
 
     **Example:** `curl http://localhost:7337/api/v1/watchlist/stats`
     """

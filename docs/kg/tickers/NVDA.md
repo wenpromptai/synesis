@@ -81,6 +81,13 @@ tags: [ticker, semiconductor, ai, gpu]
 - Risk: positioning crowding + IGV -5.8% on 4/23 shows how fast factor rotation hits long-duration; any earnings stumble propagates.
 - Source: [[sources/brief-2026-04-21]], [[sources/brief-2026-04-22]], [[sources/brief-2026-04-24]], [[sources/brief-2026-04-25]], [[sources/brief-2026-04-26]]
 
+## 2026-05-03 — Ecosystem expansion: $50M Legora investment
+- NVDA invested **$50M in Legora**, a legal-AI company.
+- Signal: Ecosystem expansion beyond training/inference chips into vertical AI applications (legal tech).
+- Near-term P&L impact: negligible. Strategic read: NVDA is building an ecosystem of AI-vertical companies dependent on its compute stack, increasing long-term switching costs.
+- Pattern: Similar to Intel's prior ecosystem investment strategy; broadens NVDA's moat beyond hardware.
+- Source: [[sources/brief-2026-05-03]]
+
 **See also:** [[bull-call-spread]] | [[sources/connections/ai-compute-stack|AI compute stack]] | [[themes/hyperscaler-ai-capex-arms-race]] | [[themes/software-hardware-bifurcation]]
 
 > [!quote]- Sources
@@ -94,3 +101,4 @@ tags: [ticker, semiconductor, ai, gpu]
 > - [[sources/brief-2026-04-21]] — shipment slowdown = data center readiness bottleneck
 > - [[sources/brief-2026-04-24]] — 800V DC architecture engagement with Korean power vendors
 > - [[sources/brief-2026-04-26]] — $5T market cap intraday, $27M Jun 200c flow
+> - [[sources/brief-2026-05-03]] — $50M Legora investment; ecosystem expansion into legal AI

@@ -95,9 +95,36 @@ Hormuz blockade now active. Oil spiking (USO +5.7%). Stagflation base case recon
 
 Source: [[sources/brief-2026-04-13]]
 
+## 2026-04-29 — FOMC HOLDS AT 3.75%, PCE RE-ACCELERATES
+
+**FOMC April 28-29 meeting: Policy rate UNCHANGED at 3.75%.** Higher-for-longer confirmed.
+
+- **PCE: 3.5% y/y; 0.7% m/m** (cited in 5/1 brief) — core inflation re-accelerating above target.
+- Transmission: Oil shock above $100 (multiple cycles) → energy PCE spike → sticky headline → Fed can't cut.
+- **Real rates rising:** 10Y yield ~4.31-4.40% with TLT below 50d/200d across all April 27 – May 4 briefs. Term premium sticky.
+- **Credit curve headwinds:** HYG below 200d across this period; LQD below 50d/200d. Duration is the shock absorber for any upside inflation surprise.
+- Source: [[sources/brief-2026-04-29]], [[sources/brief-2026-04-30]], [[sources/brief-2026-05-01]]
+
+## 2026-05-02 — National Debt > GDP for first time since WWII
+- **US national debt surpassed GDP for the first time since WWII** (news cluster, 5/2 brief).
+- Fiscal implication: Debt sustainability concerns → higher term premium → structurally higher long-end yields → pressure on duration assets and equity multiples.
+- This is a structural argument for persistent stagflation (fiscal spending keeps growth and inflation elevated) vs a cyclical argument (energy shock).
+- Combined with oil shock and FOMC hold = triple inflation driver: energy, fiscal spending, PCE re-acceleration.
+- Source: [[sources/brief-2026-05-02]]
+
+## Defensive Ticker Expressions
+| Ticker | Type | Rationale |
+|--------|------|-----------|
+| [[tickers/VZ]] | Defensive carry | FCF ≥$21.5B FY2026; telecom bond-proxy in sticky-rate env; equity carry without duration |
+| [[tickers/BRK.B]] | Quality compounder | $397B cash; diversified non-cyclical cash flows; optionality on drawdown deployment |
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime driver
 > - [[sources/brief-2026-04-10-manual]] — upgraded to base case with hard macro data
 > - [[sources/brief-2026-04-11-manual]] — core CPI miss, ceasefire testing the thesis
 > - [[sources/brief-2026-04-12-manual]] — re-intensifying, Iran deal failure, oil spike expected
 > - [[sources/brief-2026-04-13]] — blockade confirmed, credit divergence amplifier
+> - [[sources/brief-2026-04-29]] — FOMC hold 3.75%; higher-for-longer
+> - [[sources/brief-2026-04-30]] — PCE 3.5%/0.7%; oil $119; term premium sticky
+> - [[sources/brief-2026-05-01]] — initial claims 189k; Sahm 0.20; credit still resilient
+> - [[sources/brief-2026-05-02]] — national debt > GDP first time since WWII; fiscal stagflation amplifier

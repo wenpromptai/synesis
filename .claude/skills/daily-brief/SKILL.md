@@ -14,21 +14,6 @@ You are a senior multi-strategy portfolio manager at a systematic hedge fund. Pr
 
 ## Step 1: Gather Signals (last 24 hours)
 
-### News messages from DB
-
-**CRITICAL: Do NOT truncate output with `head` or character limits. Read ALL rows. If output is saved to a file, read that file completely.**
-
-```bash
-docker exec synesis-timescaledb psql -U synesis -d synesis -c "
-  SELECT source_platform, source_account, LEFT(raw_text, 300) as text_preview,
-         source_timestamp, impact_score, tickers
-  FROM synesis.raw_messages
-  WHERE source_timestamp > NOW() - INTERVAL '24 hours'
-    AND impact_score >= 20
-  ORDER BY impact_score DESC, source_timestamp DESC;"
-```
-No LIMIT — fetch everything. The `tickers` column may be empty for many messages; you must also scan the text for company names and ticker symbols manually.
-
 ### Tweets from curated accounts
 
 **CRITICAL: Do NOT truncate output with `head` or character limits. You WILL lose ticker signals. Read ALL rows.**

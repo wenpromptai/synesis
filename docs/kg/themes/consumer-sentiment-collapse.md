@@ -42,6 +42,11 @@ The UMich number may be backward-looking — 98% of interviews were pre-ceasefir
 - Bank earnings (GS, JPM week of 4/13) for consumer credit quality
 - Fed response to inflation expectations unanchoring — NickTimiraos notes Fed wants to see energy prices coming down
 
+## Consumer Ticker Exposure
+| Ticker | Signal | Direction |
+|--------|--------|-----------|
+| [[tickers/NFLX]] | Q1 beat but guide-down -9%; $25B buyback; subscription resilience test | monitor |
+
 ## 2026-04-12 — WORSENING (OIL SPIKE INCOMING)
 
 Iran deal failure means oil returns above $100 Monday. This directly hits the consumer:
@@ -52,6 +57,26 @@ Iran deal failure means oil returns above $100 Monday. This directly hits the co
 
 The market-vs-consumer disconnect flagged in prior brief is about to be tested. Bank earnings commentary on consumer delinquencies/reserves will be critical.
 
+## 2026-04-29 — Consumer confidence + gasoline escalation
+
+- Consumer confidence index: **92.8** (vs prior cycle highs) — directionally deteriorating.
+- **Personal income: -0.1% MoM** (April data) — growth caution; vs +0.4% prior. Consumption headwind.
+- **Gasoline average: ~$4.18/gal** (April 28) rising to **$4.45/gal** (May 4) — gasoline up ~50% since conflict started.
+- UPS margins under pressure and shares fell on substantial YoY profit drop — volume/logistics barometer confirming consumer squeeze.
+- Source: [[sources/brief-2026-04-29]], [[sources/brief-2026-05-04]]
+
+## 2026-05-01 — Stock market disconnect deepens
+
+S&P 500 +10% in April despite consumer data deteriorating. Key divergence:
+- SPY +7.3% above 200d, risk-on breadth improving (IWM +2.2% vs SPY +1.0% on 4/30)
+- But: gasoline at $4.18/gal, personal income -0.1%, PCE re-accelerating to 3.5%/0.7%
+- Fed can't cut (FOMC held 3.75% on 4/28-29) — consumer cannot get relief from lower rates
+- **Dual compression risk:** High gasoline + high rates = consumer squeezed from both directions
+- Source: [[sources/brief-2026-05-01]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11-manual]] — UMich record low, inflation expectations, market disconnect analysis
 > - [[sources/brief-2026-04-12-manual]] — oil spike worsening, bank earnings as sentiment test
+> - [[sources/brief-2026-04-29]] — consumer confidence 92.8; personal income -0.1%; gasoline $4.18/gal
+> - [[sources/brief-2026-05-01]] — SPY/consumer divergence; dual squeeze (gasoline + rates)
+> - [[sources/brief-2026-05-04]] — gasoline $4.45/gal; ~50% since conflict started

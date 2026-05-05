@@ -1,9 +1,0 @@
-"""HMM-based macro regime detection.
-
-Fits a Gaussian HMM on weekly cross-asset features (equity returns, volatility,
-credit spreads, yield curve, dollar) to classify market regimes as a quantitative prior.
-"""
-
-from synesis.processing.regime.detector import RegimeDetector
-
-__all__ = ["RegimeDetector"]

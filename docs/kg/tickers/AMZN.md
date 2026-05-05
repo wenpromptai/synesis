@@ -41,6 +41,14 @@ tags: [ticker, cloud, ai, mega-cap]
 
 **Strategic read:** AMZN-Anthropic structure is the cleanest example of "compute-as-equity" — equity stake guarantees Trainium offtake. Counter-move from GOOGL ($40B Anthropic, 4/25) keeps Google's compute access intact but doesn't displace AMZN. Combined two-investor exposure to Anthropic now ~$80B+. See [[themes/hyperscaler-ai-capex-arms-race]].
 
+## 2026-04-30 — Q1 2026 EARNINGS BEAT (reported Apr 29)
+- **Q1 2026 EPS: $2.78 vs $1.62 estimate** — massive beat driven by AWS + advertising.
+- **Total revenue: $181.5B** (Q1 2026).
+- AWS AI services cited as primary driver of earnings acceleration.
+- Cloud + retail operating leverage thesis confirmed.
+- Bull: USD weakness (UUP -0.9% on 4/30) provides FX tailwind to international retail. AWS growth + AI services commentary validates $100B capex framework.
+- Source: [[sources/brief-2026-04-30]]
+
 **See also:** [[themes/hyperscaler-ai-capex-arms-race]] | [[themes/custom-silicon-tpu-displacement]]
 
 > [!quote]- Sources
@@ -51,3 +59,4 @@ tags: [ticker, cloud, ai, mega-cap]
 > - [[sources/brief-2026-04-21]] — $25B Anthropic + $100B commitment, Trainium 5GW
 > - [[sources/brief-2026-04-22]] — $100B framework affirmed
 > - [[sources/brief-2026-04-26]] — hyperscaler beneficiary cluster
+> - [[sources/brief-2026-04-30]] — Q1 EPS $2.78 vs $1.62 est; revenue $181.5B

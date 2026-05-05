@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -31,12 +30,9 @@ class _MockAgentState:
     redis: Any = None
     db: Any = None
     settings: Any = None
-    agent_task: asyncio.Task[None] | None = None
-    telegram_enabled: bool = False
     db_enabled: bool = True
     scheduler: Any = None
     trigger_fns: dict[str, Any] = field(default_factory=dict)
-    _background_tasks: list[asyncio.Task[None]] = field(default_factory=list)
 
 
 @pytest.fixture()
@@ -44,13 +40,13 @@ def mock_agent_state():
     mock_redis = AsyncMock()
     mock_redis.ping.return_value = True
 
-    running_task = MagicMock()
-    running_task.done.return_value = False
+    mock_scheduler = MagicMock()
+    mock_scheduler.running = True
 
     return _MockAgentState(
         redis=mock_redis,
         db=MagicMock(),
-        agent_task=running_task,
+        scheduler=mock_scheduler,
     )
 
 
@@ -96,7 +92,6 @@ def app(mock_agent_state, mock_redis_dep, mock_db_dep):
         except Exception:
             checks["redis"] = "error"
         checks["db"] = "ok" if state.db else "disabled"
-        checks["agent"] = "ok" if state.agent_task and not state.agent_task.done() else "error"
         status = "ready" if all(v != "error" for v in checks.values()) else "not_ready"
         return {"status": status, **checks}
 
@@ -137,7 +132,6 @@ class TestReady:
         body = r.json()
         assert body["status"] == "ready"
         assert body["redis"] == "ok"
-        assert body["agent"] == "ok"
 
     async def test_ready_redis_down(self, client: httpx.AsyncClient, mock_agent_state):
         mock_agent_state.redis.ping.side_effect = ConnectionError("refused")
@@ -328,8 +322,8 @@ class TestSystemStatus:
         r = await client.get(f"{SYS_PREFIX}/status")
         assert r.status_code == 200
         body = r.json()
-        assert body["telegram"] is False
-        assert body["agent_running"] is True
+        assert body["db_enabled"] is True
+        assert body["scheduler_running"] is True
 
 
 class TestSystemConfig:
@@ -338,14 +332,12 @@ class TestSystemConfig:
             s = MagicMock()
             s.env = "development"
             s.llm_provider = "anthropic"
-            s.telegram_api_id = None
             mock_settings.return_value = s
             r = await client.get(f"{SYS_PREFIX}/config")
         assert r.status_code == 200
         body = r.json()
         assert body["env"] == "development"
         assert body["llm_provider"] == "anthropic"
-        assert body["telegram_enabled"] is False
 
 
 # ===========================================================================

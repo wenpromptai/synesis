@@ -42,8 +42,17 @@ tags: [ticker, energy, oil]
 - **Reassess after Q1 report May 1.**
 - Source: [[sources/brief-2026-04-12-manual]]
 
+## 2026-05-02 — Q1 2026 EARNINGS BEAT
+- CVX Q1 2026 earnings beat reported (news cluster, May 1 session).
+- Cash-flow resilience confirmed: integrated portfolio offset geopolitical noise — downstream/chemicals partially buffered upstream volatility.
+- Capital return cadence intact; dividend/buyback maintained.
+- Assessment: CVX was exited at $188 stop in April on Q1 headwinds; Q1 report validates the "Q1 headwinds were timing-related, not structural" original assessment — production/buyback guidance confirmed.
+- Monitor: Whether management commentary addresses the $2.7-3.7B adverse timing/WC effects as transitory vs recurring.
+- Source: [[sources/brief-2026-05-02]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — initial observation
 > - [[sources/brief-2026-04-10-manual]] — trade update (at stop, tighten to $189)
 > - [[sources/brief-2026-04-11-manual]] — EXIT, broke $190 stop
 > - [[sources/brief-2026-04-12-manual]] — remain exited, XLE preferred for energy exposure
+> - [[sources/brief-2026-05-02]] — Q1 2026 earnings beat; integrated resilience confirmed

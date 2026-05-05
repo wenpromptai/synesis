@@ -15,8 +15,10 @@ Strait of Hormuz disruption and shipping lane risks keeping oil bid, creating st
 | Ticker | Exposure | Direction | As Of |
 |--------|----------|-----------|-------|
 | [[tickers/CVX]] | Integrated major, multi-year volume ramp post-Hess | long beneficiary | 2026-04-10 |
+| [[tickers/XOM]] | Integrated major Q1 2026 beat; oil supply hedge | long beneficiary | 2026-05-02 |
 | [[tickers/OIH]] | Oil services ETF — upstream leverage to oil price | long beneficiary | 2026-04-10 |
 | [[tickers/XLE]] | Energy sector ETF | long beneficiary | 2026-04-10 |
+| [[tickers/NEM]] | Gold miner; GC 0th pctl crowded short → squeeze setup | long wildcard | 2026-05-04 |
 
 ## 2026-04-10 (transitioning regime)
 
@@ -108,6 +110,30 @@ Source: [[sources/brief-2026-04-19]], [[sources/brief-2026-04-20]], [[sources/br
 
 Source: [[sources/brief-2026-04-22]], [[sources/brief-2026-04-23]], [[sources/brief-2026-04-24]], [[sources/brief-2026-04-25]], [[sources/brief-2026-04-26]]
 
+## 2026-04-27 → 2026-04-29 — Continued Hormuz pressure + OPEC cohesion fracture
+
+- 4/27 brief: Geopolitical scenarios: 55% contained escalation; 30% supply disruption; 15% de-escalation.
+- 4/28 brief: **Strait of Hormuz "nearly closed" headlines** — USO +1.8% on the day. UAE exits OPEC effective May 1 flagged as imminent catalyst. Geopolitical scenarios: 55% de-escalation/partial reopening; 35% prolonged standoff; 10% acute disruption.
+- 4/29 brief: **UAE EXITED OPEC effective May 1** — explicit OPEC cohesion fracture. USO +3.6% on the day (SPY -0.5% = energy outperforming on risk-off day). "UAE strategic exit from OPEC to gain oil production flexibility." Iran/Hormuz sanction headlines simultaneously elevated.
+- Source: [[sources/brief-2026-04-27]], [[sources/brief-2026-04-28]], [[sources/brief-2026-04-29]]
+
+## 2026-04-30 — Oil above $119, FOMC exacerbates
+- **USO +7.9% in a single day** on escalating Iran/US geopolitical headlines.
+- XLE +2.3%; energy outperforming broadly.
+- **Oil spiked to ~$119/barrel** — FOMC held policy rate at 3.75% (unchanged) on April 28-29, keeping "higher for longer" in place alongside oil shock.
+- Layered tail risks: Iran/US tensions escalate; FOMC hawkish hold amplifies financial conditions tightening.
+- Source: [[sources/brief-2026-04-30]]
+
+## 2026-05-01 → 2026-05-04 — Geopolitics persistent; gasoline $4.45/gal
+
+- **Gasoline at $4.18/gal** (4/29 brief), rising to **$4.45/gal** (5/4 brief) — up ~50% since conflict started.
+- 5/1 brief: Iran/Hormuz escalation risk persists; USO -2.4% on de-escalation hopes but structurally elevated.
+- 5/2 brief: CVX/XOM earnings beats confirm integrated cash flow resilience despite oil volatility.
+- 5/3 brief: **OPEC+ tentatively agreed to increase June output quotas ~188k bpd** — partially offsets supply-scare narrative, explaining why oil can be structurally elevated yet tactically choppy.
+- 5/4 brief: Iran halts nuclear talks pending ceasefire; US takes hard stance on Hormuz shipping. "Iran/US situation could shift from 'oil-only' to broad risk-off."
+- Pattern: Each Hormuz cycle is episodic — market treats as headline-driven, not structural, creating persistent complacency risk.
+- Source: [[sources/brief-2026-05-01]], [[sources/brief-2026-05-02]], [[sources/brief-2026-05-03]], [[sources/brief-2026-05-04]]
+
 > [!quote]- Sources
 > - [[sources/brief-2026-04-10]] — macro regime analysis
 > - [[sources/brief-2026-04-10-manual]] — oil price specifics, crisis escalation
@@ -118,3 +144,6 @@ Source: [[sources/brief-2026-04-22]], [[sources/brief-2026-04-23]], [[sources/br
 > - [[sources/brief-2026-04-18]] — Strait reopened, USO -7.8%, OpenAI/Cerebras $20B
 > - [[sources/brief-2026-04-19]] through [[sources/brief-2026-04-21]] — Iran reclosed, oil whipsaws back up
 > - [[sources/brief-2026-04-22]] through [[sources/brief-2026-04-26]] — Trump Navy escalation, GS Gulf production -57%
+> - [[sources/brief-2026-04-27]] through [[sources/brief-2026-04-29]] — Hormuz "nearly closed"; UAE exits OPEC May 1
+> - [[sources/brief-2026-04-30]] — USO +7.9%; oil ~$119; FOMC hold amplifies
+> - [[sources/brief-2026-05-01]] through [[sources/brief-2026-05-04]] — gasoline $4.45/gal; OPEC+ June quota; Iran nuclear talks halted

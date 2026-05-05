@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram, Twitter) into actionable Polymarket trading decisions using LLM-powered analysis, market matching, and automated execution.
+Financial intelligence and prediction market research system. Runs LangGraph multi-agent pipelines to analyze equities, form bull/bear theses, and produce structured trade ideas. Monitors market events, Twitter signals, and market movers. Sends briefs to Discord.
 
 ## Tech Stack
 
@@ -11,7 +11,7 @@ Real-time financial news analysis and prediction market trading system. Transfor
 - Package manager: uv
 - Database: PostgreSQL 16 + TimescaleDB
 - Cache/Queue: Redis
-- LLM: PydanticAI (Codex / OpenAI)
+- LLM: PydanticAI (Claude / OpenAI)
 - Trading: Polymarket (Gamma API for discovery, CLOB API for execution)
 
 ## Commands
@@ -32,17 +32,14 @@ uv run synesis --reload
 
 ### Docker Setup (first time)
 
-Telegram requires an interactive login on first run, so the app cannot start in Docker until a session file exists.
-
 ```bash
 # 1. Start infrastructure only (DB, Redis, SearXNG, Crawl4AI)
 docker compose up -d timescaledb redis searxng crawl4ai
 
-# 2. Run app locally to generate Telegram session (shared/sessions/synesis.session)
+# 2. Run app locally to verify startup
 uv run synesis
-# Wait for "Signed in successfully", then Ctrl+C
 
-# 3. Now start the full stack including the app
+# 3. Start the full stack including the app
 docker compose up -d
 ```
 
@@ -64,28 +61,36 @@ docker compose logs -f synesis
 ```
 src/synesis/
 ├── core/              # Logging, constants, dependencies
-├── ingestion/         # Telegram, Twitter listeners
+├── ingestion/         # Twitter client, price data
 ├── processing/        # All analysis pipelines
-│   ├── news/          # Flow 1: LLM news analysis (Stage 1 + Stage 2)
+│   ├── intelligence/  # LangGraph multi-agent pipeline (see docs/ARCHITECTURE.md)
+│   │   ├── specialists/   # company, price, ticker_research analysts
+│   │   ├── debate/        # Bull/bear debate subgraph (configurable rounds)
+│   │   ├── trader/        # Trader (sole decision maker → equity TradeIdea with R/R)
+│   │   ├── graph.py       # LangGraph state machine wiring
+│   │   ├── compiler.py    # Brief assembly + markdown export for KG
+│   │   └── job.py         # Pipeline runner → Discord + KG brief
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
-│   ├── events/        # Event radar: daily digest
-│   │   └── yesterday/ # Yesterday brief sub-analyzers (earnings, macro, surprises, filings, consolidator)
+│   ├── market/        # Market movers: daily snapshot + top movers
+│   ├── events/        # Event radar: forward-looking calendar digest
 │   └── common/        # Shared utilities (watchlist, LLM, web search)
 ├── providers/         # External data providers
 │   ├── finnhub/       # Real-time prices, fundamentals
 │   ├── nasdaq/        # NASDAQ earnings calendar
-│   ├── sec_edgar/     # SEC EDGAR filings, insider transactions, earnings
+│   ├── sec_edgar/     # SEC EDGAR filings, insiders, 13F holdings, ownership, XBRL
 │   ├── yfinance/      # Equity/ETF/FX quotes, OHLCV history, options chains
 │   ├── fred/          # FRED economic data (series, releases, observations)
+│   ├── massive/       # Massive.com stocks + options (free tier, Polygon-compatible)
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
-├── notifications/     # Telegram & Discord notifications
+├── notifications/     # Discord notifications
 ├── storage/           # PostgreSQL + Redis clients
-├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
+├── agent/             # Scheduler, lifespan
 └── api/               # HTTP/WebSocket endpoints
 
 tests/                 # Test files
 docs/                  # Documentation (Obsidian vault)
+docs/kg/               # LLM-compiled knowledge graph (Karpathy-style)
 scripts/               # Utility scripts
 ```
 
@@ -108,7 +113,9 @@ scripts/               # Utility scripts
 
 ## Context
 
-- `.Codex/skills/fastapi-developing/` - FastAPI patterns
+- `.claude/skills/fastapi-developing/` - FastAPI patterns
+- `.claude/skills/obsidian-kg/` - Knowledge graph building, compilation, and linting
+- `docs/ARCHITECTURE.md` - Intelligence pipeline architecture (LangGraph topology, state, agents)
 
 ## Key APIs
 
@@ -116,6 +123,7 @@ scripts/               # Utility scripts
 - **SEC EDGAR API**: `https://data.sec.gov` (filings, Form 4, XBRL — free, no key)
 - **NASDAQ Earnings**: `https://api.nasdaq.com` (earnings calendar — free, no key)
 - **FRED API**: `https://api.stlouisfed.org/fred` (economic data — free key required)
+- **Massive.com API**: `https://api.massive.com` (stocks + options — free tier, 5 calls/min)
 
 ## API Routes
 
@@ -123,16 +131,33 @@ All routes are mounted under `/api/v1/`. Rate-limited via slowapi (per-IP).
 
 - `/system/*` — System status (60/min)
 - `/fh/*` — Finnhub: ticker verify/search (120/min), REST quotes (60/min), WS cache reads (120/min)
-- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks, options snapshot (30/min, chain/snapshot 10/min)
+- `/yf/*` — yfinance: quotes, history, FX, options chains with Greeks, options snapshot, analyst ratings (30/min, chain/snapshot 10/min)
 - `/watchlist/*` — Watchlist CRUD (reads 60/min, writes 10/min)
 - `/earnings/*` — NASDAQ earnings calendar (30/min)
 - `/sec_edgar/*` — SEC filings, insider transactions, sentiment, search (60/min, earnings content 10/min)
 - `/fred/*` — FRED: series search, observations, releases (30/min, info 60/min)
 - `/events/*` — Event radar: upcoming, calendar, discover, digest, CRUD (30/min, digest 5/min)
 - `/twitter/*` — Twitter agent: trigger daily digest (5/min)
+- `/market/*` — Market movers: trigger daily movers snapshot (5/min)
+- `/intelligence/analyze` — On-demand deep ticker analysis (2/min)
 
 See `src/synesis/api/routes/_routes_context.md` for full endpoint reference with examples.
 
+## Intelligence Pipeline
+
+On-demand via `/api/v1/intelligence/analyze`: ticker research + company/price analysis (parallel per ticker) → bull/bear debate → Trader (equity R/R + conviction tiers) → Discord brief + KG markdown.
+
+Scheduled jobs (APScheduler):
+- **10:00 AM ET** — Twitter agent digest
+- **10:30 AM ET** — Market movers snapshot
+- **6:00 PM ET** — Event Radar fetch
+- **7:00 PM ET** — Event Radar digest → Discord
+- **Monday 6am UTC** — Ticker list refresh
+
+See `docs/ARCHITECTURE.md` for full graph topology, state schema, and agent inventory.
+
+**Pipeline brief auto-save:** Each run saves a markdown brief to `docs/kg/raw/synesis_briefs/YYYY-MM-DD.md` for future KG compilation.
+
 ## Trading Strategy
 
-1. **News-Driven Sentiment**: LLM analyzes news → finds related Polymarket markets → evaluates mispricing
+1. **Intelligence Pipeline**: LangGraph agents analyze equities → bull/bear debate → Trader forms R/R trade ideas → Discord brief

@@ -9,7 +9,7 @@ You are fixing issues in Synesis. Follow CLAUDE.md (in the project root) for dev
 
 ## Architecture Context
 This is a Python-based financial intelligence system built with FastAPI and PydanticAI:
-- **Processing**: Two-stage news pipeline — Stage 1 impact scoring + ticker matching (fast, no LLM) + Stage 2 smart analysis (LLM with research context)
+- **Processing**: On-demand LangGraph intelligence pipeline (`POST /intelligence/analyze`) — ticker research + company/price analysis (parallel) → bull/bear debate → Trader (equity R/R + conviction tiers)
 - **Providers**: SEC EDGAR, NASDAQ, Finnhub, yfinance, FRED, Massive.com for market data
 - **Markets**: Polymarket Gamma API for market discovery and evaluation
 - **Agent**: PydanticAI agent with APScheduler for periodic jobs

@@ -1,6 +1,6 @@
 ---
 up: []
-related: []
+related: ["[[themes/consumer-sentiment-collapse]]"]
 created: 2026-04-11
 type: ticker
 sector: "Communication Services"
@@ -46,7 +46,7 @@ tags: [ticker, streaming, mega-cap, earnings-event]
 
 **Trajectory:** Beat-and-guide-down → -9% → leadership overhang → $25B buyback announcement → re-rates to "quality carry" status. Indicates that even premium subscription names are subject to streaming maturity discount in current rate regime.
 
-**See also:** [[strategies/options/earnings-options-systematic|earnings options systematic]] | [[concepts/implied-volatility|implied volatility]] | [[bear-put-spread]]
+**See also:** [[strategies/options/earnings-options-systematic|earnings options systematic]] | [[concepts/implied-volatility|implied volatility]] | [[bear-put-spread]] | [[themes/consumer-sentiment-collapse]]
 
 > [!quote]- Sources
 > - [[sources/brief-2026-04-11]] — debate analysis

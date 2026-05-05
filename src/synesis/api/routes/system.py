@@ -15,23 +15,20 @@ router = APIRouter()
 async def system_status(request: Request, state: AgentStateDep) -> dict[str, object]:
     """Live agent runtime status.
 
-    Reports whether Telegram ingestion is wired up and whether the background
-    agent task (queue worker pool) is currently running.
-
     **Inputs:** none (query path only).
 
     **Returns:**
-    - `telegram` (bool): True if Telegram credentials are configured.
-    - `agent_running` (bool): True if the queue worker task exists and has not finished.
+    - `db_enabled` (bool): True if a database connection is active.
+    - `scheduler_running` (bool): True if the APScheduler is running.
 
     **Example response:**
     ```json
-    {"telegram": true, "agent_running": true}
+    {"db_enabled": true, "scheduler_running": true}
     ```
     """
     return {
-        "telegram": state.telegram_enabled,
-        "agent_running": state.agent_task is not None and not state.agent_task.done(),
+        "db_enabled": state.db_enabled,
+        "scheduler_running": state.scheduler is not None and state.scheduler.running,
     }
 
 
@@ -40,24 +37,19 @@ async def system_status(request: Request, state: AgentStateDep) -> dict[str, obj
 async def system_config(request: Request) -> dict[str, object]:
     """Non-secret runtime config snapshot.
 
-    Returns environment + LLM provider + a derived flag for whether Telegram
-    credentials are configured. Secrets and API keys are never returned.
-
     **Inputs:** none.
 
     **Returns:**
     - `env` (str): "development" | "staging" | "production".
     - `llm_provider` (str): "anthropic" | "openai".
-    - `telegram_enabled` (bool): True if `TELEGRAM_API_ID` is set.
 
     **Example response:**
     ```json
-    {"env": "development", "llm_provider": "openai", "telegram_enabled": true}
+    {"env": "development", "llm_provider": "openai"}
     ```
     """
     settings = get_settings()
     return {
         "env": settings.env,
         "llm_provider": settings.llm_provider,
-        "telegram_enabled": bool(settings.telegram_api_id),
     }

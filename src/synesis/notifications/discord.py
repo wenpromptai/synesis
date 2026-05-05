@@ -1,35 +1,16 @@
-"""Discord webhook notification service.
-
-Sends rich embed notifications via Discord webhook.
-Used as an alternative to Telegram for Flow 1 news signal output.
-"""
+"""Discord webhook notification service."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import httpx
 from pydantic import SecretStr
 
-from synesis.core.constants import NEWS_SOURCE_RE as _NEWS_SOURCE_RE
-
 from synesis.config import get_settings
-from synesis.core.constants import (
-    COLOR_CRITICAL,
-    COLOR_NEUTRAL,
-    COLOR_URGENT,
-)
 from synesis.core.logging import get_logger
 
-if TYPE_CHECKING:
-    from synesis.processing.news import (
-        ETFImpact,
-        LightClassification,
-        SmartAnalysis,
-        UnifiedMessage,
-    )
 logger = get_logger(__name__)
 
 DISCORD_TIMEOUT = 10.0
@@ -78,25 +59,19 @@ async def send_discord(
                 retry_after = 1.0
                 try:
                     retry_after = response.json().get("retry_after", 1.0)
-                except Exception:
-                    logger.warning("Could not parse retry_after from rate-limit response")
+                except Exception as e:
+                    logger.warning("Could not parse Discord 429 retry_after", error=str(e))
                 logger.warning(
-                    "Discord rate limited, retrying after delay",
+                    "Discord rate limited, retrying",
                     retry_after=retry_after,
                 )
                 await asyncio.sleep(retry_after)
                 response = await client.post(webhook_url, json=payload)
                 if response.status_code == 204:
-                    logger.debug("Discord webhook sent successfully after retry")
                     return True
-                logger.error(
-                    "Discord webhook failed after rate-limit retry",
-                    status=response.status_code,
-                )
-                return False
 
-            logger.warning(
-                "Discord webhook failed",
+            logger.error(
+                "Discord webhook failed — notification dropped",
                 status=response.status_code,
                 body=response.text[:200],
             )
@@ -123,175 +98,3 @@ async def send_discord(
             error=str(e),
         )
         return False
-
-
-def format_stage1_embed(
-    message: UnifiedMessage,
-    extraction: LightClassification,
-) -> list[dict[str, Any]]:
-    """Format a Stage 1 signal as a Discord embed.
-
-    Sent immediately after gate for high/critical urgency signals.
-    Contains impact score + matched tickers only (no LLM output).
-
-    Args:
-        message: Original unified message
-        extraction: Stage 1 classification (impact score + tickers)
-
-    Returns:
-        List containing one embed dict
-    """
-    is_critical = extraction.urgency.value == "critical"
-    color = COLOR_CRITICAL if is_critical else COLOR_URGENT
-
-    # Truncate original message
-    original_text = message.text
-    if len(original_text) > 400:
-        original_text = original_text[:397] + "..."
-
-    # Extract news source from x.com URL in text (e.g. "FirstSquawk", "DeItaone")
-    source_match = _NEWS_SOURCE_RE.search(message.text)
-    news_source = source_match.group(1) if source_match else None
-    # Author line: "channel_name · news_source" or just "channel_name"
-    author = (
-        f"{message.source_account} · {news_source}"
-        if news_source and news_source != message.source_account
-        else message.source_account
-    )
-
-    description = f"> {original_text}"
-
-    fields: list[dict[str, Any]] = []
-
-    if extraction.matched_tickers:
-        fields.append(
-            {
-                "name": "Tickers",
-                "value": ", ".join(extraction.matched_tickers),
-                "inline": False,
-            }
-        )
-
-    fields.append(
-        {
-            "name": "Impact",
-            "value": f"{extraction.impact_score}/100",
-            "inline": True,
-        },
-    )
-
-    embed: dict[str, Any] = {
-        "author": {"name": author},
-        "title": "\U0001f6a8 1st Pass" if is_critical else "\u26a1 1st Pass",
-        "color": color,
-        "description": description[:4096],
-        "fields": fields,
-        "footer": {"text": "Synesis | Stage 1"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-    return [embed]
-
-
-def format_stage2_embed(
-    message: UnifiedMessage,
-    analysis: SmartAnalysis,
-) -> list[dict[str, Any]]:
-    """Format a Stage 2 analysis as Discord embed(s).
-
-    Args:
-        message: Original unified message
-        analysis: Stage 2 smart analysis
-
-    Returns:
-        List of embed dicts
-    """
-
-    # Truncate original message
-    original_text = message.text
-    if len(original_text) > 600:
-        original_text = original_text[:597] + "..."
-
-    # Description: quoted source + thesis + context
-    description = f"> {original_text}\n\n"
-    description += f"**Thesis:** {analysis.primary_thesis}\n"
-    if analysis.historical_context:
-        description += f"\n**Context:** *{analysis.historical_context}*\n\u200b"
-
-    fields: list[dict[str, Any]] = [
-        {"name": "Source", "value": message.source_account, "inline": True},
-    ]
-
-    # ETF impact with per-ETF sentiment — reason in blockquote
-    def _format_etf_impact(impacts: list[ETFImpact]) -> str:
-        lines = []
-        for etf in impacts:
-            emoji = (
-                "\U0001f7e2"
-                if etf.sentiment_score > 0
-                else "\U0001f534"
-                if etf.sentiment_score < 0
-                else "\u26aa"
-            )
-            line = f"{emoji} `{etf.ticker}` ({etf.sentiment_score:+.1f})"
-            if etf.reason:
-                line += f"\n> {etf.reason}"
-            lines.append(line)
-        return "\n".join(lines)
-
-    # Macro before sector
-    if analysis.macro_impact:
-        fields.append(
-            {
-                "name": "Macro Impact",
-                "value": _format_etf_impact(analysis.macro_impact)[:1024],
-                "inline": False,
-            }
-        )
-
-    if analysis.sector_impact:
-        fields.append(
-            {
-                "name": "Sector Impact",
-                "value": _format_etf_impact(analysis.sector_impact)[:1024],
-                "inline": False,
-            }
-        )
-
-    # Polymarket section
-    relevant_markets = [
-        e for e in analysis.market_evaluations if e.is_relevant and e.confidence >= 0.6
-    ]
-    if relevant_markets:
-        relevant_markets.sort(key=lambda e: (e.confidence, abs(e.edge or 0)), reverse=True)
-        mkt = relevant_markets[0]
-
-        edge = mkt.edge or 0
-        fair_price = mkt.estimated_fair_price if mkt.estimated_fair_price else mkt.current_price
-
-        side_map = {"yes": "\u2705 YES", "no": "\u274c NO"}
-        side_str = side_map.get(mkt.recommended_side, "\u23ed\ufe0f SKIP")
-
-        fields.append(
-            {
-                "name": "Polymarket",
-                "value": (
-                    f"**{mkt.market_question}**\n"
-                    f"{side_str} @ `${mkt.current_price:.2f}` \u2192 `${fair_price:.2f}` "
-                    f"(edge: **{edge:+.1%}**)"
-                )[:1024],
-                "inline": False,
-            }
-        )
-
-    embed: dict[str, Any] = {
-        "author": {"name": message.source_account},
-        "title": "\U0001f4ca Analysis",
-        "color": COLOR_NEUTRAL,
-        "description": description[:4096],
-        "fields": fields[:25],
-        "footer": {"text": "Synesis | Stage 2 Analysis"},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-    return [embed]

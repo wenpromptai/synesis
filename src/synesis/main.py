@@ -64,7 +64,6 @@ async def ready(state: AgentStateDep) -> dict[str, str]:
     except Exception:
         checks["redis"] = "error"
     checks["db"] = "ok" if state.db else "disabled"
-    checks["agent"] = "ok" if state.agent_task and not state.agent_task.done() else "error"
     status = "ready" if all(v != "error" for v in checks.values()) else "not_ready"
     return {"status": status, **checks}
 

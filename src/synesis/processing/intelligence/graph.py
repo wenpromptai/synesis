@@ -201,11 +201,8 @@ def build_analyze_graph(
             debate_input = {
                 "ticker": ticker,
                 "current_date": state["current_date"],
-                "social_analysis": state.get("social_analysis", {}),
-                "news_analysis": state.get("news_analysis", {}),
                 "company_analyses": state.get("company_analyses", []),
                 "price_analyses": state.get("price_analyses", []),
-                "watchlist_context": state.get("watchlist_context", {}),
                 "ticker_research": state.get("ticker_research", {}),
                 "debate_history": [],
                 "round": 0,
@@ -292,12 +289,8 @@ def build_analyze_graph(
     # ── Compiler ────────────────────────────────────────────────
 
     async def analyze_compiler_node(state: AnalyzeState) -> dict[str, Any]:
-        try:
-            brief = compile_brief(dict(state))
-            return {"brief": brief}
-        except Exception:
-            logger.exception("Analyze compiler failed", date=state.get("current_date"))
-            return {"brief": {}}
+        brief = compile_brief(dict(state))
+        return {"brief": brief}
 
     # ── Build Graph ──────────────────────────────────────────────
 

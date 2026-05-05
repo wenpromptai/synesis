@@ -12,30 +12,6 @@ from synesis.config import Settings
 # ─────────────────────────────────────────────────────────────
 
 
-class TestParseTelegramChannels:
-    """Tests for parse_telegram_channels validator."""
-
-    def test_none_returns_empty_list(self) -> None:
-        result = Settings.parse_telegram_channels(None)
-        assert result == []
-
-    def test_csv_string(self) -> None:
-        result = Settings.parse_telegram_channels("chan1, chan2, chan3")
-        assert result == ["chan1", "chan2", "chan3"]
-
-    def test_json_array_string(self) -> None:
-        result = Settings.parse_telegram_channels('["chan1", "chan2"]')
-        assert result == ["chan1", "chan2"]
-
-    def test_strips_at_prefix(self) -> None:
-        result = Settings.parse_telegram_channels("@chan1, @chan2")
-        assert result == ["chan1", "chan2"]
-
-    def test_list_passthrough(self) -> None:
-        result = Settings.parse_telegram_channels(["a", "b"])
-        assert result == ["a", "b"]
-
-
 class TestParseTwitterAccounts:
     """Tests for parse_twitter_accounts validator."""
 
@@ -126,18 +102,6 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
     ),
     # --- Redis ---
     ("redis_url", "REDIS_URL", "redis://localhost:6380/1", "redis://localhost:6380/1"),
-    # --- Telegram ingestion ---
-    ("telegram_api_id", "TELEGRAM_API_ID", "12345", 12345),
-    ("telegram_api_hash", "TELEGRAM_API_HASH", "abc123hash", "abc123hash"),  # SecretStr
-    ("telegram_session_name", "TELEGRAM_SESSION_NAME", "mysess", "mysess"),
-    ("telegram_channels", "TELEGRAM_CHANNELS", '["chan1","chan2"]', ["chan1", "chan2"]),
-    # --- Telegram notifications ---
-    ("telegram_bot_token", "TELEGRAM_BOT_TOKEN", "bot:token123", "bot:token123"),  # SecretStr
-    ("telegram_chat_id", "TELEGRAM_CHAT_ID", "99999", "99999"),
-    # --- Notification channel ---
-    ("notification_channel", "NOTIFICATION_CHANNEL", "discord", "discord"),
-    ("news_stage1_enabled", "NEWS_STAGE1_ENABLED", "true", True),
-    ("news_stage2_enabled", "NEWS_STAGE2_ENABLED", "false", False),
     ("market_movers_enabled", "MARKET_MOVERS_ENABLED", "false", False),
     ("event_radar_enabled", "EVENT_RADAR_ENABLED", "false", False),
     ("debate_rounds", "DEBATE_ROUNDS", "2", 2),
@@ -168,15 +132,6 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
         "https://discord.com/api/webhooks/012/jkl",
         "https://discord.com/api/webhooks/012/jkl",
     ),  # SecretStr
-    # --- RSS ---
-    ("rss_enabled", "RSS_ENABLED", "true", True),
-    ("rss_poll_interval_minutes", "RSS_POLL_INTERVAL_MINUTES", "10", 10),
-    (
-        "rss_feeds",
-        "RSS_FEEDS",
-        '["https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"]',
-        ["https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"],
-    ),
     # --- Twitter ---
     ("twitterapi_api_key", "TWITTERAPI_API_KEY", "twkey", "twkey"),  # SecretStr
     (
@@ -275,8 +230,6 @@ _ENV_FIELD_SPECS: list[tuple[str, str, str, object]] = [
 
 # Fields that are SecretStr (need .get_secret_value() to compare)
 _SECRET_FIELDS = {
-    "telegram_api_hash",
-    "telegram_bot_token",
     "discord_webhook_url",
     "discord2_webhook_url",
     "discord_twitter_webhook_url",

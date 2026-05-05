@@ -1,6 +1,6 @@
 # Synesis
 
-Real-time financial news analysis and prediction market trading system. Transforms social signals (Telegram, Google News RSS) into actionable Polymarket trading decisions using LLM-powered analysis.
+Financial intelligence and prediction market research system. Runs LangGraph multi-agent pipelines to analyze equities, form bull/bear theses, and produce structured trade ideas. Monitors market events, Twitter signals, and market movers. Sends briefs to Discord.
 
 ## Tech Stack
 
@@ -17,22 +17,17 @@ Real-time financial news analysis and prediction market trading system. Transfor
 
 ## Quickstart
 
-### First-time setup
-
-Telegram requires an interactive login on first run, so the app cannot start in Docker until a session file exists.
-
 ```bash
 # 1. Install dependencies
 uv sync
 
-# 2. Start infrastructure only (DB, Redis, SearXNG, Crawl4AI)
+# 2. Start infrastructure (DB, Redis, SearXNG, Crawl4AI)
 docker compose up -d timescaledb redis searxng crawl4ai
 
-# 3. Run app locally to generate Telegram session
+# 3. Run app locally to verify startup
 uv run synesis
-# Wait for "Signed in successfully", then Ctrl+C
 
-# 4. Start the full stack including the app
+# 4. Start the full stack
 docker compose up -d
 ```
 
@@ -57,10 +52,9 @@ docker compose stop synesis && uv run synesis --reload
 ```
 src/synesis/
 ├── core/              # Logging, constants, dependencies
-├── ingestion/         # Telegram listener, Google News RSS poller
+├── ingestion/         # Twitter client, price data
 ├── processing/        # All analysis pipelines
-│   ├── intelligence/  # LangGraph multi-agent pipeline (daily briefs)
-│   ├── news/          # Flow 1: impact scoring + ticker matching → LLM analysis
+│   ├── intelligence/  # LangGraph multi-agent pipeline (on-demand via /analyze)
 │   ├── twitter/       # Twitter agent: daily digest (LLM analysis + watchlist)
 │   ├── market/        # Market movers: daily snapshot + top movers
 │   ├── events/        # Event radar: forward-looking calendar digest
@@ -74,20 +68,27 @@ src/synesis/
 │   ├── massive/       # Massive.com stocks + options (free tier, Polygon-compatible)
 │   └── crawler/       # Crawl4AI HTML-to-markdown (Docker service)
 ├── markets/           # Polymarket integration
-├── notifications/     # Telegram & Discord notifications
+├── notifications/     # Discord notifications
 ├── storage/           # PostgreSQL + Redis clients
-├── agent/             # Agent runner, scheduler, lifespan, PydanticAI
+├── agent/             # Scheduler, lifespan
 └── api/               # HTTP/WebSocket endpoints
 ```
 
 ## Intelligence Pipeline
 
-Daily LangGraph state machine (9:00 AM SGT / 1:00 AM UTC) that transforms social/news signals into structured trade ideas:
+On-demand LangGraph state machine (`POST /api/v1/intelligence/analyze`):
 
 ```
-social_sentiment + news_analyst → extract_tickers → MacroStrategist (regime + screen top 5)
-→ company + price (parallel) → bull/bear debate → Trader (equity R/R) → Discord + KG + tracking
+ticker research + company/price analysis (parallel, per ticker)
+→ bull/bear debate → Trader (equity R/R + conviction tiers)
+→ Discord brief + KG markdown
 ```
+
+Scheduled jobs:
+- **10:00 AM ET** — Twitter agent digest → Discord
+- **10:30 AM ET** — Market movers snapshot → Discord
+- **6:00 PM ET** — Event Radar fetch
+- **7:00 PM ET** — Event Radar digest → Discord
 
 Each pipeline run auto-saves a markdown brief to `docs/kg/raw/synesis_briefs/` for knowledge graph compilation. See `docs/ARCHITECTURE.md` for full details.
 
@@ -100,7 +101,7 @@ docs/kg/
 ├── _index.md              # Master index (LLM reads this first)
 ├── _compile_log.md        # Audit trail
 ├── raw/                   # Source documents (PDFs, articles, pipeline briefs)
-│   └── synesis_briefs/    # Auto-saved daily pipeline briefs
+│   └── synesis_briefs/    # Auto-saved pipeline briefs
 ├── tickers/               # Per-ticker research dossiers (living files)
 ├── themes/                # Cross-cutting risk/opportunity themes
 ├── sources/               # Extracted summaries from raw documents
@@ -111,7 +112,7 @@ docs/kg/
 ```
 
 **Claude Code commands:**
-- `/daily-brief` — Claude Code-powered intelligence brief (replaces/complements the pipeline)
+- `/daily-brief` — Claude Code-powered intelligence brief (complements the pipeline)
 - `/kg-compile` — Compile unprocessed raw files into KG nodes (run after new sources accumulate)
 - `/kg-lint` — Health checks + intelligence checks (run periodically)
 
@@ -121,7 +122,7 @@ docs/kg/
 # Lint & format
 uv run ruff check --fix . && uv run ruff format .
 
-# Type check
+# Type check (strict)
 uv run mypy src/
 
 # Run tests

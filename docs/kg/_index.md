@@ -9,16 +9,16 @@ tags: [index, meta]
 > [!abstract]
 > Master index of all nodes. The LLM reads this first to understand what exists before any KG operation. Updated on each compilation pass.
 
-**Last updated:** 2026-04-26 | **Total nodes:** 160
+**Last updated:** 2026-05-05 | **Total nodes:** 182
 
 | Node | Type | One-liner | Updated |
 |------|------|-----------|---------|
 | [[tickers/AAOI]] | ticker | Applied Optoelectronics — 2nd hyperscaler customer, $1B target, ~$151 | 2026-04-14 |
-| [[tickers/AAPL]] | ticker | Apple — MacBook Neo, CEO transition rumor, SIVE InP late 2027 | 2026-04-25 |
+| [[tickers/AAPL]] | ticker | Apple — Q1 EPS $2.01 beat, $100B buyback, iPhone $56.99B | 2026-05-02 |
 | [[tickers/AEHR]] | ticker | Aehr Test — momentum-driven, poor fundamentals, SI ~15% | 2026-04-10 |
 | [[tickers/AMD]] | ticker | AMD — Anthropic deal rumor, server CPU repricing +16-17% | 2026-04-23 |
 | [[tickers/AMKR]] | ticker | Amkor — advanced packaging capex ramp, negative FCF ahead | 2026-04-10 |
-| [[tickers/AMZN]] | ticker | Amazon — $25B Anthropic / $100B AI infra commitment, Trainium 5GW | 2026-04-22 |
+| [[tickers/AMZN]] | ticker | Amazon — Q1 EPS $2.78 vs $1.62 beat; $25B Anthropic / $100B infra | 2026-04-30 |
 | [[tickers/AXTI]] | ticker | AXT Inc — InP substrates (~35% share); China export risk; binary | 2026-04-10 |
 | [[tickers/ARM]] | ticker | Arm Holdings — CPU/IP licensing for AI-edge compute | 2026-04-10 |
 | [[tickers/ASML]] | ticker | ASML — EUV lithography monopoly, long leg of ASML/TSM pair | 2026-04-11 |
@@ -31,13 +31,13 @@ tags: [index, meta]
 | [[tickers/COHR]] | ticker | Coherent — FQ2 beat, book-to-bill 4x, 6-inch InP expansion | 2026-04-14 |
 | [[tickers/CRDO]] | ticker | Credo Technology — optical DSP for AI scale-out; margin compression | 2026-04-10 |
 | [[tickers/CRCL]] | ticker | Circle (USDC) — rate carry trade | 2026-04-10 |
-| [[tickers/CVX]] | ticker | Chevron — remain exited, XLE preferred, reassess May 1 | 2026-04-12 |
+| [[tickers/CVX]] | ticker | Chevron — Q1 2026 earnings beat; exited Apr 11 stop; integrated resilience | 2026-05-02 |
 | [[tickers/DRAM]] | ticker | Memory sector exposure | 2026-04-10 |
 | [[tickers/FN]] | ticker | Fabrinet — optics | 2026-04-10 |
 | [[tickers/FRCOF]] | ticker | Fast Retailing — extended post guide-up, data quality issues | 2026-04-10 |
 | [[tickers/GOOG]] | ticker | Alphabet Class C — Anthropic $40B (via GOOGL), TPU inference, custom inference chip | 2026-04-25 |
 | [[tickers/GS]] | ticker | Goldman Sachs — Gulf production -57% projection, vol beneficiary | 2026-04-25 |
-| [[tickers/GOOGL]] | ticker | Alphabet Class A — $40B Anthropic ($10B initial), hyperscaler capex | 2026-04-25 |
+| [[tickers/GOOGL]] | ticker | Alphabet Class A — Q1 $109.9B beat, +10% post-earnings; gov defense AI | 2026-05-01 |
 | [[tickers/HIMS]] | ticker | Hims & Hers — telehealth/DTC | 2026-04-10 |
 | [[tickers/HOOD]] | ticker | Robinhood — | 2026-04-10 |
 | [[tickers/IBIT]] | ticker | iShares Bitcoin Trust — BTC beta | 2026-04-10 |
@@ -46,16 +46,16 @@ tags: [index, meta]
 | [[tickers/JBL]] | ticker | Jabil — electronic manufacturing services | 2026-04-10 |
 | [[tickers/LITE]] | ticker | Lumentum — InP allocated 32mo, OCS $1B+ by 2027, JPM PT $950 | 2026-04-14 |
 | [[tickers/LPTH]] | ticker | LightPath — specialty optics; insider selling overhang | 2026-04-10 |
-| [[tickers/META]] | ticker | Meta — 8K layoffs (~10%), efficiency-funds-AI-capex narrative | 2026-04-25 |
+| [[tickers/META]] | ticker | Meta — Q1 earnings miss, -10% post-earnings; FCF compression risk | 2026-05-01 |
 | [[tickers/MS]] | ticker | Morgan Stanley — debate only, Piotroski 2/9, insider cluster | 2026-04-11 |
 | [[tickers/MP]] | ticker | MP Materials — rare earth; negative FCF, strategic scarcity | 2026-04-10 |
 | [[tickers/MRVL]] | ticker | Marvell — POET supplier confirmed, Google TPU project post-2028 | 2026-04-23 |
-| [[tickers/MSFT]] | ticker | Microsoft — $18B Australia AI infra through 2029, Copilot | 2026-04-26 |
+| [[tickers/MSFT]] | ticker | Microsoft — non-exclusive OpenAI; Q1 beat; $18B Australia AI infra | 2026-04-30 |
 | [[tickers/MTSI]] | ticker | MACOM — analog/photonic semis; CPO-agnostic; DC segment +48% | 2026-04-10 |
 | [[tickers/MU]] | ticker | Micron — HBM4 re-entry on Samsung yield issues, +61.4% YTD | 2026-04-25 |
 | [[tickers/NBIS]] | ticker | Nebius — Israeli FPI, momentum-only, company analysis failed | 2026-04-12 |
 | [[tickers/NFLX]] | ticker | Netflix — Q1 beat / Q2 guide-down -9%, $25B buyback authorized | 2026-04-24 |
-| [[tickers/NVDA]] | ticker | NVIDIA — $5T market cap, 800V DC architecture, HBM4/Rubin debate | 2026-04-26 |
+| [[tickers/NVDA]] | ticker | NVIDIA — $5T market cap, $50M Legora ecosystem expansion, 800V DC | 2026-05-03 |
 | [[tickers/OKLO]] | ticker | Oklo — pre-revenue nuclear, $1.23B cash, milestone-driven | 2026-04-12 |
 | [[tickers/QCOM]] | ticker | Qualcomm — CXMT China memory collaboration, watchlist, | 2026-04-12 |
 | [[tickers/PLTR]] | ticker | Palantir — oversold software, 207x EV/EBITDA, Thiel selling | 2026-04-12 |
@@ -79,18 +79,19 @@ tags: [index, meta]
 | [[themes/ai-infrastructure]] | theme | Capex arms race, INTC +31% turnaround, NVDA $5T, 800V DC architecture | 2026-04-26 |
 | [[themes/customer-concentration]] | theme | Revenue dependency on few customers — earnings fragility | 2026-04-10 |
 | [[themes/working-capital-deterioration]] | theme | Rising AR/inventory absorbing cash; cycle turn indicator | 2026-04-10 |
-| [[themes/geopolitical-energy-risk]] | theme | Hormuz close/open/close cycle, GS Gulf -57% projection, Trump Navy | 2026-04-26 |
-| [[themes/stagflation-tail-risk]] | theme | CONFIRMED — blockade active, credit divergence amplifier | 2026-04-13 |
+| [[themes/geopolitical-energy-risk]] | theme | Oil $119, UAE exits OPEC, gasoline $4.45/gal, OPEC+ June quota | 2026-05-04 |
+| [[themes/stagflation-tail-risk]] | theme | FOMC 3.75% hold, PCE 3.5%/0.7%, national debt > GDP | 2026-05-02 |
 | [[themes/ai-infrastructure-financing-risk]] | theme | CoreWeave systemic risk — $35B leveraged AI capex intermediary | 2026-04-11 |
 | [[themes/insider-selling-clusters]] | theme | AVGO $86.1M largest, AMD CEO $16.9M; GS sole buyer | 2026-04-13 |
-| [[themes/consumer-sentiment-collapse]] | theme | Worsening — oil spike incoming, bank earnings test sentiment | 2026-04-12 |
+| [[themes/consumer-sentiment-collapse]] | theme | Gasoline $4.45/gal, personal income -0.1%, SPY/consumer divergence | 2026-05-04 |
 | [[themes/nuclear-energy-renaissance]] | theme | OKLO + SMR: pre-revenue nuclear for AI power demand, $2.5B cash | 2026-04-12 |
 | [[themes/photonics-supercycle]] | theme | POET MRVL supplier confirmed, SIVE InP for AAPL, 6-inch InP capacity | 2026-04-25 |
 | [[themes/optical-photonics-supply-chain]] | theme | Datacenter optics stack — shared concentration/WC risks | 2026-04-10 |
 | [[themes/capital-intensive-transitions]] | theme | Negative FCF funded by dilution/debt during capex ramps | 2026-04-10 |
-| [[themes/hyperscaler-ai-capex-arms-race]] | theme | $80B+ Anthropic stakes, MSFT $18B Australia, OpenAI $20B Cerebras | 2026-04-26 |
+| [[themes/hyperscaler-ai-capex-arms-race]] | theme | MSFT non-exclusive OpenAI; GOOGL +10%; AMZN $2.78 EPS beat | 2026-05-01 |
 | [[themes/software-hardware-bifurcation]] | theme | SMH leads, IGV crashes — rates regime favors AI hardware over SaaS | 2026-04-26 |
-| [[themes/retail-speculative-mania]] | theme | BIRD +875%, AMD weeklies +1000%, Korea margin loans record | 2026-04-26 |
+| [[themes/retail-speculative-mania]] | theme | BIRD +875%, AMD weeklies +1000%, GME $55.5B EBAY proposal | 2026-05-02 |
+| [[themes/glp1-obesity-pharma]] | theme | LLY $82-85B guide; MRK/AMGN beats; structural multi-year GLP-1 growth | 2026-05-01 |
 | [[sources/brief-2026-04-10]] | source | Intelligence brief — transitioning regime, 40 trade ideas | 2026-04-10 |
 | [[sources/brief-2026-04-10-manual]] | source | Manual brief — stagflation base case, CoreWeave $35B, trade updates | 2026-04-11 |
 | [[sources/brief-2026-04-11]] | source | Pipeline brief — transitioning +0.25, 5 trades, 15 debates | 2026-04-11 |
@@ -112,6 +113,14 @@ tags: [index, meta]
 | [[sources/brief-2026-04-24]] | source | Scan — IGV -5.8% software collapse, MSFT $18B Australia, NVDA 800V DC | 2026-04-24 |
 | [[sources/brief-2026-04-25]] | source | Scan — INTC +31% (best day since 1987), GOOGL $40B Anthropic | 2026-04-25 |
 | [[sources/brief-2026-04-26]] | source | Scan — NVDA $5T mcap, McKinsey $5.2T DC capex, Iran refuses talks | 2026-04-26 |
+| [[sources/brief-2026-04-27]] | source | Scan — risk_on +0.6; GOOGL/SUN/OGN; gold 4th pctl contrarian | 2026-04-27 |
+| [[sources/brief-2026-04-28]] | source | Scan — transitioning; MSFT non-exclusive OpenAI; VZ FCF $21.5B; LLY Ajax | 2026-04-28 |
+| [[sources/brief-2026-04-29]] | source | Scan — transitioning; UAE exits OPEC; USO +3.6%; FOMC risk; consumer squeeze | 2026-04-29 |
+| [[sources/brief-2026-04-30]] | source | Scan — risk_on; FOMC 3.75% hold; USO +7.9%; AMZN $2.78 EPS; META -10% | 2026-04-30 |
+| [[sources/brief-2026-05-01]] | source | Scan — risk_on +0.7; LLY $82-85B; GOOGL +10%; MPWR earnings; PCE 3.5% | 2026-05-01 |
+| [[sources/brief-2026-05-02]] | source | Scan — AAPL $100B buyback; CVX/XOM beats; GME $55.5B EBAY; national debt>GDP | 2026-05-02 |
+| [[sources/brief-2026-05-03]] | source | Scan — BRK.B $397B cash; NVDA $50M Legora; INTC gov stake unverified bearish | 2026-05-03 |
+| [[sources/brief-2026-05-04]] | source | Scan — Iran halts talks; gasoline $4.45; GME/EBAY; NEM gold squeeze | 2026-05-04 |
 | [[sources/connections/ai-optics-concentration-wcap]] | connection | AAOI+FN+COHR+LITE share concentration + WC deterioration | 2026-04-10 |
 | [[sources/connections/cpo-adoption-curve-valuation]] | connection | CPO valuation faith gap — 2028 TAM priced in but volume 2027-2028 | 2026-04-10 |
 | [[sources/connections/insider-selling-cross-sector]] | connection | Cross-sector insider selling cluster — AAOI+AAPL+CRCL+FN+LPTH+SMTC | 2026-04-11 |
@@ -160,11 +169,23 @@ tags: [index, meta]
 | [[profitability-factor]] | concept | Robust operating profitability drives higher returns | 2026-04-07 |
 | [[investment-pattern]] | concept | Aggressive investment must be EBITDA-backed for multibaggers | 2026-04-07 |
 | [[momentum]] | concept | Price momentum with complex term structure and reversals | 2026-04-07 |
+| [[concepts/cftc-cot-positioning]] | concept | COT positioning percentile — crowded short/long contrarian setup for futures | 2026-05-05 |
 | [[multibagger-screening]] | strategy | Factor-based screen for 10x+ return stocks | 2026-04-07 |
 | [[yartseva-2025-multibaggers]] | source | Yartseva (2025) — empirical analysis of 464 multibaggers | 2026-04-07 |
-| [[tickers/INTC]] | ticker | Intel — Q1 BLOWOUT +31% (best day since 1987), MS PT $56→$73 | 2026-04-25 |
+| [[tickers/INTC]] | ticker | Intel — Q1 BLOWOUT +31% (best day since 1987), May 3 bearish: unverified gov stake | 2026-05-03 |
 | [[tickers/NEE]] | ticker | NextEra — premium utility, AI datacenter demand | 2026-04-10 |
 | [[tickers/OIH]] | ticker | Oil Services ETF — upstream leverage to oil price | 2026-04-10 |
+| [[tickers/LLY]] | ticker | Eli Lilly — GLP-1/obesity FY2026 guide $82-85B; Ajax $2.3B acquisition | 2026-05-01 |
+| [[tickers/VZ]] | ticker | Verizon — FCF ≥$21.5B FY2026; telecom defensive carry | 2026-04-28 |
+| [[tickers/SLB]] | ticker | SLB — oil services operating leverage; multi-brief energy expression | 2026-04-28 |
+| [[tickers/XOM]] | ticker | ExxonMobil — Q1 2026 earnings beat; integrated geopolitical hedge | 2026-05-02 |
+| [[tickers/BRK.B]] | ticker | Berkshire Hathaway — $397B record cash; Q1 operating +18%; quality dry powder | 2026-05-03 |
+| [[tickers/GME]] | ticker | GameStop — $55.5B EBAY acquisition proposal; meme M&A event | 2026-05-02 |
+| [[tickers/EBAY]] | ticker | eBay — M&A target in GME $55.5B proposal; event-driven | 2026-05-02 |
+| [[tickers/MPWR]] | ticker | Monolithic Power Systems — AI data center power management picks-and-shovels | 2026-05-01 |
+| [[tickers/MRK]] | ticker | Merck — Q1 sales $16.29B beat; big pharma cash flow compounder | 2026-05-01 |
+| [[tickers/AMGN]] | ticker | Amgen — FY2026 guide $37.1-38.5B; secondary GLP-1/pharma beneficiary | 2026-05-01 |
+| [[tickers/NEM]] | ticker | Newmont — gold miner contrarian squeeze; GC 0th pctl crowded short | 2026-05-04 |
 | [[sources/brief-2026-04-11-manual]] | source | Manual brief — consumer sentiment, photonics supercycle | 2026-04-11 |
 | [[covered-call]] | strategy | Long stock + short OTM call for income | 2026-04-07 |
 | [[covered-put]] | strategy | Short stock + short OTM put for income | 2026-04-07 |

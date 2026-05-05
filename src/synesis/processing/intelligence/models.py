@@ -11,35 +11,13 @@ scores. The Trader agent is the sole decision maker.
 from __future__ import annotations
 
 from datetime import date
-from enum import Enum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 # =============================================================================
-# Shared Models (used by multiple agents)
-# =============================================================================
-
-
-class TickerMention(BaseModel):
-    """A ticker surfaced by any analyst with context."""
-
-    ticker: str
-    context: str = ""
-    source_accounts: list[str] = Field(default_factory=list)
-
-
-class MacroTheme(BaseModel):
-    """A non-ticker trading theme (e.g. risk-off, sector rotation)."""
-
-    theme: str
-    context: str = ""
-    source_accounts: list[str] = Field(default_factory=list)
-
-
-# =============================================================================
-# Ticker Research Output (analyze graph — social + news pre-gathering)
+# Ticker Research Output (analyze graph — pre-gathering via web + Twitter)
 # =============================================================================
 
 
@@ -173,80 +151,6 @@ class CompanyAnalysis(BaseModel):
     primary_thesis: str = ""
     key_risks: list[str] = Field(default_factory=list)
     monitoring_triggers: list[str] = Field(default_factory=list)
-
-
-# =============================================================================
-# Social Sentiment Analyst Output
-# =============================================================================
-
-
-class SocialSentimentAnalysis(BaseModel):
-    """Output of SocialSentimentAnalyst — feeds extract_tickers + downstream analysts + debate."""
-
-    ticker_mentions: list[TickerMention] = Field(default_factory=list)
-    macro_themes: list[MacroTheme] = Field(default_factory=list)
-    summary: str = ""
-    research_context: list[str] = Field(
-        default_factory=list,
-        description="Deeper findings from web research on key themes with source attribution",
-    )
-    discovered_themes: list[str] = Field(
-        default_factory=list,
-        description="Related themes found through research that weren't in the raw signals",
-    )
-    analysis_date: date
-
-
-# =============================================================================
-# News Analyst Output
-# =============================================================================
-
-
-class NewsEventType(str, Enum):
-    """Classification of a news event."""
-
-    earnings = "earnings"
-    mna = "m&a"
-    regulatory = "regulatory"
-    macro = "macro"
-    geopolitical = "geopolitical"
-    management = "management"
-    legal = "legal"
-    product = "product"
-    financing = "financing"
-    other = "other"
-
-
-class NewsStoryCluster(BaseModel):
-    """A group of related news messages about the same event."""
-
-    headline: str
-    event_type: NewsEventType
-    message_count: int = 1
-    tickers: list[TickerMention] = Field(default_factory=list)
-    urgency: Literal["low", "normal", "high", "critical"] = "normal"
-    key_facts: list[str] = Field(default_factory=list)
-
-
-class NewsAnalysis(BaseModel):
-    """Output of NewsAnalyst — groups news into story clusters."""
-
-    story_clusters: list[NewsStoryCluster] = Field(default_factory=list)
-    macro_themes: list[MacroTheme] = Field(default_factory=list)
-    summary: str = ""
-    analysis_date: date
-    messages_analyzed: int = 0
-
-
-class WatchlistTicker(BaseModel):
-    """A ticker selected for the watchlist for deep analysis."""
-
-    ticker: str
-    thematic_angle: str
-    direction_lean: Literal["bullish", "bearish"]
-    signal_strength: str
-    research_note: str = ""
-    is_wildcard: bool = False
 
 
 # =============================================================================
