@@ -33,6 +33,10 @@ htmlcov/
 *.swp
 *.swo
 
+# AI assistants / agents
+.agents/
+.codex/
+
 # OS
 .DS_Store
 Thumbs.db

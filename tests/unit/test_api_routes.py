@@ -341,5 +341,250 @@ class TestSystemConfig:
 
 
 # ===========================================================================
+# Twitter endpoints  /api/v1/twitter/...
+# ===========================================================================
+
+TWITTER_PREFIX = "/api/v1/twitter"
+
+
+class TestTwitterSearch:
+    async def test_search_single_ticker_defaults(self, client: httpx.AsyncClient):
+        """Search with default parameters."""
+        mock_tweet = MagicMock()
+        mock_tweet.tweet_id = "123"
+        mock_tweet.username = "trader_joe"
+        mock_tweet.text = "Bullish on $NVDA"
+        mock_tweet.timestamp.isoformat.return_value = "2026-05-01T12:00:00+00:00"
+        mock_tweet.raw = {"likeCount": 250, "retweetCount": 50}
+
+        mock_client = AsyncMock()
+        mock_client.search_tweets = AsyncMock(return_value=([mock_tweet], None))
+        mock_client.stop = AsyncMock()
+
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+            patch("synesis.api.routes.twitter.TwitterClient", return_value=mock_client),
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            s.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=nvda")
+
+        assert r.status_code == 200
+        body = r.json()
+        nvda = body["results"]["NVDA"]
+        assert "min_faves:200" in nvda["query"]
+        assert "-filter:replies" in nvda["query"]
+        assert "since_time:" in nvda["query"]
+        assert " since:" not in nvda["query"]
+        assert nvda["count"] == 1
+        assert nvda["tweets"][0]["username"] == "trader_joe"
+        assert nvda["tweets"][0]["likes"] == 250
+        call_args = mock_client.search_tweets.call_args
+        assert call_args.kwargs["query_type"] == "Top"
+        mock_client.stop.assert_awaited_once()
+
+    async def test_search_multi_ticker(self, client: httpx.AsyncClient):
+        """Search multiple tickers in one request."""
+        def _make_mock(tid: str, user: str, text: str, likes: int):
+            m = MagicMock()
+            m.tweet_id = tid
+            m.username = user
+            m.text = text
+            m.timestamp.isoformat.return_value = "2026-05-06T10:00:00+00:00"
+            m.raw = {"likeCount": likes, "retweetCount": 10}
+            return m
+
+        mock_client = AsyncMock()
+        mock_client.search_tweets = AsyncMock(side_effect=[
+            ([_make_mock("1", "user_a", "$NVDA up", 300)], None),
+            ([_make_mock("2", "user_b", "$AMD down", 150)], None),
+        ])
+        mock_client.stop = AsyncMock()
+
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+            patch("synesis.api.routes.twitter.TwitterClient", return_value=mock_client),
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            s.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=NVDA,AMD")
+
+        assert r.status_code == 200
+        body = r.json()
+        assert "NVDA" in body["results"]
+        assert "AMD" in body["results"]
+        assert body["results"]["NVDA"]["count"] == 1
+        assert body["results"]["AMD"]["count"] == 1
+        assert body["results"]["NVDA"]["tweets"][0]["text"] == "$NVDA up"
+        assert body["results"]["AMD"]["tweets"][0]["text"] == "$AMD down"
+        assert mock_client.search_tweets.await_count == 2
+        mock_client.stop.assert_awaited_once()
+
+    async def test_search_custom_params(self, client: httpx.AsyncClient):
+        """Search with custom min_faves, since_days, and query_type."""
+        mock_tweet = MagicMock()
+        mock_tweet.tweet_id = "456"
+        mock_tweet.username = "analyst_jane"
+        mock_tweet.text = "Top tweet about $AAPL"
+        mock_tweet.timestamp.isoformat.return_value = "2026-05-06T10:00:00+00:00"
+        mock_tweet.raw = {"likeCount": 1000, "retweetCount": 200}
+
+        mock_client = AsyncMock()
+        mock_client.search_tweets = AsyncMock(return_value=([mock_tweet], None))
+        mock_client.stop = AsyncMock()
+
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+            patch("synesis.api.routes.twitter.TwitterClient", return_value=mock_client),
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            s.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value = s
+
+            r = await client.get(
+                f"{TWITTER_PREFIX}/search?tickers=aapl"
+                "&min_faves=1000&since_days=2&query_type=Top&exclude_replies=false"
+            )
+
+        assert r.status_code == 200
+        body = r.json()
+        aapl = body["results"]["AAPL"]
+        assert "min_faves:1000" in aapl["query"]
+        assert "since_time:" in aapl["query"]
+        assert "-filter:replies" not in aapl["query"]
+        assert aapl["count"] == 1
+        call_args = mock_client.search_tweets.call_args
+        assert call_args.kwargs["query_type"] == "Top"
+        mock_client.stop.assert_awaited_once()
+
+    async def test_search_missing_api_key(self, client: httpx.AsyncClient):
+        """503 when TWITTERAPI_API_KEY is not configured."""
+        with patch("synesis.api.routes.twitter.get_settings") as mock_settings:
+            s = MagicMock()
+            s.twitterapi_api_key = None
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=TSLA")
+
+        assert r.status_code == 503
+        assert "not configured" in r.json()["detail"]
+
+    async def test_search_partial_failure(self, client: httpx.AsyncClient):
+        """One ticker fails but others still return."""
+        mock_tweet = MagicMock()
+        mock_tweet.tweet_id = "1"
+        mock_tweet.username = "user"
+        mock_tweet.text = "ok"
+        mock_tweet.timestamp.isoformat.return_value = "2026-05-06T10:00:00+00:00"
+        mock_tweet.raw = {"likeCount": 100, "retweetCount": 5}
+
+        mock_client = AsyncMock()
+        mock_client.search_tweets = AsyncMock(side_effect=[
+            ([mock_tweet], None),
+            Exception("rate limited"),
+        ])
+        mock_client.stop = AsyncMock()
+
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+            patch("synesis.api.routes.twitter.TwitterClient", return_value=mock_client),
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            s.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=META,AMZN")
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["results"]["META"]["count"] == 1
+        assert body["results"]["AMZN"]["error"] == "rate limited"
+        assert body["results"]["AMZN"]["count"] == 0
+        mock_client.stop.assert_awaited_once()
+
+    async def test_search_empty_results(self, client: httpx.AsyncClient):
+        """Handle empty search results gracefully."""
+        mock_client = AsyncMock()
+        mock_client.search_tweets = AsyncMock(return_value=([], None))
+        mock_client.stop = AsyncMock()
+
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+            patch("synesis.api.routes.twitter.TwitterClient", return_value=mock_client),
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            s.twitter_api_base_url = "https://api.twitterapi.io"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=XYZ")
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["results"]["XYZ"]["count"] == 0
+        assert body["results"]["XYZ"]["tweets"] == []
+
+    async def test_search_no_tickers(self, client: httpx.AsyncClient):
+        """422 when no tickers provided."""
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search")
+
+        assert r.status_code == 422
+        # FastAPI auto-validates missing required query param
+        detail = r.json()["detail"]
+        assert isinstance(detail, list)
+        assert detail[0]["loc"] == ["query", "tickers"]
+
+    async def test_search_empty_tickers(self, client: httpx.AsyncClient):
+        """422 when tickers param is empty string."""
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=")
+
+        assert r.status_code == 422
+        assert "No valid tickers" in r.json()["detail"]
+
+    async def test_search_rejects_advanced_search_injection(self, client: httpx.AsyncClient):
+        """422 when a ticker value contains Twitter search operators."""
+        r = await client.get(f"{TWITTER_PREFIX}/search?tickers=NVDA%20OR%20TSLA")
+
+        assert r.status_code == 422
+        assert "Invalid ticker" in r.json()["detail"]
+
+    async def test_search_too_many_tickers(self, client: httpx.AsyncClient):
+        """422 when more than 10 tickers."""
+        with (
+            patch("synesis.api.routes.twitter.get_settings") as mock_settings,
+        ):
+            s = MagicMock()
+            s.twitterapi_api_key.get_secret_value.return_value = "test-key"
+            mock_settings.return_value = s
+
+            r = await client.get(f"{TWITTER_PREFIX}/search?tickers=A,B,C,D,E,F,G,H,I,J,K")
+
+        assert r.status_code == 422
+        assert "Max 10" in r.json()["detail"]
+
+
+# ===========================================================================
 # Intelligence endpoints
 # ===========================================================================
